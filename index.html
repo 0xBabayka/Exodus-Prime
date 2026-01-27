@@ -173,20 +173,19 @@
     
     // --- ВСТАВЬ СЮДА ДАННЫЕ ИЗ FIREBASE (Шаг 4 инструкции) ---
     const firebaseConfig = {
-  apiKey: "AIzaSyB3CF66ssuDX5v8UhmlJrW1o_6W4OoiIEY",
-  authDomain: "exodus-prime.firebaseapp.com",
-  projectId: "exodus-prime",
-  storageBucket: "exodus-prime.firebasestorage.app",
-  messagingSenderId: "794209765745",
-  appId: "1:794209765745:web:bea9aee68ebb5d659cced0",
-  measurementId: "G-Q12TNEWBPV"
-};
+        apiKey: "AIzaSyB3CF66ssuDX5v8UhmlJrW1o_6W4OoiIEY",
+        authDomain: "exodus-prime.firebaseapp.com",
+        projectId: "exodus-prime",
+        storageBucket: "exodus-prime.firebasestorage.app",
+        messagingSenderId: "794209765745",
+        appId: "1:794209765745:web:bea9aee68ebb5d659cced0"
+    };
     // ---------------------------------------------------------
 
     // Инициализация Firebase
     let db, auth, currentUser = null;
     try {
-        if(firebaseConfig.apiKey !== "ВСТАВЬ_СЮДА_API_KEY") {
+        if(firebaseConfig.apiKey !== "AIzaSyB3CF66ssuDX5v8UhmlJrW1o_6W4OoiIEY") {
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
             auth = firebase.auth();
