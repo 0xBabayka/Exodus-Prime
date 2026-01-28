@@ -269,37 +269,65 @@
         @keyframes scan-move { 0% { top: -10%; } 100% { top: 110%;
         } }
 
-        /* FIREBASE LOGIN SCREEN (UPDATED) */
+        /* --- FIREBASE LOGIN SCREEN (BEAUTIFIED) --- */
         #login-screen {
             position: fixed;
             top: 0; left: 0; width: 100vw; height: 100vh;
-            background: #030405; z-index: 9999; display: flex; flex-direction: column;
+            background: radial-gradient(circle at center, #0b1016 0%, #000 100%);
+            z-index: 9999; display: flex; flex-direction: column;
             align-items: center; justify-content: center;
         }
-        .login-box {
-            border: 1px solid var(--neon);
-            padding: 40px; background: rgba(16, 24, 32, 0.9);
-            box-shadow: 0 0 30px rgba(0, 229, 255, 0.1); text-align: center; max-width: 400px;
+        
+        #login-screen::before {
+            content: ""; position: absolute; top:0; left:0; width:100%; height:100%;
+            background: linear-gradient(rgba(0,0,0,0) 50%, rgba(0, 229, 255, 0.05) 50%);
+            background-size: 100% 4px; pointer-events: none;
         }
+
+        .login-box {
+            position: relative;
+            border: 1px solid rgba(0, 229, 255, 0.3);
+            padding: 40px; 
+            background: rgba(16, 24, 32, 0.85);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 0 40px rgba(0, 229, 255, 0.1), inset 0 0 20px rgba(0, 229, 255, 0.05);
+            text-align: center; max-width: 400px; width: 90%;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .login-box::after {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+            background: var(--neon);
+            box-shadow: 0 0 10px var(--neon);
+            animation: scan-move 3s linear infinite;
+            opacity: 0.5;
+        }
+
         .login-inp {
-            background: rgba(0,0,0,0.5);
-            border: 1px solid #334;
+            background: rgba(0,0,0,0.3);
+            border: none;
+            border-bottom: 1px solid #334;
             color: var(--neon);
-            padding: 10px;
+            padding: 12px;
             width: 100%;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             font-family: 'Consolas', monospace;
+            font-size: 12px;
             box-sizing: border-box;
             outline: none;
+            transition: all 0.3s;
         }
         .login-inp:focus {
-            border-color: var(--neon);
-            box-shadow: 0 0 5px rgba(0, 229, 255, 0.3);
+            border-bottom-color: var(--neon);
+            background: rgba(0, 229, 255, 0.05);
+            box-shadow: 0 4px 6px -6px var(--neon);
         }
         .login-btn {
-            margin-top: 5px;
-            font-size: 12px; padding: 10px 20px; border-color: var(--neon); color: var(--neon);
+            margin-top: 15px;
+            font-size: 11px; padding: 12px 20px; 
             width: 48%; letter-spacing: 1px;
+            font-weight: bold;
         }
         #auth-status { margin-top: 10px; color: #666; font-size: 10px;
         }
@@ -309,21 +337,21 @@
 
 <div id="login-screen">
     <div class="login-box">
-        <h1 style="color:white; letter-spacing: 4px; font-weight: normal; margin-bottom: 5px;">EXODUS<span style="color:var(--neon)">//</span>PRIME</h1>
-        <div style="color:#666; font-size: 10px; letter-spacing: 2px; margin-bottom: 30px;">SECURE LINK REQUIRED</div>
+        <h1 style="color:white; letter-spacing: 6px; font-weight: normal; margin-bottom: 5px; text-shadow: 0 0 10px rgba(255,255,255,0.2);">EXODUS<span style="color:var(--neon)">//</span>PRIME</h1>
+        <div style="color:var(--neon); font-size: 9px; letter-spacing: 3px; margin-bottom: 40px; opacity: 0.7;">SECURE QUANTUM LINK</div>
         
         <div id="login-form">
-            <p style="color:#aaa; font-size:11px; line-height:1.5;">Identify yourself, Commander.<br>Secure channel via Email/Password.</p>
+            <p style="color:#8daab9; font-size:10px; line-height:1.5; margin-bottom: 20px;">IDENTIFY YOURSELF, COMMANDER.</p>
             
             <input type="email" id="inp-email" class="login-inp" placeholder="COMMANDER ID (EMAIL)">
             <input type="password" id="inp-pass" class="login-inp" placeholder="ACCESS CODE (PASSWORD)">
             
-            <div style="display:flex; justify-content: space-between; width:100%;">
+            <div style="display:flex; justify-content: space-between; width:100%; margin-top: 10px;">
                 <button class="nav-btn login-btn" id="btn-login-email">LOGIN</button>
-                <button class="nav-btn login-btn" id="btn-register-email" style="border-color:var(--warning); color:var(--warning)">REGISTER</button>
+                <button class="nav-btn login-btn" id="btn-register-email" style="border-color:rgba(255, 215, 0, 0.4); color:var(--warning)">REGISTER</button>
             </div>
   
-            <div id="login-msg" style="margin-top: 15px; color: var(--danger); height: 15px; font-size: 10px;"></div>
+            <div id="login-msg" style="margin-top: 20px; color: var(--danger); min-height: 15px; font-size: 10px; letter-spacing: 1px;"></div>
         </div>
     </div>
 </div>
@@ -333,12 +361,15 @@
 <div class="ui-layer" style="display:none;"
 id="game-ui">
     <div id="top-bar" class="interactive">
-        <div style="display:flex; gap:15px; align-items: center;">
-            <span style="font-weight:bold; letter-spacing:2px; color:#fff;">EXODUS<span style="color:var(--neon)">//</span>PRIME</span>
+        <div style="display:flex;
+            gap:15px; align-items: center;">
+            <span style="font-weight:bold; letter-spacing:2px;
+                color:#fff;">EXODUS<span style="color:var(--neon)">//</span>PRIME</span>
             <span><span class="tb-val" id="sys-name">SECTOR-42</span></span>
             <span>FLUX: <span class="tb-val" id="top-flux-val">--%</span></span>
             <span>STAM: <span class="tb-val" id="stamina-val" style="color:var(--stamina)">100/100</span></span>
-            <button id="btn-daily" class="nav-btn" style="font-size:9px; padding:1px 6px; height:20px; border-color:var(--warning); color:var(--warning);"
+            <button id="btn-daily" class="nav-btn" style="font-size:9px;
+                padding:1px 6px; height:20px; border-color:var(--warning); color:var(--warning);"
 onclick="claimDailyReward()">...LM</button>
         </div>
       
@@ -348,6 +379,7 @@ onclick="claimDailyReward()">...LM</button>
             <button class="nav-btn" onclick="openWarehouse()">📦 STORAGE</button>
         </div>
         <div class="top-btn-group">
+           
             <span id="save-indicator" style="color: 
 #444; font-size: 9px; margin-right: 5px;">SAVED</span>
             <button class="nav-btn danger" onclick="CloudSys.reset()">⚠️ WIPE</button>
@@ -357,19 +389,21 @@ onclick="claimDailyReward()">...LM</button>
 
     <div id="left-panel" class="panel interactive draggable">
         <div class="header">FORGE-7 COMMAND</div>
-        <div style="margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
-            <div style="font-size:9px; color:#889; margin-bottom:5px;">LOCAL OPERATIONS</div>
+        <div style="margin-bottom:10px;
+            border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+            <div style="font-size:9px; color:#889;
+                margin-bottom:5px;">LOCAL OPERATIONS</div>
       
             <button class="scav-btn" id="btn-scavenge" onclick="scavenge()">
                 SCAVENGE SECTOR <span style="font-size:9px;
-opacity:0.7">[-1 Stam / -1 Energy]</span>
+                opacity:0.7">[-1 Stam / -1 Energy]</span>
             </button>
             <div id="scav-progress" style="height:2px;
-width:0%; background:var(--xp); transition:width 0.1s; box-shadow: 0 0 5px var(--xp);"></div>
+                width:0%; background:var(--xp); transition:width 0.1s; box-shadow: 0 0 5px var(--xp);"></div>
         </div>
         <div class="flux-display">
             <div style="display:flex;
-justify-content:space-between; margin-bottom:5px;">
+                justify-content:space-between; margin-bottom:5px;">
                 <span style="color:#889">GRID STATUS</span>
                 <b id="grid-status-text" style="color:var(--success)">ONLINE</b>
             </div>
@@ -379,7 +413,7 @@ justify-content:space-between; margin-bottom:5px;">
       
 
             <div style="display:flex; justify-content:space-between; font-size:9px;
-margin-top:4px;">
+                margin-top:4px;">
                 <span style="color:var(--neon)">GEN: <span id="grid-output">0.0</span> kW</span>
                 <span style="color:var(--danger)">LOAD: <span id="grid-load">0.0</span> kW</span>
             </div>
@@ -390,31 +424,31 @@ margin-top:4px;">
         <div style="margin-bottom: 10px;">
     
             <div class="header" style="background:transparent; border-color:rgba(255,255,255,0.1);
-font-size:9px;">ACTIVE GRID [SLOTS: 3]</div>
+                font-size:9px;">ACTIVE GRID [SLOTS: 3]</div>
             <div id="active-grid-list"></div>
         </div>
         <div style="margin-top: 5px;
-margin-bottom: 10px;">
+            margin-bottom: 10px;">
             <div class="header" style="background:transparent; border-color:rgba(255,255,255,0.1); font-size:9px;
-color:#889;">BATTERY STORAGE</div>
+                color:#889;">BATTERY STORAGE</div>
             <div id="battery-rack"></div>
         </div>
         <div id="inventory" class="scan-overlay" style="display:grid;
-grid-template-columns: 1fr; gap:2px;"></div>
+            grid-template-columns: 1fr; gap:2px;"></div>
     </div>
 
     <div id="right-panel" class="panel interactive draggable">
         <div class="header">FLEET LINK</div>
         <div style="display:grid;
-grid-template-columns:1fr 1fr 1fr 1fr; gap:2px; margin-bottom:10px; text-align:center;">
+            grid-template-columns:1fr 1fr 1fr 1fr; gap:2px; margin-bottom:10px; text-align:center;">
             <div style="background:rgba(255,255,255,0.02);
-padding:4px;"><div id="c-probe" style="color:var(--probe); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">PRB</span></div>
+                padding:4px;"><div id="c-probe" style="color:var(--probe); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">PRB</span></div>
             <div style="background:rgba(255,255,255,0.02);
-padding:4px;"><div id="c-miner" style="color:var(--miner); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">MNR</span></div>
+                padding:4px;"><div id="c-miner" style="color:var(--miner); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">MNR</span></div>
             <div style="background:rgba(255,255,255,0.02);
-padding:4px;"><div id="c-hauler" style="color:var(--hauler); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">HLR</span></div>
+                padding:4px;"><div id="c-hauler" style="color:var(--hauler); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">HLR</span></div>
             <div style="background:rgba(255,255,255,0.02);
-padding:4px;"><div id="c-gas" style="color:var(--gas); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">GAS</span></div>
+                padding:4px;"><div id="c-gas" style="color:var(--gas); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">GAS</span></div>
         </div>
         <div id="fleet-list"></div>
     </div>
@@ -422,7 +456,7 @@ padding:4px;"><div id="c-gas" style="color:var(--gas); font-weight:bold;">0</div
     <div id="scanner-panel" class="panel interactive draggable">
         <div class="header">SECTOR SCANNER</div>
         <div style="overflow-y:auto;
-flex:1;">
+            flex:1;">
             <table>
                 <thead><tr><th width="30%">OBJECT</th><th width="20%">TYPE</th><th width="15%">DIST</th><th>SIGNATURE</th></tr></thead>
                 <tbody id="obj-list"></tbody>
@@ -433,7 +467,7 @@ flex:1;">
     <div id="log-panel" class="panel interactive draggable">
         <div class="header" style="justify-content:space-between;"><span>SYSTEM LOG</span></div>
         <div 
-id="console" style="flex:1; overflow-y:auto; font-size:9px; line-height:1.4; color:#8daab9;">
+            id="console" style="flex:1; overflow-y:auto; font-size:9px; line-height:1.4; color:#8daab9;">
             > System init...<br>> Waiting for Cloud Link...
         </div>
     </div>
@@ -441,12 +475,12 @@ id="console" style="flex:1; overflow-y:auto; font-size:9px; line-height:1.4; col
 
 <div id="modal-overlay" class="modal-overlay"> 
     <div id="modal-base" class="modal draggable" style="display:none;
-border-color: var(--neon);">
+        border-color: var(--neon);">
         <div class="header" style="font-size:14px;">FORGE-7 INDUSTRIAL COMPLEX</div>
         <div style="position:absolute;
-top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
+            top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
         <div style="margin-bottom:10px; border-bottom:1px solid var(--panel-border);
-padding-bottom:5px;">
+            padding-bottom:5px;">
             <button class="tab-btn active" id="tab-btn-factory" onclick="switchTab('factory')">FACTORY</button>
             <button class="tab-btn" id="tab-btn-refinery" onclick="switchTab('refinery')">REFINERY</button>
             <button class="tab-btn green" id="tab-btn-greenhouse" onclick="switchTab('greenhouse')">GREENHOUSE</button>
@@ -456,120 +490,120 @@ padding-bottom:5px;">
    
         </div>
         <div id="tab-factory"><div class="modal-grid" id="factory-grid" style="display:grid;
-grid-template-columns:1fr 1fr; gap:10px;"></div></div>
+            grid-template-columns:1fr 1fr; gap:10px;"></div></div>
         <div id="tab-refinery" style="display:none;">
             <div style="display:grid;
-grid-template-columns:1fr 1fr; gap:10px;">
+                grid-template-columns:1fr 1fr; gap:10px;">
                 <div id="cad-container" style="display:grid;
-grid-template-columns:1fr 1fr; gap:10px; grid-column: span 2;"></div>
+                    grid-template-columns:1fr 1fr; gap:10px; grid-column: span 2;"></div>
                 <div style="background:rgba(255,255,255,0.02);
-padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
+                    padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
                     <div style="color:white;
-font-weight:bold;">SMELTER & FORGE</div>
+                        font-weight:bold;">SMELTER & FORGE</div>
                     <div style="font-size:10px;
-color:#889; margin:5px 0;">1. 500 Reg -> Iron Ore [6h] (30kW, -3 Stam)<br>2. 800 Reg -> Alum. Ore [6h] (40kW, -10 Stam)<br>3. 1200 Reg -> Copper Ore [6h] (40kW, -5 Stam)<br>4. 2000 Reg -> Titanium Ore [6h] (40kW, -5 Stam)<br>5. 10 CO₂, 10 Iron Ore -> Steel + Barite [6h]</div>
+                        color:#889; margin:5px 0;">1. 500 Reg -> Iron Ore [6h] (30kW, -3 Stam)<br>2. 800 Reg -> Alum. Ore [6h] (40kW, -10 Stam)<br>3. 1200 Reg -> Copper Ore [6h] (40kW, -5 Stam)<br>4. 2000 Reg -> Titanium Ore [6h] (40kW, -5 Stam)<br>5. 10 CO₂, 10 Iron Ore -> Steel + Barite [6h]</div>
                     <div id="smelter-ui" style="display:grid;
-grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;"></div>
+                        grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;"></div>
                 </div>
                 <div style="background:rgba(255,255,255,0.02);
-padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
+                    padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
                     <div style="color:var(--neon);
-font-weight:bold;">TWIN-CELL WATER PURIFIER</div>
+                        font-weight:bold;">TWIN-CELL WATER PURIFIER</div>
                     <div style="font-size:10px;
-color:#889; margin:5px 0;">Cycle Cost: 25 Ice, 10kW <span style="color:var(--stamina)">[-2 Stam]</span> | Duration: 4h</div>
+                        color:#889; margin:5px 0;">Cycle Cost: 25 Ice, 10kW <span style="color:var(--stamina)">[-2 Stam]</span> | Duration: 4h</div>
                     <div class="wf-container" id="water-filter-ui"></div>
                 </div>
                 <div style="background:rgba(255,255,255,0.02);
-padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
+                    padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
                     <div style="color:var(--warning);
-font-weight:bold;">SABATIER REACTOR</div>
+                        font-weight:bold;">SABATIER REACTOR</div>
                     <div style="font-size:10px;
-color:#889; margin:5px 0;">Split (3.5h): 2 Water, 10kW <span style="color:var(--stamina)">[-2 Stam]</span><br>Methane (4h): 2 CO₂, 5 H₂, 10kW <span style="color:var(--stamina)">[-4 Stam]</span></div>
+                        color:#889; margin:5px 0;">Split (3.5h): 2 Water, 10kW <span style="color:var(--stamina)">[-2 Stam]</span><br>Methane (4h): 2 CO₂, 5 H₂, 10kW <span style="color:var(--stamina)">[-4 Stam]</span></div>
                     <div id="sabatier-ui" style="display:grid;
-grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;"></div>
+                        grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;"></div>
                 </div>
             </div>
         </div>
         <div id="tab-greenhouse" style="display:none;
-position:relative;">
+            position:relative;">
             <div style="display:flex; justify-content:space-between; margin-bottom:10px; padding:8px; border:1px solid var(--agri);
-background:rgba(68, 238, 119, 0.05);"><div><span style="color:#aaa; margin-right:10px;">AGRI LVL: <b id="gh-skill-val" style="color:var(--agri)">0</b></span><span style="color:#aaa;">SOIL: <b id="gh-soil-val" style="color:white;">0</b></span></div><div><span style="color:#aaa;">SEEDS (SPROUTS): <b id="gh-seeds-val" style="color:var(--success)">0</b></span></div></div>
+                background:rgba(68, 238, 119, 0.05);"><div><span style="color:#aaa; margin-right:10px;">AGRI LVL: <b id="gh-skill-val" style="color:var(--agri)">0</b></span><span style="color:#aaa;">SOIL: <b id="gh-soil-val" style="color:white;">0</b></span></div><div><span style="color:#aaa;">SEEDS (SPROUTS): <b id="gh-seeds-val" style="color:var(--success)">0</b></span></div></div>
             <div id="greenhouse-grid" class="gh-grid"></div>
             <div id="composter-section" style="margin-top:20px;
-border-top:1px solid rgba(68, 238, 119, 0.2); padding-top:10px;"><div style="color:var(--agri); font-weight:bold; margin-bottom:5px;">BIO-COMPOSTER UNIT</div><div id="composter-ui" style="display:grid; grid-template-columns:1fr 1fr 1fr;
-gap:10px;"></div></div>
+                border-top:1px solid rgba(68, 238, 119, 0.2); padding-top:10px;"><div style="color:var(--agri); font-weight:bold; margin-bottom:5px;">BIO-COMPOSTER UNIT</div><div id="composter-ui" style="display:grid; grid-template-columns:1fr 1fr 1fr;
+                gap:10px;"></div></div>
             <div id="crop-select-overlay" class="crop-select-overlay" style="display:none; position: absolute; top:0; left:0;
-width:100%; height:100%; background: rgba(5,8,10,0.95); z-index: 10; flex-direction: column; justify-content: center; padding: 20px;
-box-sizing: border-box;">
+                width:100%; height:100%; background: rgba(5,8,10,0.95); z-index: 10; flex-direction: column; justify-content: center; padding: 20px;
+                box-sizing: border-box;">
                 <h3 style="color:var(--agri); text-align:center;
-margin-top:0;">SELECT CROP</h3>
+                    margin-top:0;">SELECT CROP</h3>
                 <div style="display:grid;
-grid-template-columns: 1fr; gap:10px;"><button onclick="plantCrop('Sprouts')"><div style="font-weight:bold; color:var(--success)">SPROUTS</div><div style="font-size:9px; color:#889;">Time: 4h | Yield: 10-14 Food</div><div style="font-size:9px;
-color:#aaa;">Cost: 1 Seed, 1 Water, 1 Soil, 1 Energy, 1 Stamina</div></button></div>
+                    grid-template-columns: 1fr; gap:10px;"><button onclick="plantCrop('Sprouts')"><div style="font-weight:bold; color:var(--success)">SPROUTS</div><div style="font-size:9px; color:#889;">Time: 4h | Yield: 10-14 Food</div><div style="font-size:9px;
+                        color:#aaa;">Cost: 1 Seed, 1 Water, 1 Soil, 1 Energy, 1 Stamina</div></button></div>
                 <button style="margin-top:10px;
-border-color:#555;" onclick="closeCropSelect()">CANCEL</button>
+                    border-color:#555;" onclick="closeCropSelect()">CANCEL</button>
             </div>
         </div>
         <div id="tab-kitchen" style="display:none;">
             <div style="display:grid;
-grid-template-columns:1fr; gap:10px;">
+                grid-template-columns:1fr; gap:10px;">
                 <div style="background:rgba(255,255,255,0.02); padding:10px;
-border:1px solid rgba(255,255,255,0.1);">
+                    border:1px solid rgba(255,255,255,0.1);">
                     <div style="color:var(--kitchen);
-font-weight:bold; margin-bottom:10px;">RATION PREPARATION UNIT</div>
+                        font-weight:bold; margin-bottom:10px;">RATION PREPARATION UNIT</div>
                     <button class="btn-kitchen" onclick="createRation('Snack')"><div><div style="font-weight:bold;
-color:#fff;">SNACK</div><div style="font-size:9px; color:#889;">+16 Stam, +2 Waste</div></div><div style="text-align:right; font-size:9px; color:#889;">Cost: 30 Food, 10 Water, 1 Energy</div></button>
+                        color:#fff;">SNACK</div><div style="font-size:9px; color:#889;">+16 Stam, +2 Waste</div></div><div style="text-align:right; font-size:9px; color:#889;">Cost: 30 Food, 10 Water, 1 Energy</div></button>
                     <button class="btn-kitchen" onclick="createRation('Meal')"><div><div style="font-weight:bold;
-color:#fff;">MEAL</div><div style="font-size:9px; color:#889;">+20-28 Stam, +4 Waste</div></div><div style="text-align:right; font-size:9px; color:#889;">Cost: 60 Food, 20 Water, 2 Energy</div></button>
+                        color:#fff;">MEAL</div><div style="font-size:9px; color:#889;">+20-28 Stam, +4 Waste</div></div><div style="text-align:right; font-size:9px; color:#889;">Cost: 60 Food, 20 Water, 2 Energy</div></button>
                     <button class="btn-kitchen" onclick="createRation('Feast')"><div><div style="font-weight:bold;
-color:#fff;">FEAST</div><div style="font-size:9px; color:#889;">+28-36 Stam, +6 Waste</div></div><div style="text-align:right; font-size:9px; color:#889;">Cost: 90 Food, 30 Water, 3 Energy</div></button>
+                        color:#fff;">FEAST</div><div style="font-size:9px; color:#889;">+28-36 Stam, +6 Waste</div></div><div style="text-align:right; font-size:9px; color:#889;">Cost: 90 Food, 30 Water, 3 Energy</div></button>
                 </div>
             </div>
         </div>
         <div id="tab-chemlab" style="display:none;"></div>
         <div id="tab-fuel" style="display:none;">
              <div style="background:rgba(255,255,255,0.02);
-padding:10px; border:1px solid rgba(231, 76, 60, 0.3); margin-bottom:10px;">
+                padding:10px; border:1px solid rgba(231, 76, 60, 0.3); margin-bottom:10px;">
                  <div style="color:var(--fuel);
-font-weight:bold;">LIQUEFACTION & PROCESSING</div>
+                    font-weight:bold;">LIQUEFACTION & PROCESSING</div>
                  <div style="font-size:10px;
-color:#889; margin-top:5px;">
+                    color:#889; margin-top:5px;">
                      1. <b>Methane:</b> 25 CH4, 30kW, 10 Stam -> 20 Liq CH4 (2h)<br>
                      2. <b>Oxygen:</b> 25 O2, 30kW, 10 Stam -> 20 Liq O2 (2h)<br>
                      3. <b>Synthesis:</b> 20 Liq CH4 + 20 Liq O2, 30kW, 15 Stam -> 40 
-Fuel (4h)
+Rocket Fuel (4h)
                  </div>
             </div>
             <div id="fuel-factory-ui" style="display:grid;
-grid-template-columns:1fr 1fr; gap:10px;"></div>
+                grid-template-columns:1fr 1fr; gap:10px;"></div>
         </div>
     </div>
     
     <div id="modal-hangar" class="modal draggable" style="display:none;
-border-color: var(--miner);">
+        border-color: var(--miner);">
         <div class="header" style="font-size:14px; color:white;">SHIP HANGAR & SHIPYARD</div><div style="position:absolute; top:10px; right:15px; cursor:pointer;
-color:#888" onclick="closeModal(null, true)">[×]</div>
+            color:#888" onclick="closeModal(null, true)">[×]</div>
         <div style="margin-bottom:15px;"><div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px;
-font-size:11px;">DOCKED FLEET</div><div id="hangar-fleet-grid" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:5px;"></div></div>
+            font-size:11px;">DOCKED FLEET</div><div id="hangar-fleet-grid" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:5px;"></div></div>
         <div><div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px;
-font-size:11px;">SHIP FABRICATION</div><div id="shipyard-grid" style="display:grid; grid-template-columns:1fr; gap:5px;"></div><div id="hangar-build-queue" style="margin-top:10px; border-top:1px solid #334;
-padding-top:5px;"></div></div>
+            font-size:11px;">SHIP FABRICATION</div><div id="shipyard-grid" style="display:grid; grid-template-columns:1fr; gap:5px;"></div><div id="hangar-build-queue" style="margin-top:10px; border-top:1px solid #334;
+            padding-top:5px;"></div></div>
     </div>
 
     <div id="modal-warehouse" class="modal draggable" style="display:none; width:700px;
-border-color: #889;">
+        border-color: #889;">
         <div class="header" style="font-size:14px; color:white;">GLOBAL WAREHOUSE</div><div style="position:absolute; top:10px; right:15px; cursor:pointer;
-color:#555" onclick="closeModal(null, true)">[×]</div><div id="warehouse-content" class="wh-grid scan-overlay"></div>
+            color:#555" onclick="closeModal(null, true)">[×]</div><div id="warehouse-content" class="wh-grid scan-overlay"></div>
     </div>
 
     <div id="modal-target" class="modal draggable" style="display:none;">
         <div class="header" id="m-t-name" style="font-size:14px;">TARGET</div><div style="position:absolute;
-top:10px; right:15px; cursor:pointer; color:#555" onclick="closeModal(null, true)">[×]</div>
+            top:10px; right:15px; cursor:pointer; color:#555" onclick="closeModal(null, true)">[×]</div>
         <div style="display:flex; justify-content:space-between; margin-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.1);
-padding-bottom:10px;"><div><div style="font-size:10px; color:#889;">DIST</div><div id="m-t-dist" style="color:white;">0 AU</div></div><div><div style="font-size:10px; color:#889;">EST. TIME</div><div id="m-t-time" style="color:var(--neon);">00:00</div></div><div><div style="font-size:10px;
-color:#889;">ATMOS</div><div id="m-t-res" style="color:var(--success);">?</div></div></div>
+            padding-bottom:10px;"><div><div style="font-size:10px; color:#889;">DIST</div><div id="m-t-dist" style="color:white;">0 AU</div></div><div><div style="font-size:10px; color:#889;">EST. TIME</div><div id="m-t-time" style="color:var(--neon);">00:00</div></div><div><div style="font-size:10px;
+            color:#889;">ATMOS</div><div id="m-t-res" style="color:var(--success);">?</div></div></div>
         <div id="launch-grid" style="display:grid; grid-template-columns:1fr 1fr;
-gap:10px;"></div>
+            gap:10px;"></div>
     </div>
 </div>
 
@@ -582,6 +616,7 @@ gap:10px;"></div>
         if(e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false; // Ctrl+Shift+J
         if(e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false; // Ctrl+U
     }
+  
     // Debugger Loop
     setInterval(function(){ debugger; }, 100);
 
@@ -589,10 +624,10 @@ gap:10px;"></div>
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
     // --- FIREBASE CONFIGURATION (BACKEND CONNECTION) ---
     const firebaseConfig = {
-        // !!! ВСТАВЬТЕ СЮДА ВАШ КОНФИГ FIREBASE !!!
+        // !!!
+        // ВСТАВЬТЕ СЮДА ВАШ КОНФИГ FIREBASE !!!
         apiKey: "AIzaSyB3CF66ssuDX5v8UhmlJrW1o_6W4OoiIEY",
         authDomain: "exodus-prime.firebaseapp.com",
         projectId: "exodus-prime",
@@ -600,11 +635,9 @@ gap:10px;"></div>
         messagingSenderId: "794209765745",
         appId: "1:794209765745:web:bea9aee68ebb5d659cced0"
     };
-
     // --- FIREBASE INIT ---
     let app, auth, db, userUID = null;
     let firebaseReady = false;
-
     // --- GLOBAL VARIABLES ---
     let CANVAS, CTX;
     // --- AUDIO SYSTEM ---
@@ -612,7 +645,7 @@ gap:10px;"></div>
         ctx: null,
         init: function() {
             window.AudioContext = window.AudioContext ||
-            window.webkitAudioContext;
+                window.webkitAudioContext;
             this.ctx = new AudioContext();
         },
         playTone: function(freq, type, dur) {
@@ -636,30 +669,34 @@ gap:10px;"></div>
             document.addEventListener('mousedown', e => {
                 if (e.target.classList.contains('header') && e.target.parentElement.classList.contains('draggable')) {
                     DragManager.item = e.target.parentElement;
+    
                     DragManager.startX = e.clientX;
                     DragManager.startY = e.clientY;
                     const rect = DragManager.item.getBoundingClientRect();
                     DragManager.initialLeft = rect.left;
+               
                     DragManager.initialTop = rect.top;
                     // Move to front
                     document.querySelectorAll('.modal, .panel').forEach(el => el.style.zIndex = 100);
                     DragManager.item.style.zIndex = 101;
                 }
+       
             });
             window.addEventListener('mousemove', e => {
                 if (DragManager.item) {
                     const dx = e.clientX - DragManager.startX;
                     const dy = e.clientY - DragManager.startY;
                     DragManager.item.style.transform = 
-                    'none'; // Remove centering transform if active
+ 
+                   'none'; // Remove centering transform if active
                     DragManager.item.style.left = (DragManager.initialLeft + dx) + 'px';
                     DragManager.item.style.top = (DragManager.initialTop + dy) + 'px';
                 }
+       
             });
             window.addEventListener('mouseup', () => DragManager.item = null);
         }
     };
-    
     try {
         if (firebaseConfig.apiKey !== "AIzaSy...") {
             app = initializeApp(firebaseConfig);
@@ -708,20 +745,25 @@ gap:10px;"></div>
     // --- STATE ---
     const STATE = {
         camera: { x: 0, y: 0 }, isDragging: false, lastMouse: { x: 0, y: 0 }, dragStart: { x: 0, y: 0 }, zoom: 0.8, selectedObj: null,
-        inventory: { H2: 0, "Iron Ore": 0, Si: 0, Steel: 0, "Ice water": 50, Water: 5, CO2: 0, Nitrogen: 0, Argon: 0, Neon: 0, Krypton: 0, Xenon: 0, Pt: 0, Gas: 0, Scrap: 0, Soil: 100, "Seeds: Sprouts": 100, Food: 0, Regolith: 0, "Biological Waste": 0, Methane: 
-        0, O2: 0, Snack: 0, Meal: 0, Feast: 0, "Energy Bar": 5, Barite: 0, "Aluminium Ore": 0, "Copper Ore": 0, "Titanium Ore": 0, Halite: 0, "Liquid CH4": 0, "Liquid O2": 0, "Rocket Fuel": 0 },
+        inventory: { H2: 1500, "Iron Ore": 200, Si: 100, Steel: 50, "Ice water": 50, Water: 5, CO2: 0, Nitrogen: 0, Argon: 0, Neon: 0, Krypton: 0, Xenon: 0, Pt: 5, Gas: 0, Scrap: 0, Soil: 1000, "Seeds: Sprouts": 100, Food: 0, Regolith: 0, 
+        "Biological Waste": 0, Methane: 
+        0, O2: 0, Snack: 0, Meal: 0, Feast: 0, "Energy Bar": 10, Barite: 0, "Aluminium Ore": 0, "Copper Ore": 0, "Titanium Ore": 0, Halite: 0, "Liquid CH4": 0, "Liquid O2": 0, "Rocket Fuel": 0 },
         stamina: { val: 100, max: 100 }, cooldowns: {}, skills: { scavenging: { lvl: 0, xp: 0, next: 100 }, agriculture: { lvl: 0, xp: 0, next: 100 } },
-        components: { hull: 0, engine: 0, electronics: 0, avionics: 0, lifesupport: 0 }, hangar: { probe: 0, miner: 0, hauler: 0, 
+        components: { hull: 0, engine: 0, electronics: 0, avionics: 
+        0, lifesupport: 0 }, hangar: { probe: 1, miner: 0, hauler: 0, 
         gas: 0 },
         ships: [], bodies: [], buildQueue: [], lastFrameTime: 0, environment: { flux: 0.15 },
         power: { batteries: [], productionRate: 0, consumptionRate: 0, gridStatus: "ONLINE" }, scavenging: { active: false, timer: 0, duration: 5000 },
-        cad: { slots: [{ id: 0, active: false, startTime: 0, duration: 0 }, { id: 1, active: false, startTime: 0, duration: 0 }] },
+        cad: { slots: [{ id: 0, active: false, startTime: 0, duration: 0 }, { id: 1, active: false, startTime: 0, duration: 0 }] 
+        },
         refinery: { waterSlots: [{ id: 0, active: false, startTime: 0, duration: 0 
         }, { id: 1, active: false, startTime: 0, duration: 0 }], sabatierSlots: [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }], smelterSlots: [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }] },
-        fuelFactory: { slots: [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }, { id: 2, active: 
+        fuelFactory: { slots: 
+        [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }, { id: 2, active: 
         false, mode: null, startTime: 0, duration: 0 }, { id: 3, active: false, mode: null, startTime: 0, duration: 0 }] },
         greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty', crop: null, startTime: 0, duration: 0 })), selectedSlot: null },
-        composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] },
+        composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, 
+        active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] },
         lastDailyClaim: 0,
         lastCloudSave: 0
     };
@@ -797,9 +839,18 @@ gap:10px;"></div>
                 } else {
                     log("CLOUD: New profile created.");
                     createSystem();
-                    createBattery('grid'); createBattery('grid'); createBattery('inventory'); createBattery('inventory');
-                    STATE.power.batteries[0].charge = 20; STATE.power.batteries[1].charge = 10;
-                    STATE.power.batteries[2].charge = 33.33; STATE.power.batteries[3].charge = 33.33;
+                    // --- CHANGED: START WITH 5 CHARGED BATTERIES ---
+                    // 3 In Grid (Max Grid Slots)
+                    for(let i=0; i<3; i++) {
+                        createBattery('grid');
+                        // Set charge to Max (batteryCap defined as 33.33)
+                        STATE.power.batteries[STATE.power.batteries.length-1].charge = 33.33;
+                    }
+                    // 2 In Inventory
+                    for(let i=0; i<2; i++) {
+                        createBattery('inventory');
+                        STATE.power.batteries[STATE.power.batteries.length-1].charge = 33.33;
+                    }
                     CloudSys.save(true);
                 }
                 initGameLoop();
@@ -814,7 +865,7 @@ gap:10px;"></div>
                      // Backend: Soft delete
                
                       await setDoc(doc(db, "captains", userUID), { wiped: true });
-                     location.reload();
+                      location.reload();
                 }
             }
         }
@@ -829,7 +880,6 @@ gap:10px;"></div>
         // Setup Login Buttons
         document.getElementById('btn-login-email').onclick = CloudSys.loginEmail;
         document.getElementById('btn-register-email').onclick = CloudSys.registerEmail;
-
         // Init Global Canvas
         CANVAS = document.getElementById('map');
         CTX = CANVAS.getContext('2d');
@@ -960,6 +1010,7 @@ gap:10px;"></div>
             let t = "IDLE", p = 0;
             if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
             return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>UNIT ${s.id+1}</span><span id="cp-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="cp-bar-${s.id}" style="height:100%; background:var(--agri); width:${p}%"></div></div><button class="${s.active?'ref-btn btn-filtering':'ref-btn'}" style="width:100%; 
+
 margin-top:5px; font-size:9px; border-color:var(--agri); color:var(--agri);" onclick="startCompost(${s.id})" ${s.active?'disabled':''}>${s.active?'ACTIVE':'START CYCLE'}</button></div>`;
         }).join('');
     }
@@ -985,8 +1036,10 @@ margin-top:5px; font-size:9px; border-color:var(--agri); color:var(--agri);" onc
             let t = "IDLE", p = 0; if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
             let controls = !s.active ? `<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--miner);" onclick="startSabatier(${s.id}, 'split')">SPLIT WATER</button><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--warning);" onclick="startSabatier(${s.id}, 'methane')">METHANE</button></div>` : `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>${s.mode.toUpperCase()}...</button>`;
          
-            return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CORE ${s.id+1}</span><span id="sab-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111;
-margin-top:5px;"><div id="sab-bar-${s.id}" style="height:100%; background:var(--warning); width:${p}%"></div></div>${controls}</div>`;
+            return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between;
+                font-size:9px; color:#aaa;"><span>CORE ${s.id+1}</span><span id="sab-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111;
+                margin-top:5px;"><div id="sab-bar-${s.id}" style="height:100%; background:var(--warning);
+                width:${p}%"></div></div>${controls}</div>`;
         }).join('');
     }
 
@@ -1004,9 +1057,9 @@ started.`); renderCad(); updateUI();
         c.innerHTML = STATE.cad.slots.map(s => {
             let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
             return `<div style="background:rgba(255,255,255,0.02);
-padding:10px; border:1px solid rgba(255,255,255,0.1);"><div style="color:var(--neon); font-weight:bold;">C.A.D. CELL ${s.id+1}</div><div style="font-size:10px; color:#889; margin:5px 0;">Cost: 25kW <span style="color:var(--stamina)">[-5 Stam]</span></div><div style="font-size:9px; color:#666;
-margin-bottom:5px;">Cycle: 12h. Output: CO₂, N₂, Ar, Ne...</div><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa; margin-top:2px;"><span>STATUS</span><span id="cad-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:2px;"><div id="cad-bar-${s.id}" style="height:100%;
-background:var(--neon); width:${p}%; box-shadow: 0 0 5px var(--neon); transition: width 0.5s;"></div></div><button class="${s.active?'ref-btn btn-filtering':'ref-btn'}" id="cad-btn-${s.id}" style="width:100%" onclick="startCad(${s.id})" ${s.active?'disabled':''}>${s.active?'EXTRACTION...':'START EXTRACTION (12h)'}</button></div>`;
+                padding:10px; border:1px solid rgba(255,255,255,0.1);"><div style="color:var(--neon); font-weight:bold;">C.A.D. CELL ${s.id+1}</div><div style="font-size:10px; color:#889; margin:5px 0;">Cost: 25kW <span style="color:var(--stamina)">[-5 Stam]</span></div><div style="font-size:9px; color:#666;
+                margin-bottom:5px;">Cycle: 12h. Output: CO₂, N₂, Ar, Ne...</div><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa; margin-top:2px;"><span>STATUS</span><span id="cad-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:2px;"><div id="cad-bar-${s.id}" style="height:100%;
+                background:var(--neon); width:${p}%; box-shadow: 0 0 5px var(--neon); transition: width 0.5s;"></div></div><button class="${s.active?'ref-btn btn-filtering':'ref-btn'}" id="cad-btn-${s.id}" style="width:100%" onclick="startCad(${s.id})" ${s.active?'disabled':''}>${s.active?'EXTRACTION...':'START EXTRACTION (12h)'}</button></div>`;
         }).join('');
     }
     
@@ -1054,10 +1107,10 @@ background:var(--neon); width:${p}%; box-shadow: 0 0 5px var(--neon); transition
             let t = "IDLE", p = 0; if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
             let controls = !s.active ? `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--mars);" onclick="startSmelter(${s.id}, 'iron')">SMELT IRON</button><button class="ref-btn" style="font-size:8px; border-color:#ccc; color:#ccc;" onclick="startSmelter(${s.id}, 'aluminium')">SMELT AL</button><button class="ref-btn" style="font-size:8px; border-color:var(--copper); color:var(--copper);" onclick="startSmelter(${s.id}, 'copper')">SMELT CU</button><button class="ref-btn" style="font-size:8px; border-color:var(--titanium); color:var(--titanium);" onclick="startSmelter(${s.id}, 'titanium')">SMELT 
 TI</button><button class="ref-btn" style="font-size:8px; grid-column:span 2; border-color:var(--miner);" onclick="startSmelter(${s.id}, 'steel')">FORGE STEEL</button></div>` : `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--mars);
-color:var(--mars);" disabled>${s.mode === 'steel' ? 'FORGING...' : 'MELTING...'}</button>`;
+            color:var(--mars);" disabled>${s.mode === 'steel' ? 'FORGING...' : 'MELTING...'}</button>`;
             return `<div style="background:rgba(255,255,255,0.02);
-padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CRUCIBLE ${s.id+1}</span><span id="sm-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="sm-bar-${s.id}" style="height:100%; background:var(--mars);
-width:${p}%"></div></div>${controls}</div>`;
+            padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CRUCIBLE ${s.id+1}</span><span id="sm-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="sm-bar-${s.id}" style="height:100%; background:var(--mars);
+            width:${p}%"></div></div>${controls}</div>`;
         }).join('');
     }
 
@@ -1084,10 +1137,10 @@ width:${p}%"></div></div>${controls}</div>`;
             let t = "IDLE", p = 0; if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
             let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--fuel); color:var(--fuel);" disabled>${s.mode === 'synthesis' ? 'SYNTHESIS' : 'LIQUEFYING ' + s.mode.toUpperCase()}...</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--fuel); color:var(--fuel);" onclick="startFuelProcess(${s.id}, 'methane')">LIQ CH4</button><button 
 class="ref-btn" style="font-size:8px; border-color:var(--neon); color:var(--neon);" onclick="startFuelProcess(${s.id}, 'oxygen')">LIQ O2</button><button class="ref-btn" style="grid-column: span 2; font-size:9px; border-color:var(--white); color:var(--white);
-background: rgba(255,255,255,0.1);" onclick="startFuelProcess(${s.id}, 'synthesis')">SYNTHESIS (FUEL)</button></div>`;
+            background: rgba(255,255,255,0.1);" onclick="startFuelProcess(${s.id}, 'synthesis')">SYNTHESIS (FUEL)</button></div>`;
             return `<div style="background:rgba(255,255,255,0.02); padding:5px;
-border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>SLOT ${s.id+1}</span><span id="fuel-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="fuel-bar-${s.id}" style="height:100%; background:var(--fuel);
-width:${p}%"></div></div>${btn}</div>`;
+            border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>SLOT ${s.id+1}</span><span id="fuel-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="fuel-bar-${s.id}" style="height:100%; background:var(--fuel);
+            width:${p}%"></div></div>${btn}</div>`;
         }).join('');
     }
 
@@ -1100,7 +1153,8 @@ width:${p}%"></div></div>${btn}</div>`;
     function completeScavenge() {
         STATE.scavenging.active=false; UI_CACHE['btn-scavenge'].disabled=false; UI_CACHE['scav-progress'].style.width="0%";
         STATE.skills.scavenging.xp+=10; 
-        if(STATE.skills.scavenging.xp>=STATE.skills.scavenging.next){ STATE.skills.scavenging.lvl++; STATE.skills.scavenging.xp=0; STATE.skills.scavenging.next*=1.5; log(`SKILL UP: SCAV LVL ${STATE.skills.scavenging.lvl}`); }
+     
+       if(STATE.skills.scavenging.xp>=STATE.skills.scavenging.next){ STATE.skills.scavenging.lvl++; STATE.skills.scavenging.xp=0; STATE.skills.scavenging.next*=1.5; log(`SKILL UP: SCAV LVL ${STATE.skills.scavenging.lvl}`); }
         let l=STATE.skills.scavenging.lvl; let msg="FOUND: ";
         let s=1+Math.floor(Math.random()*3)+l;
         STATE.inventory.Scrap+=s; msg+=`${s} Scrap. `;
@@ -1111,7 +1165,7 @@ width:${p}%"></div></div>${btn}</div>`;
     }
 
     function useStamina(v) { if(STATE.stamina.val>=v) { STATE.stamina.val-=v;
-    updateUI(); return true; } log("ALERT: HUNGRY."); return false; }
+        updateUI(); return true; } log("ALERT: HUNGRY."); return false; }
     function consume(i) {
         const last = STATE.cooldowns[i] ||
         0; if(Date.now()-last < EATING_COOLDOWN_MS) return log(`BIO: Digesting ${i}...`);
@@ -1133,7 +1187,8 @@ width:${p}%"></div></div>${btn}</div>`;
             "V-02 Cloud-Mine", dist: 0.8, speed: 3.5, color: "#da6", size: 6, type: "Planet", res: ["Si", "Gas"], angle: 0 },
             { id: 4, name: "J-03", dist: 1.5, speed: 2.4, color: "#f40", size: 9, type: "BASE", angle: 0 },
             { id: 5, name: "G-04 Heavy-Mass", dist: 4.0, speed: 1.3, color: "#d97", size: 14, type: "Gas Giant", res: ["H2"], angle: 0 },
-            { id: 9, name: "R-05 Heavy-Mass", dist: 5.6, speed: 
+         
+           { id: 9, name: "R-05 Heavy-Mass", dist: 5.6, speed: 
             0.8, color: "#567", size: 15, type: "Ice World", res: ["Ice water", "Pt"], angle: 0 }
             ];
         for(let i=0; i<40; i++) STATE.bodies.push({ id: 100+i, name: `A-${100+i}`, dist: 2.0+Math.random()*3, speed: (1.0+Math.random())*0.5, color: "#667", size: 2, type: "Asteroid", scanned: false, res: [], angle: Math.random()*6.28 });
@@ -1250,22 +1305,22 @@ width:${p}%"></div></div>${btn}</div>`;
     function interpolate(p1, p2, t) { return { x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t };
     }
     function getOrbitalPos(b, t, z) { const a = b.angle + (t * b.speed);
-    const r = b.dist * z; return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+        const r = b.dist * z; return { x: Math.cos(a) * r, y: Math.sin(a) * r };
     }
     function drawShip(cx, cy, p, tp, s) { CTX.beginPath(); CTX.setLineDash([2, 4]); CTX.moveTo(cx+p.x, cy+p.y); CTX.lineTo(cx+tp.x, cy+tp.y); CTX.strokeStyle=s.spec.color; CTX.globalAlpha=0.3;
-    CTX.stroke(); CTX.setLineDash([]); CTX.globalAlpha=1.0; const a = Math.atan2(tp.y-p.y, tp.x-p.x); CTX.save(); CTX.translate(cx+p.x, cy+p.y); CTX.rotate(a); CTX.fillStyle=s.spec.color; CTX.beginPath(); CTX.moveTo(5,0); CTX.lineTo(-4,3); CTX.lineTo(-4,-3); CTX.fill(); CTX.restore();
+        CTX.stroke(); CTX.setLineDash([]); CTX.globalAlpha=1.0; const a = Math.atan2(tp.y-p.y, tp.x-p.x); CTX.save(); CTX.translate(cx+p.x, cy+p.y); CTX.rotate(a); CTX.fillStyle=s.spec.color; CTX.beginPath(); CTX.moveTo(5,0); CTX.lineTo(-4,3); CTX.lineTo(-4,-3); CTX.fill(); CTX.restore();
     }
     function handleClick(e) { if(STATE.power.gridStatus === 'BLACKOUT') return; const r = CANVAS.getBoundingClientRect();
-    const z = STATE.zoom * AU_SCALE; const mx = e.clientX - r.left - STATE.camera.x - (CANVAS.width/2);
-    const my = e.clientY - r.top - STATE.camera.y - (CANVAS.height/2); let c = null;
-    STATE.bodies.forEach(b => { const p = getOrbitalPos(b, Date.now()*0.00005, z); if (Math.hypot(p.x-mx, p.y-my) < (b.size+10)) c = b; });
-    if (c) openModal(c); }
+        const z = STATE.zoom * AU_SCALE; const mx = e.clientX - r.left - STATE.camera.x - (CANVAS.width/2);
+        const my = e.clientY - r.top - STATE.camera.y - (CANVAS.height/2); let c = null;
+        STATE.bodies.forEach(b => { const p = getOrbitalPos(b, Date.now()*0.00005, z); if (Math.hypot(p.x-mx, p.y-my) < (b.size+10)) c = b; });
+        if (c) openModal(c); }
     function openModal(obj) { STATE.selectedObj = obj; AudioSys.playClick(); document.getElementById('modal-overlay').style.display = 'block'; ['modal-base','modal-target','modal-warehouse','modal-hangar'].forEach(id=>document.getElementById(id).style.display='none'); let m;
-    if (obj.type === 'BASE') { m = document.getElementById('modal-base'); renderFactory(); renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); switchTab('factory'); } else { m = document.getElementById('modal-target');
-    document.getElementById('m-t-name').innerText = obj.name; const d = Math.abs(obj.dist - 1.5); document.getElementById('m-t-dist').innerText = d.toFixed(2) + " AU"; document.getElementById('m-t-time').innerText = `~${Math.ceil(d/(BASE_SPEED*60))} MIN`;
-    document.getElementById('m-t-res').innerText = obj.scanned ? (obj.res[0]||"None") : "UNSCANNED"; const g = document.getElementById('launch-grid'); g.innerHTML="";
-    ['probe', 'miner', 'hauler', 'gas'].forEach(t => { const s = SPECS[t]; const fc = Math.floor(50 * d * s.fuel); const sc = t==='probe'?5:15; let active = (STATE.hangar[t]>0 && STATE.inventory.H2>=fc); if(t==='probe' && obj.scanned) active=false; if(t!=='probe' && !obj.scanned) active=false; const b = document.createElement('button'); b.disabled=!active; b.innerHTML=`<span>LAUNCH ${t.toUpperCase()}</span> <span style="color:${active?'#fff':'#555'}">${fc} H₂ <span style="color:var(--stamina)">[-${sc}E]</span></span>`; b.onclick=()=>launch(t, fc, sc); g.appendChild(b); });
-    } m.style.display = 'block'; m.classList.remove('glitch-anim'); void m.offsetWidth; m.classList.add('glitch-anim'); setTimeout(()=>m.classList.remove('glitch-anim'), 300);
+        if (obj.type === 'BASE') { m = document.getElementById('modal-base'); renderFactory(); renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); switchTab('factory'); } else { m = document.getElementById('modal-target');
+        document.getElementById('m-t-name').innerText = obj.name; const d = Math.abs(obj.dist - 1.5); document.getElementById('m-t-dist').innerText = d.toFixed(2) + " AU"; document.getElementById('m-t-time').innerText = `~${Math.ceil(d/(BASE_SPEED*60))} MIN`;
+        document.getElementById('m-t-res').innerText = obj.scanned ? (obj.res[0]||"None") : "UNSCANNED"; const g = document.getElementById('launch-grid'); g.innerHTML="";
+        ['probe', 'miner', 'hauler', 'gas'].forEach(t => { const s = SPECS[t]; const fc = Math.floor(50 * d * s.fuel); const sc = t==='probe'?5:15; let active = (STATE.hangar[t]>0 && STATE.inventory.H2>=fc); if(t==='probe' && obj.scanned) active=false; if(t!=='probe' && !obj.scanned) active=false; const b = document.createElement('button'); b.disabled=!active; b.innerHTML=`<span>LAUNCH ${t.toUpperCase()}</span> <span style="color:${active?'#fff':'#555'}">${fc} H₂ <span style="color:var(--stamina)">[-${sc}E]</span></span>`; b.onclick=()=>launch(t, fc, sc); g.appendChild(b); });
+        } m.style.display = 'block'; m.classList.remove('glitch-anim'); void m.offsetWidth; m.classList.add('glitch-anim'); setTimeout(()=>m.classList.remove('glitch-anim'), 300);
     }
     function renderWarehouse() {
         const g = document.getElementById('warehouse-content');
@@ -1394,7 +1449,7 @@ width:${p}%"></div></div>${btn}</div>`;
                     if (v > 0) { const last = STATE.cooldowns[k] || 0; const diff = Date.now() - last; if(diff < EATING_COOLDOWN_MS) { act=`<span style="font-size:8px; color:#555">[WAIT ${Math.ceil((EATING_COOLDOWN_MS-diff)/60000)}m]</span>`; } else { act=`<button class="consume-btn" onclick="consume('${k}')">EAT</button>`; } } else 
                     { act=`<span style="font-size:8px; color:#555">EMPTY</span>`; }
                     return `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.01); padding:2px 4px; border-left:2px solid ${col}; margin-bottom:1px;"><div><span style="color:${col}">${k}</span></div><div style="display:flex; align-items:center;"> <span style="color:#eee; margin-right:5px;">${Math.floor(v)}</span>${act}</div></div>`;
-                }).join('') ||
+            }).join('') ||
                 '<div style="color:#444">EMPTY</div>';
             }
 
