@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v5.0 ONLINE]</title>
+<title>Exodus-Prime: Forge-7 Command [v5.1 ONLINE]</title>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <style>
 :root {
@@ -47,7 +47,7 @@ background-size: 100% 2px, 3px 100%; pointer-events: none; z-index: 0;
 }
 
 canvas { display: block; cursor: crosshair; position: relative; z-index: 1; will-change: transform; }
-.ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+.ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display:none; /* Скрыто до авторизации */ }
 .interactive { pointer-events: auto; }
 
 /* --- UI COMPONENTS --- */
@@ -249,13 +249,58 @@ background: linear-gradient(to bottom, rgba(0, 229, 255, 0), rgba(0, 229, 255, 0
 animation: scan-move 4s linear infinite; pointer-events: none; z-index: 5; opacity: 0.5;
 }
 @keyframes scan-move { 0% { top: -10%; } 100% { top: 110%; } }
+
+/* --- START SCREEN --- */
+#start-screen {
+position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+background: radial-gradient(circle at center, #11151a 0%, #05080a 100%);
+z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center;
+}
+.start-box {
+width: 320px; padding: 30px; border: 1px solid var(--neon);
+background: rgba(11, 16, 22, 0.9); box-shadow: 0 0 20px rgba(0, 229, 255, 0.1);
+text-align: center; backdrop-filter: blur(5px);
+}
+.start-title {
+font-size: 24px; font-weight: bold; color: #fff; letter-spacing: 4px; margin-bottom: 5px;
+text-shadow: 0 0 10px var(--neon);
+}
+.start-sub { color: var(--neon); font-size: 11px; margin-bottom: 25px; letter-spacing: 1px; }
+.start-input {
+width: 100%; box-sizing: border-box; background: #05080a; border: 1px solid #334;
+color: #fff; padding: 10px; margin-bottom: 10px; font-family: monospace; font-size: 12px;
+}
+.start-input:focus { border-color: var(--neon); outline: none; box-shadow: 0 0 5px var(--neon); }
 </style>
 </head>
 <body id="body">
 
+<div id="start-screen">
+    <div class="start-box">
+        <div class="start-title">EXODUS</div>
+        <div class="start-sub">PRIME // FORGE-7 COMMAND</div>
+        
+        <div id="login-form">
+            <input type="email" id="start-email" class="start-input" placeholder="ACCESS ID (EMAIL)">
+            <input type="password" id="start-pass" class="start-input" placeholder="SECURITY KEY">
+            
+            <button class="nav-btn" onclick="AuthSys.signIn('start')" style="width:100%; margin-bottom:10px; padding:10px; border-color:var(--success); color:var(--success); font-size:12px;">
+                INITIALIZE LINK (LOGIN)
+            </button>
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <button class="nav-btn" onclick="AuthSys.signUp('start')" style="flex:1; border-color:var(--neon);">REGISTER</button>
+            </div>
+             <button class="nav-btn" onclick="AuthSys.playOffline()" style="width:100%; border-color:#555; color:#888;">
+                OFFLINE SIMULATION MODE
+            </button>
+            <div id="start-msg" style="margin-top:15px; font-size:10px; color:var(--danger); min-height:15px;"></div>
+        </div>
+    </div>
+</div>
+
 <canvas id="map"></canvas>
 
-<div class="ui-layer">
+<div class="ui-layer" id="game-ui">
 <div id="top-bar" class="interactive">
 <div style="display:flex; gap:15px; align-items: center;">
 <span style="font-weight:bold; letter-spacing:2px; color:#fff;">EXODUS<span style="color:var(--neon)">//</span>PRIME</span>
@@ -549,50 +594,50 @@ STATUS: OFFLINE
 </div>
 
 <div id="modal-auth" class="modal" style="display:none; border-color: var(--white); width: 300px; text-align:center;">
-    <div class="header">UPLINK CONNECTION</div>
-    <div style="padding:20px;">
-        <input type="email" id="auth-email" placeholder="COMS ID (EMAIL)" style="width:90%; background:#111; border:1px solid #445; color:#fff; padding:5px; margin-bottom:10px;">
-        <input type="password" id="auth-pass" placeholder="ACCESS KEY" style="width:90%; background:#111; border:1px solid #445; color:#fff; padding:5px; margin-bottom:15px;">
-        <button class="nav-btn" onclick="AuthSys.signIn()" style="width:100%; margin-bottom:5px; border-color:var(--success);">LOGIN</button>
-        <button class="nav-btn" onclick="AuthSys.signUp()" style="width:100%; border-color:var(--neon);">REGISTER NEW FREQ</button>
-        <div id="auth-msg" style="margin-top:10px; font-size:10px; color:var(--danger);"></div>
-    </div>
+<div class="header">UPLINK CONNECTION</div>
+<div style="padding:20px;">
+<input type="email" id="auth-email" placeholder="COMS ID (EMAIL)" style="width:90%; background:#111; border:1px solid #445; color:#fff; padding:5px; margin-bottom:10px;">
+<input type="password" id="auth-pass" placeholder="ACCESS KEY" style="width:90%; background:#111; border:1px solid #445; color:#fff; padding:5px; margin-bottom:15px;">
+<button class="nav-btn" onclick="AuthSys.signIn()" style="width:100%; margin-bottom:5px; border-color:var(--success);">LOGIN</button>
+<button class="nav-btn" onclick="AuthSys.signUp()" style="width:100%; border-color:var(--neon);">REGISTER NEW FREQ</button>
+<div id="auth-msg" style="margin-top:10px; font-size:10px; color:var(--danger);"></div>
+</div>
 </div>
 
 <div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning); width: 700px;">
-    <div class="header" style="color:var(--warning)">GALACTIC TRADE NETWORK</div>
-    <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
-    
-    <div style="padding:10px;">
-        <div style="margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px;">
-            <button class="tab-btn active" onclick="MarketSys.renderListings()">OFFERS</button>
-            <button class="tab-btn" onclick="MarketSys.renderCreateUI()">CREATE OFFER</button>
-        </div>
+<div class="header" style="color:var(--warning)">GALACTIC TRADE NETWORK</div>
+<div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
 
-        <div id="market-view-listings" style="height:400px; overflow-y:auto; font-size:10px;">
-            <table style="width:100%;">
-                <thead>
-                    <tr><th width="30%">SELLING</th><th width="30%">PRICE</th><th width="20%">SELLER</th><th width="20%">ACTION</th></tr>
-                </thead>
-                <tbody id="market-list-body"></tbody>
-            </table>
-            <div id="market-loading" style="text-align:center; padding:20px; color:#555;">CONNECTING TO NODE...</div>
-        </div>
+<div style="padding:10px;">
+<div style="margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px;">
+<button class="tab-btn active" onclick="MarketSys.renderListings()">OFFERS</button>
+<button class="tab-btn" onclick="MarketSys.renderCreateUI()">CREATE OFFER</button>
+</div>
 
-        <div id="market-view-create" style="display:none; height:400px;">
-            <div style="background:rgba(255,255,255,0.02); padding:15px; border:1px solid #334;">
-                <div style="color:var(--neon); margin-bottom:10px;">SELL ITEMS</div>
-                <select id="m-sell-item" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:70%"></select>
-                <input id="m-sell-qty" type="number" placeholder="QTY" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:25%">
-                
-                <div style="color:var(--warning); margin:15px 0 10px 0;">REQUEST PAYMENT</div>
-                <select id="m-price-item" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:70%"></select>
-                <input id="m-price-qty" type="number" placeholder="QTY" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:25%">
+<div id="market-view-listings" style="height:400px; overflow-y:auto; font-size:10px;">
+<table style="width:100%;">
+<thead>
+<tr><th width="30%">SELLING</th><th width="30%">PRICE</th><th width="20%">SELLER</th><th width="20%">ACTION</th></tr>
+</thead>
+<tbody id="market-list-body"></tbody>
+</table>
+<div id="market-loading" style="text-align:center; padding:20px; color:#555;">CONNECTING TO NODE...</div>
+</div>
 
-                <button class="nav-btn" style="width:100%; margin-top:20px; height:30px; border-color:var(--success); color:var(--success);" onclick="MarketSys.createOffer()">BROADCAST SIGNAL (CREATE OFFER)</button>
-            </div>
-        </div>
-    </div>
+<div id="market-view-create" style="display:none; height:400px;">
+<div style="background:rgba(255,255,255,0.02); padding:15px; border:1px solid #334;">
+<div style="color:var(--neon); margin-bottom:10px;">SELL ITEMS</div>
+<select id="m-sell-item" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:70%"></select>
+<input id="m-sell-qty" type="number" placeholder="QTY" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:25%">
+
+<div style="color:var(--warning); margin:15px 0 10px 0;">REQUEST PAYMENT</div>
+<select id="m-price-item" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:70%"></select>
+<input id="m-price-qty" type="number" placeholder="QTY" style="background:#111; color:#fff; border:1px solid #445; padding:5px; width:25%">
+
+<button class="nav-btn" style="width:100%; margin-top:20px; height:30px; border-color:var(--success); color:var(--success);" onclick="MarketSys.createOffer()">BROADCAST SIGNAL (CREATE OFFER)</button>
+</div>
+</div>
+</div>
 </div>
 </div>
 
@@ -663,183 +708,247 @@ const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- AUTH & NETWORK SYSTEM ---
 const AuthSys = {
-    user: null,
-    init: async function() {
-        const { data } = await _sb.auth.getSession();
-        this.user = data.session?.user || null;
+user: null,
+init: async function() {
+const { data } = await _sb.auth.getSession();
+this.user = data.session?.user || null;
+this.updateBtn();
+if(this.user) {
+    log("NET: Connected to Exodus Network.");
+    SyncSys.pull(); // Загрузка сохранения из облака
+    // Hide start screen if auto-logged in
+    document.getElementById('start-screen').style.display = 'none';
+    startGame();
+} else {
+    // Show start screen if no session
+    document.getElementById('start-screen').style.display = 'flex';
+}
+},
+updateBtn: function() {
+// Добавляем кнопку логина в UI, если её нет
+let btn = document.getElementById('btn-auth-trigger');
+if(!btn) {
+const grp = document.querySelector('.top-btn-group');
+btn = document.createElement('button');
+btn.id = 'btn-auth-trigger';
+btn.className = 'nav-btn';
+grp.insertBefore(btn, grp.firstChild);
+}
+btn.innerHTML = this.user ? "🟢 ONLINE" : "🔴 OFFLINE";
+btn.style.borderColor = this.user ? "var(--success)" : "var(--danger)";
+btn.onclick = () => { if(!this.user) document.getElementById('modal-auth').style.display = 'block'; };
+},
+signUp: async function(context) {
+const eId = context === 'start' ? 'start-email' : 'auth-email';
+const pId = context === 'start' ? 'start-pass' : 'auth-pass';
+const msgId = context === 'start' ? 'start-msg' : 'auth-msg';
+
+const e = document.getElementById(eId).value;
+const p = document.getElementById(pId).value;
+const msgEl = document.getElementById(msgId);
+
+if(!e || !p) {
+    msgEl.innerText = "ENTER EMAIL & PASSWORD";
+    msgEl.style.color = "var(--danger)";
+    return;
+}
+
+msgEl.innerText = "CONNECTING...";
+msgEl.style.color = "var(--warning)";
+
+const { data, error } = await _sb.auth.signUp({ email: e, password: p });
+
+if(error) {
+    msgEl.innerText = error.message;
+    msgEl.style.color = "var(--danger)";
+} else { 
+    // Check if session exists (Auto confirm enabled)
+    if (data.session) {
+        msgEl.innerText = "SUCCESS! LOGGING IN...";
+        msgEl.style.color = "var(--success)";
+        this.user = data.session.user;
         this.updateBtn();
-        if(this.user) { 
-            log("NET: Connected to Exodus Network.");
-            SyncSys.pull(); // Загрузка сохранения из облака
+        SyncSys.pull();
+        if(context === 'start') {
+             setTimeout(() => {
+                document.getElementById('start-screen').style.display = 'none';
+                startGame();
+             }, 1000);
+        } else {
+             document.getElementById('modal-auth').style.display = 'none';
         }
-    },
-    updateBtn: function() {
-        // Добавляем кнопку логина в UI, если её нет
-        let btn = document.getElementById('btn-auth-trigger');
-        if(!btn) {
-            const grp = document.querySelector('.top-btn-group');
-            btn = document.createElement('button');
-            btn.id = 'btn-auth-trigger';
-            btn.className = 'nav-btn';
-            grp.insertBefore(btn, grp.firstChild);
-        }
-        btn.innerHTML = this.user ? "🟢 ONLINE" : "🔴 OFFLINE";
-        btn.style.borderColor = this.user ? "var(--success)" : "var(--danger)";
-        btn.onclick = () => { if(!this.user) document.getElementById('modal-auth').style.display = 'block'; };
-    },
-    signUp: async function() {
-        const e = document.getElementById('auth-email').value;
-        const p = document.getElementById('auth-pass').value;
-        const { data, error } = await _sb.auth.signUp({ email: e, password: p });
-        if(error) document.getElementById('auth-msg').innerText = error.message;
-        else { document.getElementById('auth-msg').innerText = "REGISTRATION OK. CHECK EMAIL."; }
-    },
-    signIn: async function() {
-        const e = document.getElementById('auth-email').value;
-        const p = document.getElementById('auth-pass').value;
-        const { data, error } = await _sb.auth.signInWithPassword({ email: e, password: p });
-        if(error) document.getElementById('auth-msg').innerText = error.message;
-        else { 
-            this.user = data.user; 
-            document.getElementById('modal-auth').style.display = 'none';
-            this.updateBtn();
-            SyncSys.pull();
-        }
+    } else {
+        msgEl.innerText = "REGISTRATION OK. CHECK EMAIL.";
+        msgEl.style.color = "var(--success)";
     }
+}
+},
+signIn: async function(context) {
+const eId = context === 'start' ? 'start-email' : 'auth-email';
+const pId = context === 'start' ? 'start-pass' : 'auth-pass';
+const msgId = context === 'start' ? 'start-msg' : 'auth-msg';
+
+const e = document.getElementById(eId).value;
+const p = document.getElementById(pId).value;
+const msgEl = document.getElementById(msgId);
+
+msgEl.innerText = "CONNECTING...";
+msgEl.style.color = "var(--warning)";
+
+const { data, error } = await _sb.auth.signInWithPassword({ email: e, password: p });
+if(error) {
+    msgEl.innerText = error.message;
+    msgEl.style.color = "var(--danger)";
+} else {
+this.user = data.user;
+document.getElementById('modal-auth').style.display = 'none';
+// Hide start screen
+document.getElementById('start-screen').style.display = 'none';
+this.updateBtn();
+SyncSys.pull();
+// If coming from start screen, launch game
+if(context === 'start') startGame();
+}
+},
+playOffline: function() {
+document.getElementById('start-screen').style.display = 'none';
+log("SYS: STARTING IN OFFLINE MODE.");
+startGame();
+}
 };
 
 // --- SYNC SYSTEM (Облачное сохранение) ---
 const SyncSys = {
-    // Сохраняет локальный инвентарь в БД Supabase
-    push: async function() {
-        if(!AuthSys.user) return;
-        const updates = Object.entries(STATE.inventory).map(([k, v]) => ({
-            user_id: AuthSys.user.id,
-            item_key: k,
-            amount: Math.floor(v)
-        }));
-        
-        // Upsert в таблицу inventory
-        if(updates.length > 0) {
-            await _sb.from('inventory').upsert(updates, { onConflict: 'user_id, item_key' });
-        }
-        console.log("Cloud Save Complete");
-    },
-    // Загружает инвентарь из БД и обновляет локальный STATE
-    pull: async function() {
-        if(!AuthSys.user) return;
-        const { data, error } = await _sb.from('inventory').select('item_key, amount');
-        if(data) {
-            data.forEach(row => {
-                STATE.inventory[row.item_key] = row.amount;
-            });
-            updateUI();
-            log("NET: Inventory Synced from Cloud.");
-        }
-    }
+// Сохраняет локальный инвентарь в БД Supabase
+push: async function() {
+if(!AuthSys.user) return;
+const updates = Object.entries(STATE.inventory).map(([k, v]) => ({
+user_id: AuthSys.user.id,
+item_key: k,
+amount: Math.floor(v)
+}));
+
+// Upsert в таблицу inventory
+if(updates.length > 0) {
+await _sb.from('inventory').upsert(updates, { onConflict: 'user_id, item_key' });
+}
+console.log("Cloud Save Complete");
+},
+// Загружает инвентарь из БД и обновляет локальный STATE
+pull: async function() {
+if(!AuthSys.user) return;
+const { data, error } = await _sb.from('inventory').select('item_key, amount');
+if(data) {
+data.forEach(row => {
+STATE.inventory[row.item_key] = row.amount;
+});
+updateUI();
+log("NET: Inventory Synced from Cloud.");
+}
+}
 };
 
 // --- MARKET SYSTEM (Торговля) ---
 const MarketSys = {
-    renderCreateUI: function() {
-        document.getElementById('market-view-listings').style.display = 'none';
-        document.getElementById('market-view-create').style.display = 'block';
-        
-        // Заполняем выпадающие списки доступными предметами
-        const sellSel = document.getElementById('m-sell-item');
-        const buySel = document.getElementById('m-price-item');
-        sellSel.innerHTML = ""; buySel.innerHTML = "";
-        
-        // Список всех возможных предметов в игре
-        const allItems = Object.keys(STATE.inventory).sort(); 
-        
-        allItems.forEach(k => {
-            // В список продажи добавляем только то, что есть (>0)
-            if(STATE.inventory[k] > 0) {
-                sellSel.innerHTML += `<option value="${k}">${k} (You have: ${Math.floor(STATE.inventory[k])})</option>`;
-            }
-            // В список покупки добавляем всё
-            buySel.innerHTML += `<option value="${k}">${k}</option>`;
-        });
-    },
-    renderListings: async function() {
-        document.getElementById('market-view-listings').style.display = 'block';
-        document.getElementById('market-view-create').style.display = 'none';
-        const tbody = document.getElementById('market-list-body');
-        tbody.innerHTML = "";
-        document.getElementById('market-loading').style.display = 'block';
+renderCreateUI: function() {
+document.getElementById('market-view-listings').style.display = 'none';
+document.getElementById('market-view-create').style.display = 'block';
 
-        const { data, error } = await _sb.from('market').select('*').order('created_at', { ascending: false });
-        
-        document.getElementById('market-loading').style.display = 'none';
-        if(data) {
-            tbody.innerHTML = data.map(row => {
-                const isMine = AuthSys.user && row.seller_id === AuthSys.user.id;
-                const actionBtn = isMine 
-                    ? `<button class="nav-btn danger" onclick="MarketSys.cancelOffer('${row.id}')">CANCEL</button>` 
-                    : `<button class="nav-btn" style="border-color:var(--success)" onclick="MarketSys.buyOffer('${row.id}')">BUY</button>`;
-                
-                return `<tr>
-                    <td style="color:var(--neon)">${row.sell_amount} x ${row.sell_item}</td>
-                    <td style="color:var(--warning)">${row.price_amount} x ${row.price_item}</td>
-                    <td style="color:#889">${row.seller_id.substr(0,8)}...</td>
-                    <td>${actionBtn}</td>
-                </tr>`;
-            }).join('');
-        }
-    },
-    createOffer: async function() {
-        if(!AuthSys.user) return log("ERR: Login required.");
-        const item = document.getElementById('m-sell-item').value;
-        const amount = parseInt(document.getElementById('m-sell-qty').value);
-        const priceItem = document.getElementById('m-price-item').value;
-        const priceAmount = parseInt(document.getElementById('m-price-qty').value);
+// Заполняем выпадающие списки доступными предметами
+const sellSel = document.getElementById('m-sell-item');
+const buySel = document.getElementById('m-price-item');
+sellSel.innerHTML = ""; buySel.innerHTML = "";
 
-        if(!item || amount <= 0 || !priceItem || priceAmount <= 0) return log("ERR: Invalid offer.");
+// Список всех возможных предметов в игре
+const allItems = Object.keys(STATE.inventory).sort();
 
-        // Сначала синхронизируемся, чтобы убедиться что сервер знает о наших предметах
-        await SyncSys.push(); 
+allItems.forEach(k => {
+// В список продажи добавляем только то, что есть (>0)
+if(STATE.inventory[k] > 0) {
+sellSel.innerHTML += `<option value="${k}">${k} (You have: ${Math.floor(STATE.inventory[k])})</option>`;
+}
+// В список покупки добавляем всё
+buySel.innerHTML += `<option value="${k}">${k}</option>`;
+});
+},
+renderListings: async function() {
+document.getElementById('market-view-listings').style.display = 'block';
+document.getElementById('market-view-create').style.display = 'none';
+const tbody = document.getElementById('market-list-body');
+tbody.innerHTML = "";
+document.getElementById('market-loading').style.display = 'block';
 
-        // Вызываем SQL функцию
-        const { error } = await _sb.rpc('create_trade_offer', {
-            p_sell_item: item,
-            p_sell_amount: amount,
-            p_price_item: priceItem,
-            p_price_amount: priceAmount
-        });
+const { data, error } = await _sb.from('market').select('*').order('created_at', { ascending: false });
 
-        if(error) {
-            log(`MARKET ERR: ${error.message}`);
-        } else {
-            log("MARKET: Offer created.");
-            // Немедленно обновляем локальный инвентарь (Сервер уже списал, нам нужно отобразить это)
-            await SyncSys.pull(); 
-            this.renderListings();
-        }
-    },
-    buyOffer: async function(id) {
-        if(!AuthSys.user) return log("ERR: Login required.");
-        await SyncSys.push(); // Синхронизируем перед покупкой (чтобы сервер видел наши деньги)
+document.getElementById('market-loading').style.display = 'none';
+if(data) {
+tbody.innerHTML = data.map(row => {
+const isMine = AuthSys.user && row.seller_id === AuthSys.user.id;
+const actionBtn = isMine
+? `<button class="nav-btn danger" onclick="MarketSys.cancelOffer('${row.id}')">CANCEL</button>`
+: `<button class="nav-btn" style="border-color:var(--success)" onclick="MarketSys.buyOffer('${row.id}')">BUY</button>`;
 
-        const { error } = await _sb.rpc('buy_trade_offer', { trade_id: id });
-        
-        if(error) {
-            log(`MARKET ERR: ${error.message}`);
-        } else {
-            log("MARKET: Trade successful!");
-            await SyncSys.pull(); // Получаем купленный предмет
-            this.renderListings();
-        }
-    },
-    cancelOffer: async function(id) {
-        const { error } = await _sb.rpc('cancel_trade_offer', { trade_id: id });
-        if(error) log(`MARKET ERR: ${error.message}`);
-        else {
-            log("MARKET: Offer cancelled.");
-            await SyncSys.pull();
-            this.renderListings();
-        }
-    }
+return `<tr>
+<td style="color:var(--neon)">${row.sell_amount} x ${row.sell_item}</td>
+<td style="color:var(--warning)">${row.price_amount} x ${row.price_item}</td>
+<td style="color:#889">${row.seller_id.substr(0,8)}...</td>
+<td>${actionBtn}</td>
+</tr>`;
+}).join('');
+}
+},
+createOffer: async function() {
+if(!AuthSys.user) return log("ERR: Login required.");
+const item = document.getElementById('m-sell-item').value;
+const amount = parseInt(document.getElementById('m-sell-qty').value);
+const priceItem = document.getElementById('m-price-item').value;
+const priceAmount = parseInt(document.getElementById('m-price-qty').value);
+
+if(!item || amount <= 0 || !priceItem || priceAmount <= 0) return log("ERR: Invalid offer.");
+
+// Сначала синхронизируемся, чтобы убедиться что сервер знает о наших предметах
+await SyncSys.push();
+
+// Вызываем SQL функцию
+const { error } = await _sb.rpc('create_trade_offer', {
+p_sell_item: item,
+p_sell_amount: amount,
+p_price_item: priceItem,
+p_price_amount: priceAmount
+});
+
+if(error) {
+log(`MARKET ERR: ${error.message}`);
+} else {
+log("MARKET: Offer created.");
+// Немедленно обновляем локальный инвентарь (Сервер уже списал, нам нужно отобразить это)
+await SyncSys.pull();
+this.renderListings();
+}
+},
+buyOffer: async function(id) {
+if(!AuthSys.user) return log("ERR: Login required.");
+await SyncSys.push(); // Синхронизируем перед покупкой (чтобы сервер видел наши деньги)
+
+const { error } = await _sb.rpc('buy_trade_offer', { trade_id: id });
+
+if(error) {
+log(`MARKET ERR: ${error.message}`);
+} else {
+log("MARKET: Trade successful!");
+await SyncSys.pull(); // Получаем купленный предмет
+this.renderListings();
+}
+},
+cancelOffer: async function(id) {
+const { error } = await _sb.rpc('cancel_trade_offer', { trade_id: id });
+if(error) log(`MARKET ERR: ${error.message}`);
+else {
+log("MARKET: Offer cancelled.");
+await SyncSys.pull();
+this.renderListings();
+}
+}
 };
 
 // --- SAVE SYSTEM ---
@@ -1045,6 +1154,12 @@ function init() {
 const el = document.getElementById(id);
 if(el) UI_CACHE[id] = el;
 });
+AuthSys.init(); // This now controls the flow. It will call startGame() if session exists.
+}
+
+function startGame() {
+document.getElementById('game-ui').style.display = 'block';
+
 if (!StorageSys.load()) {
 createSystem();
 createBattery('grid'); createBattery('grid'); createBattery('inventory'); createBattery('inventory'); createBattery('inventory');
@@ -1068,7 +1183,6 @@ window.addEventListener('mouseup', e => { STATE.isDragging = false; if (Math.hyp
 CANVAS.addEventListener('wheel', e => { e.preventDefault(); STATE.zoom = Math.max(0.1, Math.min(STATE.zoom - e.deltaY * 0.001, 3)); }, { passive: false });
 setInterval(() => StorageSys.save(), 10000); window.addEventListener('beforeunload', () => StorageSys.save());
 STATE.lastFrameTime = performance.now(); requestAnimationFrame(loop); setInterval(updateUI, 500);
-AuthSys.init();
 }
 
 // --- LOGIC FUNCTIONS ---
@@ -2406,6 +2520,4 @@ init();
 </script>
 </body>
 </html>
-
-
 
