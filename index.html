@@ -915,9 +915,9 @@ if(error) {
 log(`MARKET ERR: ${error.message}`);
 } else {
 log("MARKET: Offer created.");
-// Немедленно обновляем локальный инвентарь (Сервер уже списал, нам нужно отобразить это)
-await SyncSys.pull();
-this.renderListings();
+// UPDATE ORDER CHANGED FOR IMMEDIATE EFFECT
+this.renderListings(); // 1. Refresh market immediately
+await SyncSys.pull();  // 2. Refresh inventory in background
 }
 },
 buyOffer: async function(id) {
@@ -930,8 +930,9 @@ if(error) {
 log(`MARKET ERR: ${error.message}`);
 } else {
 log("MARKET: Trade successful!");
-await SyncSys.pull(); // Получаем купленный предмет
-this.renderListings();
+// UPDATE ORDER CHANGED FOR IMMEDIATE EFFECT
+this.renderListings(); // 1. Refresh market immediately
+await SyncSys.pull();  // 2. Refresh inventory in background
 }
 },
 cancelOffer: async function(id) {
@@ -939,8 +940,9 @@ const { error } = await _sb.rpc('cancel_trade_offer', { trade_id: id });
 if(error) log(`MARKET ERR: ${error.message}`);
 else {
 log("MARKET: Offer cancelled.");
-await SyncSys.pull();
-this.renderListings();
+// UPDATE ORDER CHANGED FOR IMMEDIATE EFFECT
+this.renderListings(); // 1. Refresh market immediately
+await SyncSys.pull();  // 2. Refresh inventory in background
 }
 }
 };
