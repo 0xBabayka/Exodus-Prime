@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Secure Economy [v7.0 SQL-PROTECTED]</title>
+<title>Exodus-Prime: Forge-7 Command [v6.0 ONLINE]</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root {
@@ -83,10 +83,6 @@ button:disabled {
 opacity: 0.4; cursor: not-allowed;
 background: rgba(20, 20, 20, 0.5); border-color: #333; color: #555; box-shadow: none;
 }
-.nav-btn.danger:hover {
-background: rgba(231, 76, 60, 0.2); color: var(--danger); border-color: var(--danger);
-box-shadow: 0 0 8px rgba(231, 76, 60, 0.3); text-shadow: 0 0 3px var(--danger);
-}
 
 /* --- PANELS --- */
 .panel {
@@ -105,7 +101,7 @@ align-items: center; cursor: move; user-select: none;
 #scanner-panel { bottom: 10px; left: 10px; width: 400px; height: 180px; }
 #log-panel { bottom: 10px; left: 420px; width: 210px; height: 180px; }
 
-/* METER / BARS / ITEMS */
+/* --- METER / BARS / ITEMS --- */
 .meter-container {
 width: 100%; height: 4px; background: #080a0c; border: 1px solid #334; margin: 4px 0 8px 0; position: relative;
 }
@@ -151,11 +147,6 @@ border-color: var(--stamina); box-shadow: 0 0 5px var(--stamina); color: #fff; b
 }
 .scav-btn { width: 100%; margin-bottom: 5px; border-color: var(--xp); color: #dcd0ff; background: rgba(155, 89, 182, 0.15); }
 .scav-btn:hover:not(:disabled) { background: rgba(155, 89, 182, 0.3); border-color: #be90d4; box-shadow: 0 0 8px var(--xp); }
-
-.btn-kitchen {
-width: 100%; text-align:left; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; border-color: #553311;
-}
-.btn-kitchen:hover:not(:disabled) { border-color: var(--kitchen); color: #fff; background: rgba(211, 84, 0, 0.2); }
 
 .ref-btn { background: rgba(0, 229, 255, 0.08); border-color: #005566; color: var(--neon); margin-top: 5px; }
 .btn-filtering {
@@ -235,7 +226,6 @@ cursor: pointer; text-transform: uppercase; font-family: inherit; font-weight: b
 }
 .glitch-anim { animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite; }
 
-/* --- SCAN LINE EFFECT --- */
 .scan-overlay { position: relative; overflow: hidden; }
 .scan-overlay::after {
 content: " "; display: block; position: absolute;
@@ -245,39 +235,20 @@ animation: scan-move 4s linear infinite; pointer-events: none; z-index: 5; opaci
 }
 @keyframes scan-move { 0% { top: -10%; } 100% { top: 110%; } }
 
-/* LOGIN SCREEN STYLES */
-#login-overlay {
-position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #020304; z-index: 9999;
-display: flex; flex-direction: column; align-items: center; justify-content: center;
+/* MARKET SPECIFIC CSS */
+.offer-item {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+    padding: 10px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;
 }
-.login-box {
-width: 300px; padding: 20px; border: 1px solid var(--neon); background: rgba(0,0,0,0.8);
-text-align: center; box-shadow: 0 0 30px rgba(0,229,255,0.1);
+.offer-item:hover { border-color: var(--warning); background: rgba(255, 215, 0, 0.05); }
+.form-group { margin-bottom: 10px; }
+.form-input { 
+    background: rgba(0,0,0,0.5); border: 1px solid #445; color: #fff; padding: 5px; width: 100%; 
+    font-family: inherit; margin-top: 3px;
 }
-.login-input {
-width: 100%; padding: 8px; margin: 5px 0 15px 0; background: #0f151a; border: 1px solid #334;
-color: var(--neon); box-sizing: border-box; font-family: 'Consolas';
-}
-.market-form { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; border-top: 1px solid #334; padding-top: 10px; }
-.market-row { display: grid; grid-template-columns: 2fr 1fr; gap: 5px; }
-select { background: #0f151a; border: 1px solid #334; color: #aaccdd; padding: 5px; font-family: inherit; font-size: 10px; }
-input { background: #0f151a; border: 1px solid #334; color: var(--neon); padding: 5px; font-family: inherit; font-size: 10px; }
-
 </style>
 </head>
 <body id="body">
-
-<div id="login-overlay">
-<div class="login-box">
-<h2 style="color:var(--neon); letter-spacing:3px;">EXODUS NET</h2>
-<p style="color:#889; font-size:10px; margin-bottom:20px;">AUTHENTICATION REQUIRED FOR ORBITAL LINK</p>
-<input type="email" id="auth-email" class="login-input" placeholder="OPERATOR ID (EMAIL)">
-<input type="password" id="auth-pass" class="login-input" placeholder="ACCESS KEY (PASSWORD)">
-<button class="nav-btn" style="width:100%; margin-bottom:10px; border-color:var(--neon);" onclick="doLogin()">INITIALIZE UPLINK</button>
-<button class="nav-btn" style="width:100%; border-color:#555;" onclick="doRegister()">REGISTER NEW ID</button>
-<div id="auth-msg" style="color:var(--danger); font-size:10px; margin-top:10px;"></div>
-</div>
-</div>
 
 <canvas id="map"></canvas>
 
@@ -285,7 +256,7 @@ input { background: #0f151a; border: 1px solid #334; color: var(--neon); padding
 <div id="top-bar" class="interactive">
 <div style="display:flex; gap:15px; align-items: center;">
 <span style="font-weight:bold; letter-spacing:2px; color:#fff;">EXODUS<span style="color:var(--neon)">//</span>PRIME</span>
-<span><span class="tb-val" id="sys-name">ONLINE</span></span>
+<span><span class="tb-val" id="sys-name">SECTOR-42</span></span>
 <span>FLUX: <span class="tb-val" id="top-flux-val">--%</span></span>
 <span>STAM: <span class="tb-val" id="stamina-val" style="color:var(--stamina)">100/100</span></span>
 <button id="btn-daily" class="nav-btn" style="font-size:9px; padding:1px 6px; height:20px; border-color:var(--warning); color:var(--warning);" onclick="claimDailyReward()">...LM</button>
@@ -300,7 +271,7 @@ input { background: #0f151a; border: 1px solid #334; color: var(--neon); padding
 </div>
 
 <div class="top-btn-group">
-<span id="player-id-display" style="color:#555; font-size:9px;">ID: --</span>
+    <div id="net-status" style="font-size:9px; color:#555; margin-right:10px;">OFFLINE</div>
 <span>UTC: <span class="tb-val" id="sys-time">00:00:00</span></span>
 </div>
 </div>
@@ -563,32 +534,41 @@ STATUS: OFFLINE
 <div id="proficiency-content" class="scan-overlay" style="padding:10px;"></div>
 </div>
 
-<div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning);">
-<div class="header" style="font-size:14px; color:white;">GALACTIC MARKET (SECURE SQL)</div>
+<div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning); width: 600px;">
+<div class="header" style="font-size:14px; color:white;">GALACTIC MARKET (SUPABASE LINK)</div>
 <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
-<div style="margin-bottom:10px;">
-<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">CURRENT OFFERS</div>
-<div id="market-offers-list" class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889;">
-LOADING OFFERS...
+<div id="auth-section" style="margin-bottom:10px; border:1px solid #445; padding:10px;">
+    <div style="margin-bottom:5px;">NETWORK LOGIN</div>
+    <div style="display:flex; gap:10px;">
+        <input id="auth-email" type="email" placeholder="Email" class="form-input">
+        <input id="auth-pass" type="password" placeholder="Password" class="form-input">
+        <button onclick="netLogin()">LOGIN</button>
+        <button onclick="netSignup()">SIGNUP</button>
+    </div>
 </div>
-</div>
-
-<div style="border-top: 1px solid #334; padding-top: 10px;">
-<div style="color:var(--warning); font-size:11px; margin-bottom:5px;">CREATE NEW TRADE OFFER</div>
-<div class="market-form">
-<div class="market-row">
-<select id="market-sell-item"></select>
-<input type="number" id="market-sell-qty" value="10" min="1">
-</div>
-<div style="text-align:center; color:#555; font-size:9px;">FOR</div>
-<div class="market-row">
-<select id="market-cost-item"></select>
-<input type="number" id="market-cost-qty" value="10" min="1">
-</div>
-<button class="nav-btn" style="width:100%; margin-top:5px; border-color:var(--warning); color:var(--warning);" onclick="createOffer()">
-+ POST OFFER
-</button>
-</div>
+<div id="market-main-ui" style="display:none;">
+    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+        <button class="nav-btn" onclick="syncStateToCloud()">☁️ SYNC CLOUD</button>
+        <button class="nav-btn" onclick="refreshMarket()">↻ REFRESH</button>
+    </div>
+    <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">CURRENT OFFERS</div>
+    <div id="market-offers-list" class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889;">
+        LOADING NETWORK...
+    </div>
+    
+    <div style="margin-top:10px; border-top:1px solid #334; padding-top:10px;">
+        <div style="font-weight:bold; color:var(--warning); margin-bottom:5px;">CREATE OFFER</div>
+        <div style="display:flex; gap:5px; margin-bottom:5px;">
+            <select id="m-sell-item" class="form-input"></select>
+            <input id="m-sell-qty" type="number" placeholder="Qty" class="form-input" style="width:60px">
+        </div>
+        <div style="display:flex; gap:5px; align-items:center;">
+            <span style="font-size:9px;">FOR:</span>
+            <select id="m-cost-item" class="form-input"></select>
+            <input id="m-cost-qty" type="number" placeholder="Cost" class="form-input" style="width:60px">
+            <button class="nav-btn" style="border-color:var(--warning); color:var(--warning);" onclick="postOffer()">POST</button>
+        </div>
+    </div>
 </div>
 </div>
 
@@ -606,12 +586,21 @@ LOADING OFFERS...
 
 <script>
 // --- SUPABASE CONFIG ---
-const SUPABASE_URL = 'https://mhromrmssyuuvhtrfpgl.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_bkihqTKviDTZLtUL-Eo08A_bur3zFbb';
-const supabase = (typeof supabase !== 'undefined') ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-let USER_SESSION = null;
+// ENTER YOUR SUPABASE PROJECT DETAILS HERE
+const SUPABASE_URL = 'https://lwynwonuuxvqxetvteft.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_xto1p4FV3c6C-m74UXaEFw_XUP7QvnN';
 
-// --- CONFIG ---
+let supabase = null;
+let currentUser = null;
+
+if (typeof createClient !== 'undefined' && SUPABASE_URL !== 'https://lwynwonuuxvqxetvteft.supabase.co') {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log("SUPABASE: Initialized.");
+} else {
+    console.warn("SUPABASE: Not configured or script missing.");
+}
+
+// --- GAME CONFIG ---
 const CANVAS = document.getElementById('map');
 const CTX = CANVAS.getContext('2d', { alpha: false });
 const AU_SCALE = 150;
@@ -646,12 +635,10 @@ methane: { cost: { methane: 25, power: 30, stamina: 10 }, output: { liquidMethan
 oxygen: { cost: { o2: 25, power: 30, stamina: 10 }, output: { liquidO2: 20 }, duration: 2 * 60 * 60 * 1000 },
 synthesis: { cost: { liquidMethane: 20, liquidO2: 20, power: 30, stamina: 15 }, output: { rocketFuel: 40 }, duration: 4 * 60 * 60 * 1000 }
 };
-// FERMENTATION CONFIG
 const FERMENT_CFG = {
 amaranth: { cost: { amaranth: 20, power: 10, stamina: 2 }, output: { min: 13, max: 18 }, duration: 12 * 60 * 60 * 1000 },
 guarana: { cost: { guarana: 25, power: 18, stamina: 1 }, output: { min: 15, max: 20 }, duration: 12 * 60 * 60 * 1000 }
 };
-// CHEM LAB CONFIG
 const CHEM_CFG = {
 pvc: { cost: { methane: 5, h2: 5, water: 5, power: 20, stamina: 4 }, duration: 8 * 60 * 60 * 1000 },
 perchlorate: { cost: { halite: 5, water: 6, power: 20, stamina: 5 }, duration: 6 * 60 * 60 * 1000 },
@@ -669,20 +656,11 @@ const RATION_RECIPES = {
 'Feast': { food: 90, water: 30, energy: 3, waste: 6, minStam: 28, maxStam: 36 }
 };
 const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000;
-// UI CACHE OPTIMIZATION
 const UI_CACHE = {};
-// --- SAVE SYSTEM ---
 const SAVE_KEY = "EXODUS_PRIME_SAVE_V3";
 const StorageSys = {
-save: async function() {
-try { 
-    // LOCAL SAVE (Fast)
-    localStorage.setItem(SAVE_KEY, JSON.stringify(STATE)); 
-    // SERVER SYNC (If Auth) - Only syncing inventory for security check
-    if(USER_SESSION && supabase) {
-        await supabase.from('profiles').update({ inventory: STATE.inventory, updated_at: new Date() }).eq('id', USER_SESSION.user.id);
-    }
-} catch(e) { console.error("Save failed", e); }
+save: function() {
+try { localStorage.setItem(SAVE_KEY, JSON.stringify(STATE)); } catch(e) { console.error("Save failed", e); }
 },
 load: function() {
 try {
@@ -690,7 +668,6 @@ const data = localStorage.getItem(SAVE_KEY);
 if(data) {
 const parsed = JSON.parse(data);
 Object.assign(STATE, parsed);
-// Force existence of items
 const items = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Biological Waste', 'Methane', 'O2', 'Aluminium Ore', 'Copper Ore', 'Titanium Ore', 'Halite', 'Liquid CH4', 'Liquid O2', 'Rocket Fuel', 'PVC', 'Perchlorate', 'PLA', 'Empty Battery', 'Full Battery', 'Amaranth', 'Seeds: Amaranth', 'Guarana', 'Seeds: Guarana', 'Fermented Amaranth', 'Fermented Guarana'];
 items.forEach(i => { if(STATE.inventory[i] === undefined) STATE.inventory[i] = 0; });
 if(STATE.inventory.Barite === undefined) STATE.inventory.Barite = 0;
@@ -708,15 +685,33 @@ slots: [
 };
 } else { STATE.fuelFactory.slots.forEach(s => { if(s.mode === undefined) s.mode = null; }); }
 if (!STATE.cad.slots) {
-const oldActive = STATE.cad.active || false; const oldStart = STATE.cad.startTime || 0; const oldDur = STATE.cad.duration || 0;
-STATE.cad = { slots: [ { id: 0, active: oldActive, startTime: oldStart, duration: oldDur }, { id: 1, active: false, startTime: 0, duration: 0 } ] };
+const oldActive = STATE.cad.active || false;
+const oldStart = STATE.cad.startTime || 0;
+const oldDur = STATE.cad.duration || 0;
+STATE.cad = {
+slots: [
+{ id: 0, active: oldActive, startTime: oldStart, duration: oldDur },
+{ id: 1, active: false, startTime: 0, duration: 0 }
+]
+};
 }
 if (!STATE.chemlab) {
-STATE.chemlab = { slots: [ { id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }, { id: 2, active: false, mode: null, startTime: 0, duration: 0 }, { id: 3, active: false, mode: null, startTime: 0, duration: 0 } ] };
+STATE.chemlab = {
+slots: [
+{ id: 0, active: false, mode: null, startTime: 0, duration: 0 },
+{ id: 1, active: false, mode: null, startTime: 0, duration: 0 },
+{ id: 2, active: false, mode: null, startTime: 0, duration: 0 },
+{ id: 3, active: false, mode: null, startTime: 0, duration: 0 }
+]
+};
 }
-if (!STATE.refinery.fermenterSlot) { STATE.refinery.fermenterSlot = { active: false, startTime: 0, duration: 0, mode: null }; }
+if (!STATE.refinery.fermenterSlot) {
+STATE.refinery.fermenterSlot = { active: false, startTime: 0, duration: 0, mode: null };
+} else if (STATE.refinery.fermenterSlot.mode === undefined) { STATE.refinery.fermenterSlot.mode = null; }
 const newSkills = ['metallurgy', 'chemistry', 'piloting', 'planetary_exploration', 'engineering', 'energy'];
-newSkills.forEach(s => { if (!STATE.skills[s]) STATE.skills[s] = { lvl: 0, xp: 0, next: 100 }; });
+newSkills.forEach(s => {
+if (!STATE.skills[s]) STATE.skills[s] = { lvl: 0, xp: 0, next: 100 };
+});
 if (!STATE.lastDailyClaim) STATE.lastDailyClaim = 0;
 return true;
 }
@@ -768,7 +763,6 @@ hauler: { speed: 0.5, fuel: 2.5, cargo: 400, color: '#d400ff', buildTime: 12000,
 gas:    { speed: 1.2, fuel: 1.5, cargo: 100, color: '#e74c3c', buildTime: 8000, cost: { hull:1, engine:2, lifesupport:1, electronics:1 }, name: "Gas Harvester", bonus: ['Gas'] }
 };
 
-// --- STATE & INITIALIZATION ---
 const STATE = {
 camera: { x: 0, y: 0 }, isDragging: false, lastMouse: { x: 0, y: 0 }, dragStart: { x: 0, y: 0 },
 zoom: 0.8, selectedObj: null,
@@ -829,61 +823,7 @@ composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, activ
 lastDailyClaim: 0
 };
 
-// --- AUTHENTICATION ---
-async function doRegister() {
-const email = document.getElementById('auth-email').value;
-const pass = document.getElementById('auth-pass').value;
-const msg = document.getElementById('auth-msg');
-if(!email || !pass) { msg.innerText = "ENTER CREDENTIALS"; return; }
-msg.innerText = "REGISTERING...";
-const { data, error } = await supabase.auth.signUp({ email, password: pass });
-if(error) msg.innerText = "ERROR: " + error.message;
-else msg.innerText = "REGISTRATION SENT! CHECK EMAIL OR LOGIN.";
-}
-
-async function doLogin() {
-const email = document.getElementById('auth-email').value;
-const pass = document.getElementById('auth-pass').value;
-const msg = document.getElementById('auth-msg');
-if(!email || !pass) { msg.innerText = "ENTER CREDENTIALS"; return; }
-msg.innerText = "CONNECTING...";
-const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-if(error) {
-msg.innerText = "AUTH FAILED: " + error.message;
-} else {
-USER_SESSION = data.session;
-document.getElementById('login-overlay').style.display = 'none';
-document.getElementById('player-id-display').innerText = "ID: " + data.user.id.substring(0,6);
-startGame();
-syncInventory(); // Initial Sync
-}
-}
-
-// --- SECURE INVENTORY SYNC ---
-async function syncInventory() {
-if(!USER_SESSION) return;
-// Fetch inventory from DB to ensure local state is valid before trades
-const { data, error } = await supabase.from('profiles').select('inventory').eq('id', USER_SESSION.user.id).single();
-if(data && data.inventory) {
-// Merge DB inventory into local state (Server Authority)
-Object.keys(data.inventory).forEach(k => {
-    STATE.inventory[k] = data.inventory[k];
-});
-updateUI();
-}
-}
-
-// --- INITIALIZATION ---
 function init() {
-// Only check auth here. Actual game start moved to startGame()
-if(!supabase) {
-document.getElementById('auth-msg').innerText = "ERR: SUPABASE URL MISSING IN CODE.";
-return;
-}
-}
-
-function startGame() {
-// Cache DOM elements
 ['sys-time', 'top-flux-val', 'stamina-val', 'btn-daily', 'grid-output', 'grid-load', 'grid-status-text', 'flux-bar', 'active-systems-panel', 'inventory', 'active-grid-list', 'battery-rack', 'fleet-list', 'obj-list', 'console', 'c-probe', 'c-miner', 'c-hauler', 'c-gas', 'scav-progress', 'btn-scavenge'].forEach(id => {
 const el = document.getElementById(id);
 if(el) UI_CACHE[id] = el;
@@ -896,7 +836,8 @@ STATE.power.batteries[2].charge = 33.33; STATE.power.batteries[3].charge = 33.33
 STATE.power.batteries[4].charge = 33.33;
 } else {
 while(STATE.power.batteries.length < 5) {
-createBattery('inventory'); STATE.power.batteries[STATE.power.batteries.length-1].charge = 33.33;
+createBattery('inventory');
+STATE.power.batteries[STATE.power.batteries.length-1].charge = 33.33;
 }
 log("SYS: SESSION RESTORED.");
 }
@@ -906,125 +847,25 @@ CANVAS.addEventListener('mousedown', e => { STATE.isDragging = true; STATE.dragS
 window.addEventListener('mousemove', e => { if (STATE.isDragging && !DragManager.item) { STATE.camera.x += e.clientX - STATE.lastMouse.x; STATE.camera.y += e.clientY - STATE.lastMouse.y; STATE.lastMouse = {x:e.clientX, y:e.clientY}; }});
 window.addEventListener('mouseup', e => { STATE.isDragging = false; if (Math.hypot(e.clientX - STATE.dragStart.x, e.clientY - STATE.dragStart.y) < 5 && !DragManager.item) handleClick(e); });
 CANVAS.addEventListener('wheel', e => { e.preventDefault(); STATE.zoom = Math.max(0.1, Math.min(STATE.zoom - e.deltaY * 0.001, 3)); }, { passive: false });
+
 setInterval(() => StorageSys.save(), 10000); window.addEventListener('beforeunload', () => StorageSys.save());
 STATE.lastFrameTime = performance.now(); requestAnimationFrame(loop); setInterval(updateUI, 500);
+
+// Initialize Supabase Auth Check
+checkAuth();
 }
 
-// --- MARKET LOGIC (SECURE SQL) ---
-async function openMarket() {
-document.getElementById('modal-overlay').style.display='block';
-['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency'].forEach(id=>document.getElementById(id).style.display='none');
-document.getElementById('modal-market').style.display='block';
-renderMarket();
-// Populate Selects
-const sellSel = document.getElementById('market-sell-item');
-const costSel = document.getElementById('market-cost-item');
-sellSel.innerHTML = ""; costSel.innerHTML = "";
-Object.keys(STATE.inventory).sort().forEach(k => {
-const opt = `<option value="${k}">${k}</option>`;
-sellSel.innerHTML += opt; costSel.innerHTML += opt;
-});
-}
-
-async function renderMarket() {
-const list = document.getElementById('market-offers-list');
-list.innerHTML = "LOADING DATA...";
-// Fetch offers - ONLY OPEN ONES
-const { data, error } = await supabase.from('market_offers').select('*').eq('status', 'OPEN').order('created_at', { ascending: false });
-if(error) {
-list.innerHTML = "ERROR LOADING MARKET.";
-console.error(error);
-return;
-}
-if(!data || data.length === 0) {
-list.innerHTML = "NO ACTIVE OFFERS.";
-return;
-}
-list.innerHTML = "";
-data.forEach(offer => {
-const isMe = offer.seller_id === USER_SESSION.user.id;
-const btnHTML = isMe ?
-`<button onclick="cancelOffer('${offer.id}')" style="border:1px solid #555; background:#222; color:#888; cursor:pointer;">CANCEL</button>` :
-`<button onclick="buyOffer('${offer.id}')" style="border:1px solid var(--success); background:rgba(0,229,255,0.2); color:#fff; cursor:pointer;">BUY (SQL)</button>`;
-
-list.innerHTML += `
-<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:5px; margin-bottom:5px; font-size:10px;">
-<div>
-<span style="color:var(--success)">GET ${offer.item_qty} ${offer.item_name}</span><br>
-<span style="color:var(--warning); font-size:9px;">FOR ${offer.cost_qty} ${offer.cost_name}</span>
-</div>
-<div>${btnHTML}</div>
-</div>`;
-});
-}
-
-async function createOffer() {
-// Sync first to ensure we aren't faking items
-await syncInventory();
-
-const sItem = document.getElementById('market-sell-item').value;
-const sQty = parseInt(document.getElementById('market-sell-qty').value);
-const cItem = document.getElementById('market-cost-item').value;
-const cQty = parseInt(document.getElementById('market-cost-qty').value);
-
-if((STATE.inventory[sItem] || 0) < sQty) {
-alert("NOT ENOUGH " + sItem); return;
-}
-
-// 1. Create Offer in DB
-const { data, error } = await supabase.from('market_offers').insert({
-seller_id: USER_SESSION.user.id,
-seller_name: "Operator", 
-item_name: sItem,
-item_qty: sQty,
-cost_name: cItem,
-cost_qty: cQty,
-status: 'OPEN'
-}).select();
-
-if(error) {
-alert("Server Error: " + error.message);
-} else {
-renderMarket();
-// We don't deduct immediately here in client for display, 
-// a real robust system would lock funds in SQL too.
-// For now, we trust the purchase_offer function to handle the Buyer side safely.
-}
-}
-
-async function cancelOffer(id) {
-const { error } = await supabase.from('market_offers').update({ status: 'CANCELLED' }).eq('id', id);
-if(error) alert("Error cancelling");
-else renderMarket();
-}
-
-async function buyOffer(id) {
-// 100% SECURE TRANSACTION: CALL SQL FUNCTION
-const { data, error } = await supabase.rpc('purchase_offer', { p_offer_id: id });
-
-if(error) {
-alert("RPC Error: " + error.message);
-} else {
-if(data === 'SUCCESS') {
-    log(`MARKET: Transaction Complete.`);
-    await syncInventory(); // Get updated balance from Server
-    renderMarket();
-} else {
-    alert("Transaction Failed: " + data); // SQL will return detailed error (e.g. Insufficient funds)
-}
-}
-}
-
-// --- LOGIC FUNCTIONS ---
 function createBattery(loc) { STATE.power.batteries.push({ id: Math.random().toString(36).substr(2, 6).toUpperCase(), charge: 0, wear: 0, loc: loc }); }
 function installBattery(id) {
 if(STATE.power.batteries.filter(b => b.loc === 'grid').length >= POWER_CFG.maxGridSlots) { log("ERR: GRID FULL."); return; }
-const b = STATE.power.batteries.find(b => b.id === id); if(b) { b.loc = 'grid'; updateUI(); }
+const b = STATE.power.batteries.find(b => b.id === id);
+if(b) { b.loc = 'grid'; updateUI(); }
 }
 function ejectBattery(id) {
 const rackCount = STATE.power.batteries.filter(b => b.loc === 'inventory').length;
 if (rackCount >= 5) return log("ERR: RACK FULL.");
-const b = STATE.power.batteries.find(b => b.id === id); if(b) { b.loc = 'inventory'; updateUI(); }
+const b = STATE.power.batteries.find(b => b.id === id);
+if(b) { b.loc = 'inventory'; updateUI(); }
 }
 function storeBattery(id) {
 const b = STATE.power.batteries.find(b => b.id === id);
@@ -1037,13 +878,15 @@ const b = STATE.power.batteries.find(b => b.id === id);
 if(b) { b.loc = 'inventory'; updateUI(); if(document.getElementById('modal-warehouse').style.display === 'block') renderWarehouse(); log(`RETRIEVE: BAT-${id} returned to Rack.`); }
 }
 function createRation(type) {
-const r = RATION_RECIPES[type]; if(!r) return;
+const r = RATION_RECIPES[type];
+if(!r) return;
 if(STATE.power.gridStatus === 'BLACKOUT') return log("ERR: NO POWER.");
 let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge,0);
 if(p < r.energy) return log("ERR: LOW ENERGY.");
 if((STATE.inventory.Food||0)<r.food || (STATE.inventory.Water||0)<r.water) return log("ERR: MISSING INGREDIENTS.");
 drainBuffer(r.energy); STATE.inventory.Food-=r.food; STATE.inventory.Water-=r.water;
-STATE.inventory[type]=(STATE.inventory[type]||0)+1; log(`KITCHEN: ${type} prepared.`); updateUI();
+STATE.inventory[type]=(STATE.inventory[type]||0)+1;
+log(`KITCHEN: ${type} prepared.`); updateUI();
 }
 function plantCrop(type) {
 const s = STATE.greenhouse.selectedSlot; if(s===null) return;
@@ -1054,31 +897,35 @@ let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge
 if(p < c.cost.energy) return log("ERR: LOW ENERGY.");
 if((STATE.inventory.Water||0)<c.cost.water || (STATE.inventory.Soil||0)<c.cost.soil || (STATE.inventory["Seeds: "+type]||0)<c.cost.seed) return log("ERR: MISSING RES.");
 useStamina(c.cost.stamina); drainBuffer(c.cost.energy);
-STATE.inventory.Water-=c.cost.water; STATE.inventory.Soil-=c.cost.soil; STATE.inventory["Seeds: "+type]-=c.cost.seed;
+STATE.inventory.Water-=c.cost.water;
+STATE.inventory.Soil-=c.cost.soil; STATE.inventory["Seeds: "+type]-=c.cost.seed;
 const slot = STATE.greenhouse.slots[s];
 slot.status='growing'; slot.crop=type; slot.startTime=Date.now(); slot.duration=c.time;
 log(`AGRI: Planted ${type}.`); closeCropSelect(); renderGreenhouse(); updateUI();
 }
 function harvestCrop(id) {
-const s = STATE.greenhouse.slots[id]; if(s.status!=='ready') return;
+const s = STATE.greenhouse.slots[id];
+if(s.status!=='ready') return;
 const c = CROPS[s.crop];
 let y = Math.floor(Math.random()*(c.yieldMax-c.yieldMin+1))+c.yieldMin;
 if(Math.random() < (STATE.skills.agriculture.lvl*0.05)) { y=Math.floor(y*1.5); log("AGRI: CRITICAL HARVEST!"); }
 if (s.crop === 'Sprouts') { STATE.inventory.Food=(STATE.inventory.Food||0)+y; log(`AGRI: +${y} Food.`); }
 else { STATE.inventory[s.crop]=(STATE.inventory[s.crop]||0)+y; log(`AGRI: +${y} ${s.crop}.`);
-if (s.crop === 'Guarana' && Math.random() < 0.10) { STATE.inventory["Seeds: Guarana"] = (STATE.inventory["Seeds: Guarana"] || 0) + 1; log("AGRI: Lucky! Recovered 1 Guarana Seed."); }
-}
+if (s.crop === 'Guarana') { if (Math.random() < 0.10) { STATE.inventory["Seeds: Guarana"] = (STATE.inventory["Seeds: Guarana"] || 0) + 1; log("AGRI: Lucky! Recovered 1 Guarana Seed."); } } }
 STATE.skills.agriculture.xp+=c.xp;
 if(STATE.skills.agriculture.xp >= STATE.skills.agriculture.next) { STATE.skills.agriculture.lvl++; STATE.skills.agriculture.xp=0; STATE.skills.agriculture.next=Math.floor(STATE.skills.agriculture.next*1.5); log(`SKILL UP: AGRI LVL ${STATE.skills.agriculture.lvl}`); }
 s.status='empty'; s.crop=null; renderGreenhouse(); updateUI();
 }
 function renderGreenhouse() {
-const g = document.getElementById('greenhouse-grid'); if (!g) return;
+const g = document.getElementById('greenhouse-grid');
+if (!g) return;
 g.innerHTML = STATE.greenhouse.slots.map(s => {
-if(s.status==='empty') return `<div class="gh-slot empty" onclick="openCropSelect(${s.id})"><div style="font-size:30px; color:#444;">+</div></div>`;
+if(s.status==='empty') { return `<div class="gh-slot empty" onclick="openCropSelect(${s.id})"><div style="font-size:30px; color:#444;">+</div></div>`; }
+else {
 const r=s.status==='ready'; let icon = '🌱';
 if(r) { if(s.crop === 'Sprouts') icon = '🥦'; else if(s.crop === 'Amaranth') icon = '🌾'; else if(s.crop === 'Guarana') icon = '🔴'; }
 return `<div class="gh-slot ${s.status}" ${r ? `onclick="harvestCrop(${s.id})"` : ''}><div class="gh-icon">${icon}</div><div style="font-size:10px; color:${r?'var(--agri)':'#aaa'}">${s.crop}</div><div class="gh-progress-bg" style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="gh-prog-${s.id}" style="height:100%; background:var(--agri); width:0%"></div></div>${r?'<div style="font-size:9px; color:var(--agri);">HARVEST</div>':''}</div>`;
+}
 }).join('');
 const skillVal = document.getElementById('gh-skill-val'); if(skillVal) skillVal.innerText = STATE.skills.agriculture.lvl;
 const soilVal = document.getElementById('gh-soil-val'); if(soilVal) soilVal.innerText = STATE.inventory.Soil;
@@ -1087,29 +934,39 @@ const seedsVal = document.getElementById('gh-seeds-val'); if(seedsVal) seedsVal.
 function openCropSelect(id) { if(STATE.greenhouse.slots[id].status!=='empty')return; STATE.greenhouse.selectedSlot=id; document.getElementById('crop-select-overlay').style.display='flex'; }
 function closeCropSelect() { document.getElementById('crop-select-overlay').style.display='none'; STATE.greenhouse.selectedSlot=null; }
 function startCompost(id) {
-const s = STATE.composter.slots[id]; if(s.active || STATE.power.gridStatus === 'BLACKOUT') return;
+const s = STATE.composter.slots[id];
+if(s.active || STATE.power.gridStatus === 'BLACKOUT') return;
 let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge,0);
 if(p < COMPOST_CFG.cost.energy) return log("ERR: LOW POWER.");
 if((STATE.inventory.Regolith||0) < COMPOST_CFG.cost.regolith) return log("ERR: NO REGOLITH.");
 if((STATE.inventory["Biological Waste"]||0) < COMPOST_CFG.cost.waste) return log("ERR: NO WASTE.");
 if((STATE.inventory.Water||0) < COMPOST_CFG.cost.water) return log("ERR: NO WATER.");
 if(!useStamina(COMPOST_CFG.cost.stamina)) return;
-drainBuffer(COMPOST_CFG.cost.energy); STATE.inventory.Regolith -= COMPOST_CFG.cost.regolith;
-STATE.inventory["Biological Waste"] -= COMPOST_CFG.cost.waste; STATE.inventory.Water -= COMPOST_CFG.cost.water;
+drainBuffer(COMPOST_CFG.cost.energy);
+STATE.inventory.Regolith -= COMPOST_CFG.cost.regolith;
+STATE.inventory["Biological Waste"] -= COMPOST_CFG.cost.waste;
+STATE.inventory.Water -= COMPOST_CFG.cost.water;
 s.active = true; s.startTime = Date.now(); s.duration = COMPOST_CFG.duration;
 log(`BIO: Composter ${id+1} started.`); renderComposter(); updateUI();
 }
 function completeCompost(s) {
-s.active = false; STATE.inventory.Soil = (STATE.inventory.Soil||0) + COMPOST_CFG.output.soil;
+s.active = false;
+STATE.inventory.Soil = (STATE.inventory.Soil||0) + COMPOST_CFG.output.soil;
 log(`BIO: Composter ${s.id+1} finished. +${COMPOST_CFG.output.soil} Soil.`); renderComposter(); updateUI();
 }
 function renderComposter() {
 const c = document.getElementById('composter-ui'); if(!c) return;
 c.innerHTML = STATE.composter.slots.map(s => {
 let t = "IDLE", p = 0;
-if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
+if(s.active) {
+let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
 let btnClass = s.active ? "ref-btn btn-filtering" : "ref-btn";
-return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>UNIT ${s.id+1}</span><span id="cp-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="cp-bar-${s.id}" style="height:100%; background:var(--agri); width:${p}%"></div></div><button class="${btnClass}" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--agri); color:var(--agri);" onclick="startCompost(${s.id})" ${s.active?'disabled':''}>${s.active?'ACTIVE':'START CYCLE'}</button></div>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);">
+<div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>UNIT ${s.id+1}</span><span id="cp-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div>
+<div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="cp-bar-${s.id}" style="height:100%; background:var(--agri); width:${p}%"></div></div>
+<button class="${btnClass}" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--agri); color:var(--agri);" onclick="startCompost(${s.id})" ${s.active?'disabled':''}>${s.active?'ACTIVE':'START CYCLE'}</button></div>`;
 }).join('');
 }
 function startSabatier(id, mode) {
@@ -1121,8 +978,10 @@ if(p < cfg.cost.power) return log("ERR: LOW POWER.");
 if(mode === 'split') { if((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: NO WATER."); }
 else if(mode === 'methane') { if((STATE.inventory.H2||0) < cfg.cost.h2) return log("ERR: NO H2."); if((STATE.inventory.CO2||0) < cfg.cost.co2) return log("ERR: NO CO2."); }
 useStamina(cfg.cost.stamina);
-if(mode === 'split') { STATE.inventory.Water -= cfg.cost.water; } else if(mode === 'methane') { STATE.inventory.H2 -= cfg.cost.h2; STATE.inventory.CO2 -= cfg.cost.co2; }
-drainBuffer(cfg.cost.power); s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+if(mode === 'split') { STATE.inventory.Water -= cfg.cost.water; }
+else if(mode === 'methane') { STATE.inventory.H2 -= cfg.cost.h2; STATE.inventory.CO2 -= cfg.cost.co2; }
+drainBuffer(cfg.cost.power);
+s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
 log(`SABATIER: Reactor ${id+1} started [${mode.toUpperCase()}].`); renderSabatier(); updateUI();
 }
 function completeSabatier(s) {
@@ -1130,7 +989,7 @@ const cfg = SABATIER_CFG[s.mode];
 if(s.mode === 'split') {
 STATE.inventory.H2 = (STATE.inventory.H2||0) + cfg.output.h2; STATE.inventory.O2 = (STATE.inventory.O2||0) + cfg.output.o2;
 let msg = `SABATIER: Reactor ${s.id+1} finished. +H2, +O2`;
-if (Math.random() < 0.2222) { let haliteAmt = Math.floor(Math.random() * 5) + 2; STATE.inventory.Halite = (STATE.inventory.Halite || 0) + haliteAmt; msg += `, +${haliteAmt} Halite`; }
+if (Math.random() < 0.2222) { let haliteAmt = Math.floor(Math.random() * (6 - 2 + 1)) + 2; STATE.inventory.Halite = (STATE.inventory.Halite || 0) + haliteAmt; msg += `, +${haliteAmt} Halite`; }
 log(msg + ".");
 } else if(s.mode === 'methane') {
 STATE.inventory.Methane = (STATE.inventory.Methane||0) + cfg.output.methane; STATE.inventory.Water = (STATE.inventory.Water||0) + cfg.output.water;
@@ -1142,9 +1001,16 @@ function renderSabatier() {
 const c = document.getElementById('sabatier-ui'); if(!c) return;
 c.innerHTML = STATE.refinery.sabatierSlots.map(s => {
 let t = "IDLE", p = 0;
-if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
-let controls = !s.active ? `<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--miner);" onclick="startSabatier(${s.id}, 'split')">SPLIT WATER</button><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--warning);" onclick="startSabatier(${s.id}, 'methane')">METHANE</button></div>` : `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>${s.mode.toUpperCase()}...</button>`;
-return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CORE ${s.id+1}</span><span id="sab-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="sab-bar-${s.id}" style="height:100%; background:var(--warning); width:${p}%"></div></div>${controls}</div>`;
+if(s.active) {
+let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
+let controls = !s.active ?
+`<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--miner);" onclick="startSabatier(${s.id}, 'split')">SPLIT WATER</button><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--warning);" onclick="startSabatier(${s.id}, 'methane')">METHANE</button></div>` :
+`<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>${s.mode.toUpperCase()}...</button>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);">
+<div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CORE ${s.id+1}</span><span id="sab-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div>
+<div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="sab-bar-${s.id}" style="height:100%; background:var(--warning); width:${p}%"></div></div>${controls}</div>`;
 }).join('');
 }
 function startCad(id) {
@@ -1153,11 +1019,13 @@ if(s.active || STATE.power.gridStatus==='BLACKOUT') return;
 if(!useStamina(CAD_CFG.staminaCost)) return;
 let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge,0);
 if(p < CAD_CFG.powerCost) return log("ERR: LOW POWER.");
-drainBuffer(CAD_CFG.powerCost); s.active = true; s.startTime = Date.now(); s.duration = CAD_CFG.duration;
+drainBuffer(CAD_CFG.powerCost);
+s.active = true; s.startTime = Date.now(); s.duration = CAD_CFG.duration;
 log(`ATMOS: C.A.D. Cell ${id+1} started.`); renderCad(); updateUI();
 }
 function completeCad(s) {
-s.active = false; let msg = `CAD ${s.id+1} DONE: `;
+s.active = false;
+let msg = `CAD ${s.id+1} DONE: `;
 let c = Math.floor(Math.random()*4)+2; STATE.inventory.CO2 = (STATE.inventory.CO2||0)+c; msg+=`${c} CO2`;
 if(Math.random() < 0.1111) { let b=Math.floor(Math.random()*10)+1; STATE.inventory.CO2+=b; msg+=` (+${b} Bonus)`; }
 if(Math.random() < 0.15) { let n=Math.floor(Math.random()*2)+1; STATE.inventory.Nitrogen=(STATE.inventory.Nitrogen||0)+n; msg+=`, ${n} N2`; }
@@ -1171,9 +1039,23 @@ function renderCad() {
 const c = document.getElementById('cad-container'); if(!c) return;
 c.innerHTML = STATE.cad.slots.map(s => {
 let t = "IDLE", p = 0;
-if (s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
+if (s.active) {
+let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
 let btnClass = s.active ? "ref-btn btn-filtering" : "ref-btn";
-return `<div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1);"><div style="color:var(--neon); font-weight:bold;">C.A.D. CELL ${s.id+1}</div><div style="font-size:10px; color:#889; margin:5px 0;">Cost: 25kW <span style="color:var(--stamina)">[-5 Stam]</span></div><div style="font-size:9px; color:#666; margin-bottom:5px;">Cycle: 12h. Output: CO₂, N₂, Ar, Ne...</div><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa; margin-top:2px;"><span>STATUS</span><span id="cad-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:2px;"><div id="cad-bar-${s.id}" style="height:100%; background:var(--neon); width:${p}%; box-shadow: 0 0 5px var(--neon); transition: width 0.5s;"></div></div><button class="${btnClass}" id="cad-btn-${s.id}" style="width:100%" onclick="startCad(${s.id})" ${s.active?'disabled':''}>${s.active?'EXTRACTION...':'START EXTRACTION (12h)'}</button></div>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1);">
+<div style="color:var(--neon); font-weight:bold;">C.A.D. CELL ${s.id+1}</div>
+<div style="font-size:10px; color:#889; margin:5px 0;">Cost: 25kW <span style="color:var(--stamina)">[-5 Stam]</span></div>
+<div style="font-size:9px; color:#666; margin-bottom:5px;">Cycle: 12h. Output: CO₂, N₂, Ar, Ne...</div>
+<div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa; margin-top:2px;">
+<span>STATUS</span><span id="cad-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span>
+</div>
+<div style="width:100%; height:4px; background:#111; margin-top:2px;">
+<div id="cad-bar-${s.id}" style="height:100%; background:var(--neon); width:${p}%; box-shadow: 0 0 5px var(--neon); transition: width 0.5s;"></div>
+</div>
+<button class="${btnClass}" id="cad-btn-${s.id}" style="width:100%" onclick="startCad(${s.id})" ${s.active?'disabled':''}>${s.active?'EXTRACTION...':'START EXTRACTION (12h)'}</button>
+</div>`;
 }).join('');
 }
 function startWaterFilter(id) {
@@ -1204,7 +1086,8 @@ s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.durat
 log(`REF: Fermentation (${mode}) started.`); renderWaterFilter(); updateUI();
 }
 function completeFermentation() {
-const s = STATE.refinery.fermenterSlot; const cfg = FERMENT_CFG[s.mode]; s.active = false;
+const s = STATE.refinery.fermenterSlot; const cfg = FERMENT_CFG[s.mode];
+s.active = false;
 let yieldAmt = Math.floor(Math.random() * (cfg.output.max - cfg.output.min + 1)) + cfg.output.min;
 if(s.mode === 'amaranth') { STATE.inventory["Fermented Amaranth"] = (STATE.inventory["Fermented Amaranth"]||0) + yieldAmt; log(`REF: Fermentation complete. +${yieldAmt} Fermented Amaranth.`); }
 else if(s.mode === 'guarana') { STATE.inventory["Fermented Guarana"] = (STATE.inventory["Fermented Guarana"]||0) + yieldAmt; log(`REF: Fermentation complete. +${yieldAmt} Fermented Guarana.`); }
@@ -1214,15 +1097,20 @@ function renderWaterFilter() {
 const c=document.getElementById('water-filter-ui'); if(!c)return;
 let html = STATE.refinery.waterSlots.map(s => {
 let t="IDLE", p=0;
-if(s.active) { let el=Date.now()-s.startTime; p=Math.min(100,(el/s.duration)*100); let r=Math.max(0,s.duration-el); t=`${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m ${Math.floor((r%60000)/1000)}s`; }
+if(s.active) {
+let el=Date.now()-s.startTime; p=Math.min(100,(el/s.duration)*100); let r=Math.max(0,s.duration-el);
+t=`${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m ${Math.floor((r%60000)/1000)}s`;
+}
 let btnClass = s.active ? "ref-btn btn-filtering" : "ref-btn";
 return `<div class="wf-slot"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CELL ${s.id+1}</span><span id="wf-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div class="wf-progress-bg" style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="wf-bar-${s.id}" style="height:100%; background:var(--neon); width:${p}%"></div></div><button id="wf-btn-${s.id}" class="${btnClass}" style="width:100%; margin-top:5px; font-size:9px;" onclick="startWaterFilter(${s.id})" ${s.active?'disabled':''}>${s.active?'FILTERING...':'START'}</button></div>`;
 }).join('');
-const f = STATE.refinery.fermenterSlot; let fTime = "IDLE"; let fProg = 0;
-if(f.active) { let el = Date.now() - f.startTime; fProg = Math.min(100, (el / f.duration) * 100); let r = Math.max(0, f.duration - el); fTime = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
-let fControls = "";
-if (f.active) { fControls = `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:#d400ff; color:#d400ff;" disabled>FERMENTING ${f.mode.toUpperCase()}...</button>`; }
-else { fControls = `<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:9px; border-color:#d400ff; color:#d400ff;" onclick="startFermentation('amaranth')">AMARANTH</button><button class="ref-btn" style="flex:1; font-size:9px; border-color:#cc0000; color:#cc0000;" onclick="startFermentation('guarana')">GUARANA</button></div>`; }
+const f = STATE.refinery.fermenterSlot;
+let fTime = "IDLE", fProg = 0;
+if(f.active) {
+let el = Date.now() - f.startTime; fProg = Math.min(100, (el / f.duration) * 100);
+let r = Math.max(0, f.duration - el); fTime = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
+let fControls = f.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:#d400ff; color:#d400ff;" disabled>FERMENTING ${f.mode.toUpperCase()}...</button>` : `<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:9px; border-color:#d400ff; color:#d400ff;" onclick="startFermentation('amaranth')">AMARANTH</button><button class="ref-btn" style="flex:1; font-size:9px; border-color:#cc0000; color:#cc0000;" onclick="startFermentation('guarana')">GUARANA</button></div>`;
 html += `<div class="wf-slot" style="border-color: #8844cc; margin-top:10px;"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span style="color:#d400ff">FERMENTER</span><span id="ferment-time" style="color:${f.active?'var(--neon)':'#555'}">${fTime}</span></div><div style="font-size:8px; color:#889; margin:2px 0;">Transforms raw biomass into potent extracts.</div><div class="wf-progress-bg" style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="ferment-bar" style="height:100%; background:#d400ff; width:${fProg}%"></div></div>${fControls}</div>`;
 c.innerHTML = html;
 }
@@ -1243,43 +1131,39 @@ else if (mode === 'steel') { STATE.inventory.CO2 -= cfg.cost.co2; STATE.inventor
 else if (mode === 'aluminium') { STATE.inventory.Regolith -= cfg.cost.regolith; }
 else if (mode === 'copper') { STATE.inventory.Regolith -= cfg.cost.regolith; }
 else if (mode === 'titanium') { STATE.inventory.Regolith -= cfg.cost.regolith; }
-drainBuffer(cfg.cost.power); s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+drainBuffer(cfg.cost.power);
+s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
 log(`SMELTER: Crucible ${id+1} activated [${mode.toUpperCase()}].`); renderSmelter(); updateUI();
 }
 function completeSmelter(s) {
 s.active = false; let msg = "";
-if (s.mode === 'iron') {
-let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Iron Ore`;
-if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; }
-STATE.inventory["Iron Ore"] = (STATE.inventory["Iron Ore"] || 0) + yieldAmt;
-} else if (s.mode === 'steel') {
-let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `FORGE ${s.id+1}: Created ${yieldAmt} Steel`;
-if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; }
-STATE.inventory.Steel = (STATE.inventory.Steel || 0) + yieldAmt;
-if(Math.random() < 0.1111) { let bariteAmt = Math.floor(Math.random() * (5 - 1 + 1)) + 1; STATE.inventory.Barite = (STATE.inventory.Barite || 0) + bariteAmt; msg += ` Found ${bariteAmt} Barite!`; }
-} else if (s.mode === 'aluminium') {
-let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Alum. Ore`;
-if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; }
-STATE.inventory["Aluminium Ore"] = (STATE.inventory["Aluminium Ore"] || 0) + yieldAmt;
-} else if (s.mode === 'copper') {
-let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Copper Ore`;
-if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; }
-STATE.inventory["Copper Ore"] = (STATE.inventory["Copper Ore"] || 0) + yieldAmt;
-if(Math.random() < 0.1111) { let bariteAmt = Math.floor(Math.random() * (5 - 1 + 1)) + 1; STATE.inventory.Barite = (STATE.inventory.Barite || 0) + bariteAmt; msg += ` Found ${bariteAmt} Barite!`; }
-} else if (s.mode === 'titanium') {
-let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Titanium Ore`;
-if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; }
-STATE.inventory["Titanium Ore"] = (STATE.inventory["Titanium Ore"] || 0) + yieldAmt;
-}
+if (s.mode === 'iron') { let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Iron Ore`; if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Iron Ore"] = (STATE.inventory["Iron Ore"] || 0) + yieldAmt; }
+else if (s.mode === 'steel') { let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `FORGE ${s.id+1}: Created ${yieldAmt} Steel`; if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory.Steel = (STATE.inventory.Steel || 0) + yieldAmt; if(Math.random() < 0.1111) { let bariteAmt = Math.floor(Math.random() * (5 - 1 + 1)) + 1; STATE.inventory.Barite = (STATE.inventory.Barite || 0) + bariteAmt; msg += ` Found ${bariteAmt} Barite!`; } }
+else if (s.mode === 'aluminium') { let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Alum. Ore`; if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Aluminium Ore"] = (STATE.inventory["Aluminium Ore"] || 0) + yieldAmt; }
+else if (s.mode === 'copper') { let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Copper Ore`; if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Copper Ore"] = (STATE.inventory["Copper Ore"] || 0) + yieldAmt; if(Math.random() < 0.1111) { let bariteAmt = Math.floor(Math.random() * (5 - 1 + 1)) + 1; STATE.inventory.Barite = (STATE.inventory.Barite || 0) + bariteAmt; msg += ` Found ${bariteAmt} Barite!`; } }
+else if (s.mode === 'titanium') { let yieldAmt = Math.floor(Math.random() * (5 - 2 + 1)) + 2; msg = `SMELTER ${s.id+1}: Extracted ${yieldAmt} Titanium Ore`; if(Math.random() < 0.1111) { let bonus = Math.floor(Math.random() * (8 - 1 + 1)) + 1; yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Titanium Ore"] = (STATE.inventory["Titanium Ore"] || 0) + yieldAmt; }
 s.mode = null; log(msg); renderSmelter(); updateUI();
 }
 function renderSmelter() {
 const c = document.getElementById('smelter-ui'); if(!c) return;
 c.innerHTML = STATE.refinery.smelterSlots.map(s => {
 let t = "IDLE", p = 0;
-if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
-let controls = !s.active ? `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--mars);" onclick="startSmelter(${s.id}, 'iron')">SMELT IRON</button><button class="ref-btn" style="font-size:8px; border-color:#ccc; color:#ccc;" onclick="startSmelter(${s.id}, 'aluminium')">SMELT AL</button><button class="ref-btn" style="font-size:8px; border-color:var(--copper); color:var(--copper);" onclick="startSmelter(${s.id}, 'copper')">SMELT CU</button><button class="ref-btn" style="font-size:8px; border-color:var(--titanium); color:var(--titanium);" onclick="startSmelter(${s.id}, 'titanium')">SMELT TI</button><button class="ref-btn" style="font-size:8px; grid-column:span 2; border-color:var(--miner);" onclick="startSmelter(${s.id}, 'steel')">FORGE STEEL</button></div>` : `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--mars); color:var(--mars);" disabled>${s.mode === 'steel' ? 'FORGING...' : 'MELTING...'}</button>`;
-return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CRUCIBLE ${s.id+1}</span><span id="sm-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="sm-bar-${s.id}" style="height:100%; background:var(--mars); width:${p}%"></div></div>${controls}</div>`;
+if(s.active) {
+let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
+let controls = !s.active ?
+`<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;">
+<button class="ref-btn" style="font-size:8px; border-color:var(--mars);" onclick="startSmelter(${s.id}, 'iron')">SMELT IRON</button>
+<button class="ref-btn" style="font-size:8px; border-color:#ccc; color:#ccc;" onclick="startSmelter(${s.id}, 'aluminium')">SMELT AL</button>
+<button class="ref-btn" style="font-size:8px; border-color:var(--copper); color:var(--copper);" onclick="startSmelter(${s.id}, 'copper')">SMELT CU</button>
+<button class="ref-btn" style="font-size:8px; border-color:var(--titanium); color:var(--titanium);" onclick="startSmelter(${s.id}, 'titanium')">SMELT TI</button>
+<button class="ref-btn" style="font-size:8px; grid-column:span 2; border-color:var(--miner);" onclick="startSmelter(${s.id}, 'steel')">FORGE STEEL</button>
+</div>` :
+`<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--mars); color:var(--mars);" disabled>${s.mode === 'steel' ? 'FORGING...' : 'MELTING...'}</button>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);">
+<div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CRUCIBLE ${s.id+1}</span><span id="sm-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div>
+<div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="sm-bar-${s.id}" style="height:100%; background:var(--mars); width:${p}%"></div></div>${controls}</div>`;
 }).join('');
 }
 function startFuelProcess(id, mode) {
@@ -1288,14 +1172,11 @@ if (s.active || STATE.power.gridStatus === 'BLACKOUT') return;
 if (STATE.stamina.val < cfg.cost.stamina) return log("ALERT: HUNGRY.");
 let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge,0);
 if (p < cfg.cost.power) return log("ERR: LOW POWER.");
-if (mode === 'methane') { if ((STATE.inventory.Methane||0) < cfg.cost.methane) return log("ERR: NO METHANE."); }
-else if (mode === 'oxygen') { if ((STATE.inventory.O2||0) < cfg.cost.o2) return log("ERR: NO OXYGEN."); }
-else if (mode === 'synthesis') { if ((STATE.inventory["Liquid CH4"]||0) < cfg.cost.liquidMethane) return log("ERR: NO LIQ CH4."); if ((STATE.inventory["Liquid O2"]||0) < cfg.cost.liquidO2) return log("ERR: NO LIQ O2."); }
-useStamina(cfg.cost.stamina);
-if (mode === 'methane') { STATE.inventory.Methane -= cfg.cost.methane; }
-else if (mode === 'oxygen') { STATE.inventory.O2 -= cfg.cost.o2; }
-else if (mode === 'synthesis') { STATE.inventory["Liquid CH4"] -= cfg.cost.liquidMethane; STATE.inventory["Liquid O2"] -= cfg.cost.liquidO2; }
-drainBuffer(cfg.cost.power); s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+if (mode === 'methane') { if ((STATE.inventory.Methane||0) < cfg.cost.methane) return log("ERR: NO METHANE."); STATE.inventory.Methane -= cfg.cost.methane; }
+else if (mode === 'oxygen') { if ((STATE.inventory.O2||0) < cfg.cost.o2) return log("ERR: NO OXYGEN."); STATE.inventory.O2 -= cfg.cost.o2; }
+else if (mode === 'synthesis') { if ((STATE.inventory["Liquid CH4"]||0) < cfg.cost.liquidMethane) return log("ERR: NO LIQ CH4."); if ((STATE.inventory["Liquid O2"]||0) < cfg.cost.liquidO2) return log("ERR: NO LIQ O2."); STATE.inventory["Liquid CH4"] -= cfg.cost.liquidMethane; STATE.inventory["Liquid O2"] -= cfg.cost.liquidO2; }
+drainBuffer(cfg.cost.power);
+s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
 log(`FUEL: Slot ${id+1} Process (${mode.toUpperCase()}) started.`); renderFuelFactory(); updateUI();
 }
 function completeFuelProcess(s) {
@@ -1309,11 +1190,14 @@ function renderFuelFactory() {
 const c = document.getElementById('fuel-factory-ui'); if(!c) return;
 c.innerHTML = STATE.fuelFactory.slots.map(s => {
 let t = "IDLE", p = 0;
-if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
-let btn = "";
-if (s.active) { let lbl = s.mode === 'synthesis' ? 'SYNTHESIS' : 'LIQUEFYING ' + s.mode.toUpperCase(); btn = `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--fuel); color:var(--fuel);" disabled>${lbl}...</button>`; }
-else { btn = `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--fuel); color:var(--fuel);" onclick="startFuelProcess(${s.id}, 'methane')">LIQ CH4</button><button class="ref-btn" style="font-size:8px; border-color:var(--neon); color:var(--neon);" onclick="startFuelProcess(${s.id}, 'oxygen')">LIQ O2</button><button class="ref-btn" style="grid-column: span 2; font-size:9px; border-color:var(--white); color:var(--white); background: rgba(255,255,255,0.1);" onclick="startFuelProcess(${s.id}, 'synthesis')">SYNTHESIS (FUEL)</button></div>`; }
-return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>SLOT ${s.id+1}</span><span id="fuel-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="fuel-bar-${s.id}" style="height:100%; background:var(--fuel); width:${p}%"></div></div>${btn}</div>`;
+if(s.active) {
+let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
+let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--fuel); color:var(--fuel);" disabled>${s.mode === 'synthesis' ? 'SYNTHESIS' : 'LIQUEFYING ' + s.mode.toUpperCase()}...</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--fuel); color:var(--fuel);" onclick="startFuelProcess(${s.id}, 'methane')">LIQ CH4</button><button class="ref-btn" style="font-size:8px; border-color:var(--neon); color:var(--neon);" onclick="startFuelProcess(${s.id}, 'oxygen')">LIQ O2</button><button class="ref-btn" style="grid-column: span 2; font-size:9px; border-color:var(--white); color:var(--white); background: rgba(255,255,255,0.1);" onclick="startFuelProcess(${s.id}, 'synthesis')">SYNTHESIS (FUEL)</button></div>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);">
+<div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>SLOT ${s.id+1}</span><span id="fuel-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div>
+<div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="fuel-bar-${s.id}" style="height:100%; background:var(--fuel); width:${p}%"></div></div>${btn}</div>`;
 }).join('');
 }
 function startChem(id, mode) {
@@ -1322,15 +1206,11 @@ if (s.active || STATE.power.gridStatus === 'BLACKOUT') return;
 if (STATE.stamina.val < cfg.cost.stamina) return log("ALERT: HUNGRY.");
 let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge,0);
 if (p < cfg.cost.power) return log("ERR: LOW POWER.");
-if (mode === 'pvc') { if ((STATE.inventory.Methane||0) < cfg.cost.methane) return log("ERR: MISSING METHANE."); if ((STATE.inventory.H2||0) < cfg.cost.h2) return log("ERR: MISSING H2."); if ((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: MISSING WATER."); }
-else if (mode === 'perchlorate') { if ((STATE.inventory.Halite||0) < cfg.cost.halite) return log("ERR: MISSING HALITE."); if ((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: MISSING WATER."); }
-else if (mode === 'pla') { if ((STATE.inventory["Fermented Guarana"]||0) < cfg.cost["Fermented Guarana"]) return log("ERR: MISSING FERM. GUARANA."); if ((STATE.inventory.CO2||0) < cfg.cost.co2) return log("ERR: MISSING CO2."); }
-else if (mode === 'empty_battery') { if ((STATE.inventory.Perchlorate||0) < cfg.cost.perchlorate) return log("ERR: MISSING PERCHLORATE."); if ((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: MISSING WATER."); if ((STATE.inventory["Iron Ore"]||0) < cfg.cost["Iron Ore"]) return log("ERR: MISSING IRON ORE."); if ((STATE.inventory.PVC||0) < cfg.cost.PVC) return log("ERR: MISSING PVC."); }
+if (mode === 'pvc') { if ((STATE.inventory.Methane||0) < cfg.cost.methane) return log("ERR: MISSING METHANE."); if ((STATE.inventory.H2||0) < cfg.cost.h2) return log("ERR: MISSING H2."); if ((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: MISSING WATER."); STATE.inventory.Methane -= cfg.cost.methane; STATE.inventory.H2 -= cfg.cost.h2; STATE.inventory.Water -= cfg.cost.water; }
+else if (mode === 'perchlorate') { if ((STATE.inventory.Halite||0) < cfg.cost.halite) return log("ERR: MISSING HALITE."); if ((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: MISSING WATER."); STATE.inventory.Halite -= cfg.cost.halite; STATE.inventory.Water -= cfg.cost.water; }
+else if (mode === 'pla') { if ((STATE.inventory["Fermented Guarana"]||0) < cfg.cost["Fermented Guarana"]) return log("ERR: MISSING FERM. GUARANA."); if ((STATE.inventory.CO2||0) < cfg.cost.co2) return log("ERR: MISSING CO2."); STATE.inventory["Fermented Guarana"] -= cfg.cost["Fermented Guarana"]; STATE.inventory.CO2 -= cfg.cost.co2; }
+else if (mode === 'empty_battery') { if ((STATE.inventory.Perchlorate||0) < cfg.cost.perchlorate) return log("ERR: MISSING PERCHLORATE."); if ((STATE.inventory.Water||0) < cfg.cost.water) return log("ERR: MISSING WATER."); if ((STATE.inventory["Iron Ore"]||0) < cfg.cost["Iron Ore"]) return log("ERR: MISSING IRON ORE."); if ((STATE.inventory.PVC||0) < cfg.cost.PVC) return log("ERR: MISSING PVC."); STATE.inventory.Perchlorate -= cfg.cost.perchlorate; STATE.inventory.Water -= cfg.cost.water; STATE.inventory["Iron Ore"] -= cfg.cost["Iron Ore"]; STATE.inventory.PVC -= cfg.cost.PVC; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
-if (mode === 'pvc') { STATE.inventory.Methane -= cfg.cost.methane; STATE.inventory.H2 -= cfg.cost.h2; STATE.inventory.Water -= cfg.cost.water; }
-else if (mode === 'perchlorate') { STATE.inventory.Halite -= cfg.cost.halite; STATE.inventory.Water -= cfg.cost.water; }
-else if (mode === 'pla') { STATE.inventory["Fermented Guarana"] -= cfg.cost["Fermented Guarana"]; STATE.inventory.CO2 -= cfg.cost.co2; }
-else if (mode === 'empty_battery') { STATE.inventory.Perchlorate -= cfg.cost.perchlorate; STATE.inventory.Water -= cfg.cost.water; STATE.inventory["Iron Ore"] -= cfg.cost["Iron Ore"]; STATE.inventory.PVC -= cfg.cost.PVC; }
 s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
 log(`CHEM: Reaction ${id+1} started [${mode.toUpperCase()}].`); renderChemLab(); updateUI();
 }
@@ -1346,11 +1226,14 @@ function renderChemLab() {
 const c = document.getElementById('chemlab-ui'); if(!c) return;
 c.innerHTML = STATE.chemlab.slots.map(s => {
 let t = "IDLE", p = 0;
-if (s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
-let btn = "";
-if (s.active) { let lbl = s.mode.toUpperCase(); btn = `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--chem); color:var(--chem);" disabled>${lbl}...</button>`; }
-else { btn = `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:9px; border-color:var(--chem); color:var(--chem);" onclick="startChem(${s.id}, 'pvc')">PVC</button><button class="ref-btn" style="font-size:9px; border-color:var(--white); color:var(--white);" onclick="startChem(${s.id}, 'perchlorate')">PERCHLORATE</button><button class="ref-btn" style="font-size:9px; border-color:#d400ff; color:#d400ff;" onclick="startChem(${s.id}, 'pla')">PLA PLASTIC</button><button class="ref-btn" style="font-size:9px; border-color:var(--warning); color:var(--warning);" onclick="startChem(${s.id}, 'empty_battery')">EMPTY BATTERY</button></div>`; }
-return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CELL ${s.id+1}</span><span id="chem-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="chem-bar-${s.id}" style="height:100%; background:var(--chem); width:${p}%"></div></div>${btn}</div>`;
+if (s.active) {
+let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
+}
+let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--chem); color:var(--chem);" disabled>${s.mode.toUpperCase()}...</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:9px; border-color:var(--chem); color:var(--chem);" onclick="startChem(${s.id}, 'pvc')">PVC</button><button class="ref-btn" style="font-size:9px; border-color:var(--white); color:var(--white);" onclick="startChem(${s.id}, 'perchlorate')">PERCHLORATE</button><button class="ref-btn" style="font-size:9px; border-color:#d400ff; color:#d400ff;" onclick="startChem(${s.id}, 'pla')">PLA PLASTIC</button><button class="ref-btn" style="font-size:9px; border-color:var(--warning); color:var(--warning);" onclick="startChem(${s.id}, 'empty_battery')">EMPTY BATTERY</button></div>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);">
+<div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CELL ${s.id+1}</span><span id="chem-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div>
+<div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="chem-bar-${s.id}" style="height:100%; background:var(--chem); width:${p}%"></div></div>${btn}</div>`;
 }).join('');
 }
 function scavenge() {
@@ -1372,15 +1255,16 @@ log(msg); updateUI();
 }
 function useStamina(v) { if(STATE.stamina.val>=v) { STATE.stamina.val-=v; updateUI(); return true; } log("ALERT: HUNGRY."); return false; }
 function consume(i) {
-if(!STATE.cooldowns) STATE.cooldowns = {}; const last = STATE.cooldowns[i] || 0;
+if(!STATE.cooldowns) STATE.cooldowns = {};
+const last = STATE.cooldowns[i] || 0;
 if(Date.now()-last < EATING_COOLDOWN_MS) return log(`BIO: Digesting ${i}...`);
 if(!STATE.inventory[i] || STATE.inventory[i]<1) return;
 if(STATE.stamina.val>=STATE.stamina.max) return log("INFO: Full.");
 let r=RATION_RECIPES[i], g=0, w=0;
 if(i==='Energy Bar') { g = Math.floor(Math.random() * (14 - 8 + 1)) + 8; w = Math.floor(Math.random() * (4 - 2 + 1)) + 2; }
 else { g=Math.floor(Math.random()*(r.maxStam-r.minStam+1))+r.minStam; w=r.waste; }
-STATE.inventory[i]--; STATE.stamina.val=Math.min(STATE.stamina.max, STATE.stamina.val+g);
-STATE.inventory["Biological Waste"]+=w; STATE.cooldowns[i] = Date.now(); log(`BIO: Ate ${i}. +${g} STM.`); updateUI();
+STATE.inventory[i]--; STATE.stamina.val=Math.min(STATE.stamina.max, STATE.stamina.val+g); STATE.inventory["Biological Waste"]+=w; STATE.cooldowns[i] = Date.now();
+log(`BIO: Ate ${i}. +${g} STM.`); updateUI();
 }
 function createSystem() {
 STATE.bodies = [
@@ -1396,11 +1280,13 @@ for(let i=0; i<20; i++) { STATE.bodies.push({ id: 200+i, name: `X-${200+i}`, dis
 }
 function loop(ts) {
 const dt = (ts - STATE.lastFrameTime) / 1000; STATE.lastFrameTime = ts; const now = Date.now();
-let cycle = (now % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration; STATE.environment.flux = (cycle <= 0.5) ? 0.15 + (0.85 * Math.sin(cycle*2*Math.PI)) : 0.15;
+let cycle = (now % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration;
+STATE.environment.flux = (cycle <= 0.5) ? 0.15 + (0.85 * Math.sin(cycle*2*Math.PI)) : 0.15;
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid');
 if (gBats.length === 0) { STATE.power.productionRate=0; STATE.power.consumptionRate=0; STATE.power.gridStatus="BLACKOUT"; }
 else {
-const gen = POWER_CFG.panelBaseOutput * STATE.environment.flux; let load = POWER_CFG.baseLoad;
+const gen = POWER_CFG.panelBaseOutput * STATE.environment.flux;
+let load = POWER_CFG.baseLoad;
 if(STATE.buildQueue.length > 0) load += STATE.buildQueue.length * POWER_CFG.factoryLoad;
 STATE.cad.slots.forEach(s => { if(s.active) load += (CAD_CFG.powerCost / (CAD_CFG.duration/1000)); });
 STATE.power.productionRate=gen; STATE.power.consumptionRate=load;
@@ -1490,23 +1376,32 @@ let tEl = document.getElementById(`cp-time-${s.id}`); if(tEl) { let r = Math.max
 }
 });
 STATE.greenhouse.slots.forEach(s => { if(s.status==='growing'){ let p=((now-s.startTime)/s.duration)*100; let b=document.getElementById(`gh-prog-${s.id}`); if(b) b.style.width=Math.min(100,p)+"%"; if(p>=100){ s.status='ready'; renderGreenhouse(); } } });
-if(STATE.scavenging.active) { STATE.scavenging.timer+=dt*1000; UI_CACHE['scav-progress'].style.width=(STATE.scavenging.timer/STATE.scavenging.duration)*100+"%"; if(STATE.scavenging.timer>=STATE.scavenging.duration) completeScavenge(); }
+if(STATE.scavenging.active) { STATE.scavenging.timer+=dt*1000; UI_CACHE['scav-progress'].style.width=(STATE.scavenging.timer/STATE.scavenging.duration)*100+"%";
+if(STATE.scavenging.timer>=STATE.scavenging.duration) completeScavenge(); }
+
 CTX.fillStyle = "#050608"; CTX.fillRect(0, 0, CANVAS.width, CANVAS.height);
 CTX.strokeStyle = "rgba(0, 229, 255, 0.05)"; CTX.lineWidth = 1;
-const gs = 50 * STATE.zoom; const ox = STATE.camera.x % gs; const oy = STATE.camera.y % gs;
-CTX.beginPath(); for (let x=ox; x<CANVAS.width; x+=gs){CTX.moveTo(x,0);CTX.lineTo(x,CANVAS.height);} for (let y=oy; y<CANVAS.height; y+=gs){CTX.moveTo(0,y);CTX.lineTo(CANVAS.width,y);} CTX.stroke();
-const cx = (CANVAS.width/2) + STATE.camera.x; const cy = (CANVAS.height/2) + STATE.camera.y;
-const time = (now / POWER_CFG.cycleDuration) * 2000; const z = STATE.zoom * AU_SCALE;
+const gs = 50 * STATE.zoom;
+const ox = STATE.camera.x % gs; const oy = STATE.camera.y % gs;
+CTX.beginPath();
+for (let x=ox; x<CANVAS.width; x+=gs){CTX.moveTo(x,0);CTX.lineTo(x,CANVAS.height);} for (let y=oy; y<CANVAS.height; y+=gs){CTX.moveTo(0,y);CTX.lineTo(CANVAS.width,y);} CTX.stroke();
+const cx = (CANVAS.width/2) + STATE.camera.x;
+const cy = (CANVAS.height/2) + STATE.camera.y;
+const time = (now / POWER_CFG.cycleDuration) * 2000;
+const z = STATE.zoom * AU_SCALE;
 const base = STATE.bodies.find(b => b.type === "BASE");
 STATE.bodies.forEach(b => {
-const p = getOrbitalPos(b, time, z); let drawRadius = b.size;
-if(b.type === "Star") { CTX.shadowBlur = 40; CTX.shadowColor = b.color; drawRadius = b.size; } else { CTX.shadowBlur = 0; drawRadius = b.size * (STATE.zoom < 0.5 ? 0.5 : 1); }
+const p = getOrbitalPos(b, time, z);
+let drawRadius = b.size;
+if(b.type === "Star") { CTX.shadowBlur = 40; CTX.shadowColor = b.color; drawRadius = b.size; }
+else { CTX.shadowBlur = 0; drawRadius = b.size * (STATE.zoom < 0.5 ? 0.5 : 1); }
 if (b.type !== 'Star' && STATE.zoom > 0.1) { CTX.beginPath(); CTX.arc(cx, cy, b.dist*z, 0, Math.PI*2); CTX.strokeStyle=(b.type==="BASE")?"rgba(255,68,0,0.15)":"rgba(255,255,255,0.03)"; CTX.stroke(); }
 CTX.beginPath(); CTX.fillStyle = b.color; CTX.arc(cx+p.x, cy+p.y, drawRadius, 0, Math.PI*2); CTX.fill(); CTX.shadowBlur = 0;
 if (STATE.zoom > 0.5 || b.type==="Planet" || b.type==="BASE") { CTX.fillStyle=(b.type==="BASE")?"var(--mars)":"#aaa"; CTX.font="9px Consolas"; CTX.fillText(b.name, cx+p.x+10, cy+p.y+4); }
 });
 for (let i=STATE.ships.length-1; i>=0; i--) {
-const s = STATE.ships[i]; const t = STATE.bodies.find(b => b.id === s.targetId);
+const s = STATE.ships[i];
+const t = STATE.bodies.find(b => b.id === s.targetId);
 if (!t && s.phase !== 'return') { s.phase = 'return'; s.startTime = now; s.startPos = s.lastPos || getOrbitalPos(base, time, z); }
 const tp = t ? getOrbitalPos(t, time, z) : {x:0,y:0};
 if (s.phase === 'outbound') {
@@ -1514,10 +1409,12 @@ s.progress += ((now - s.lastTick)/1000)/s.duration; s.lastTick=now;
 if(s.progress>=1) { if(s.type==='probe'){ scanBody(t); STATE.ships.splice(i,1); continue; } else { s.phase='mining'; s.mineStart=now; } }
 else { const pos = interpolate(s.startPos, tp, s.progress); s.lastPos=pos; drawShip(cx, cy, pos, tp, s); }
 } else if (s.phase === 'mining') {
-const mp = (now - s.mineStart)/5000; CTX.strokeStyle = s.spec.color; CTX.beginPath(); CTX.arc(cx+tp.x, cy+tp.y, 8+Math.sin(mp*15)*4, 0, 6.28); CTX.stroke();
+const mp = (now - s.mineStart)/5000;
+CTX.strokeStyle = s.spec.color; CTX.beginPath(); CTX.arc(cx+tp.x, cy+tp.y, 8+Math.sin(mp*15)*4, 0, 6.28); CTX.stroke();
 if(mp>=1) { s.phase='return'; s.progress=0; s.lastTick=now; s.startPos={x:tp.x, y:tp.y}; const res=(t.res&&t.res.length)?t.res[0]:"Rock"; s.cargoAmount=(s.spec.bonus&&s.spec.bonus.includes(res))?s.spec.cargo*1.5:s.spec.cargo; s.cargoItem=res; }
 } else if (s.phase === 'return') {
-const mp = getOrbitalPos(base, time, z); s.progress += ((now - s.lastTick)/1000)/s.duration; s.lastTick=now;
+const mp = getOrbitalPos(base, time, z);
+s.progress += ((now - s.lastTick)/1000)/s.duration; s.lastTick=now;
 if(s.progress>=1) { STATE.inventory[s.cargoItem]=(STATE.inventory[s.cargoItem]||0)+s.cargoAmount; STATE.hangar[s.type]++; log(`LOG: ${s.type} returned with ${Math.floor(s.cargoAmount)} ${s.cargoItem}`); STATE.ships.splice(i,1); updateUI(); }
 else { const pos = interpolate(s.startPos, mp, s.progress); drawShip(cx, cy, pos, mp, s); }
 }
@@ -1527,32 +1424,49 @@ requestAnimationFrame(loop);
 function interpolate(p1, p2, t) { return { x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t }; }
 function getOrbitalPos(b, t, z) { const a = b.angle + (t * b.speed); const r = b.dist * z; return { x: Math.cos(a) * r, y: Math.sin(a) * r }; }
 function drawShip(cx, cy, p, tp, s) {
-CTX.beginPath(); CTX.setLineDash([2, 4]); CTX.moveTo(cx+p.x, cy+p.y); CTX.lineTo(cx+tp.x, cy+tp.y); CTX.strokeStyle=s.spec.color; CTX.globalAlpha=0.3; CTX.stroke(); CTX.setLineDash([]); CTX.globalAlpha=1.0;
-const a = Math.atan2(tp.y-p.y, tp.x-p.x); CTX.save(); CTX.translate(cx+p.x, cy+p.y); CTX.rotate(a); CTX.fillStyle=s.spec.color; CTX.beginPath(); CTX.moveTo(5,0); CTX.lineTo(-4,3); CTX.lineTo(-4,-3); CTX.fill(); CTX.restore();
+CTX.beginPath(); CTX.setLineDash([2, 4]);
+CTX.moveTo(cx+p.x, cy+p.y); CTX.lineTo(cx+tp.x, cy+tp.y); CTX.strokeStyle=s.spec.color; CTX.globalAlpha=0.3; CTX.stroke(); CTX.setLineDash([]); CTX.globalAlpha=1.0;
+const a = Math.atan2(tp.y-p.y, tp.x-p.x);
+CTX.save(); CTX.translate(cx+p.x, cy+p.y); CTX.rotate(a);
+CTX.fillStyle=s.spec.color; CTX.beginPath();
+CTX.moveTo(5,0); CTX.lineTo(-4,3); CTX.lineTo(-4,-3); CTX.fill(); CTX.restore();
 }
 function handleClick(e) {
 if(STATE.power.gridStatus === 'BLACKOUT') return;
-const r = CANVAS.getBoundingClientRect(); const z = STATE.zoom * AU_SCALE; const mx = e.clientX - r.left - STATE.camera.x - (CANVAS.width/2); const my = e.clientY - r.top - STATE.camera.y - (CANVAS.height/2);
-let c = null; const time = (Date.now() / POWER_CFG.cycleDuration) * 2000;
-STATE.bodies.forEach(b => { const p = getOrbitalPos(b, time, z); if (Math.hypot(p.x-mx, p.y-my) < Math.max(b.size + 10, 20)) c = b; });
+const r = CANVAS.getBoundingClientRect();
+const z = STATE.zoom * AU_SCALE;
+const mx = e.clientX - r.left - STATE.camera.x - (CANVAS.width/2);
+const my = e.clientY - r.top - STATE.camera.y - (CANVAS.height/2);
+let c = null;
+const time = (Date.now() / POWER_CFG.cycleDuration) * 2000;
+STATE.bodies.forEach(b => {
+const p = getOrbitalPos(b, time, z);
+if (Math.hypot(p.x-mx, p.y-my) < Math.max(b.size + 10, 20)) c = b;
+});
 if (c) openModal(c);
 }
 function openModal(obj) {
-STATE.selectedObj = obj; document.getElementById('modal-overlay').style.display = 'block';
+STATE.selectedObj = obj;
+document.getElementById('modal-overlay').style.display = 'block';
 ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-market'].forEach(id=>document.getElementById(id).style.display='none');
 let m;
 if (obj.type === 'BASE') { m = document.getElementById('modal-base'); renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); renderChemLab(); switchTab('refinery'); }
 else {
-m = document.getElementById('modal-target'); document.getElementById('m-t-name').innerText = obj.name;
-const base = STATE.bodies.find(b => b.type === 'BASE'); const d = Math.abs(obj.dist - base.dist);
-document.getElementById('m-t-dist').innerText = d.toFixed(2) + " AU"; document.getElementById('m-t-time').innerText = `~${Math.ceil(d/(BASE_SPEED*60))} MIN`;
+m = document.getElementById('modal-target');
+document.getElementById('m-t-name').innerText = obj.name;
+const base = STATE.bodies.find(b => b.type === 'BASE');
+const d = Math.abs(obj.dist - base.dist);
+document.getElementById('m-t-dist').innerText = d.toFixed(2) + " AU";
+document.getElementById('m-t-time').innerText = `~${Math.ceil(d/(BASE_SPEED*60))} MIN`;
 document.getElementById('m-t-res').innerText = obj.scanned ? (obj.res[0]||"None") : "SCAN REQ.";
 const g = document.getElementById('launch-grid'); g.innerHTML="";
 ['probe', 'miner', 'hauler', 'gas'].forEach(t => {
 const s = SPECS[t]; const fc = Math.floor(50 * d * s.fuel); const sc = t==='probe'?5:15;
 let active = (STATE.hangar[t]>0 && STATE.inventory.H2>=fc);
-if(t==='probe' && obj.scanned) active=false; if(t!=='probe' && !obj.scanned) active=false;
-const b = document.createElement('button'); b.disabled=!active; b.innerHTML=`<span>LAUNCH ${t.toUpperCase()}</span> <span style="color:${active?'#fff':'#555'}">${fc} H₂ <span style="color:var(--stamina)">[-${sc}E]</span></span>`;
+if(t==='probe' && obj.scanned) active=false;
+if(t!=='probe' && !obj.scanned) active=false;
+const b = document.createElement('button');
+b.disabled=!active; b.innerHTML=`<span>LAUNCH ${t.toUpperCase()}</span> <span style="color:${active?'#fff':'#555'}">${fc} H₂ <span style="color:var(--stamina)">[-${sc}E]</span></span>`;
 b.onclick=()=>launch(t, fc, sc); g.appendChild(b);
 });
 }
@@ -1562,10 +1476,18 @@ function openBaseModalFromUI() { const b = STATE.bodies.find(x => x.type === 'BA
 function openWarehouse() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-hangar','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-warehouse').style.display='block'; renderWarehouse(); }
 function openHangar() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-hangar').style.display='block'; renderHangar(); }
 function openProficiency() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-proficiency').style.display='block'; renderProficiency(); }
+function openMarket() { 
+    document.getElementById('modal-overlay').style.display='block'; 
+    ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency'].forEach(id=>document.getElementById(id).style.display='none'); 
+    document.getElementById('modal-market').style.display='block'; 
+    renderMarket(); 
+}
+
 function closeModal(e, f) { if(f) document.getElementById('modal-overlay').style.display='none'; }
 function renderWarehouse() {
 const g = document.getElementById('warehouse-content'); if (!g) return;
-let htmlBuffer = []; const wBats = STATE.power.batteries.filter(b => b.loc === 'warehouse');
+let htmlBuffer = [];
+const wBats = STATE.power.batteries.filter(b => b.loc === 'warehouse');
 htmlBuffer.push(`<div style="grid-column:1/-1; color:var(--neon); font-size:10px; padding-bottom:5px; margin-bottom:5px;">STORED POWER CELLS</div>`);
 htmlBuffer.push(`<div class="wh-grid" style="margin:0; margin-bottom:10px;">`);
 let slotsToShow = Math.max(4, Math.ceil(wBats.length / 4) * 4);
@@ -1578,22 +1500,48 @@ htmlBuffer.push(`<div class="wh-item" onclick="retrieveBattery('${b.id}')" style
 htmlBuffer.push(`</div>`); htmlBuffer.push(`<div style="grid-column:1/-1; border-bottom:1px solid #334; margin:5px 0;"></div>`);
 let itemsBuffer = [];
 const add = (c,n,q,col="#9ab") => { if(isNaN(q) || q === undefined || q <= 0) return; itemsBuffer.push(`<div class="wh-item"><div class="wh-cat">${c}</div><div class="wh-name" style="color:${col}">${n}</div><div class="wh-qty">${Math.floor(q)}</div></div>`); };
-add("RES", "H₂", STATE.inventory.H2, "var(--warning)"); add("RES", "Raw Gas", STATE.inventory.Gas, "#ffaa00"); add("RES", "Methane", STATE.inventory.Methane, "#90ee90");
-add("RES", "Liquid CH4", STATE.inventory["Liquid CH4"], "var(--fuel)"); add("RES", "Liquid O2", STATE.inventory["Liquid O2"], "var(--neon)"); add("FUEL", "Rocket Fuel", STATE.inventory["Rocket Fuel"], "var(--white)");
-add("MAT", "PVC", STATE.inventory.PVC, "var(--white)"); add("MAT", "Perchlorate", STATE.inventory.Perchlorate, "var(--white)"); add("MAT", "PLA", STATE.inventory.PLA, "var(--white)");
-add("CMP", "Empty Battery", STATE.inventory["Empty Battery"], "#888"); add("CMP", "Full Battery", STATE.inventory["Full Battery"], "var(--neon)");
-add("MAT", "Amaranth", STATE.inventory.Amaranth, "#d400ff"); add("MAT", "Ferm. Amaranth", STATE.inventory["Fermented Amaranth"], "#d400ff");
-add("MAT", "Guarana", STATE.inventory.Guarana, "#cc0000"); add("MAT", "Ferm. Guarana", STATE.inventory["Fermented Guarana"], "#cc0000");
-add("RES", "Iron Ore", STATE.inventory["Iron Ore"]); add("RES", "Alum. Ore", STATE.inventory["Aluminium Ore"], "#e0e0e0"); add("RES", "Copper Ore", STATE.inventory["Copper Ore"], "var(--copper)");
-add("RES", "Titanium Ore", STATE.inventory["Titanium Ore"], "var(--titanium)"); add("RES", "Si (Silicon)", STATE.inventory.Si); add("RES", "Ice", STATE.inventory["Ice water"], "#0ff");
-add("RES", "Regolith", STATE.inventory.Regolith); add("RES", "Barite", STATE.inventory.Barite, "#eee"); add("RES", "Halite", STATE.inventory.Halite, "#eee");
-add("RES", "Scrap", STATE.inventory.Scrap); add("RES", "Bio-Waste", STATE.inventory["Biological Waste"], "#564");
-add("REF", "Water", STATE.inventory.Water, "#00aaff"); add("REF", "Steel", STATE.inventory.Steel); add("REF", "CO₂", STATE.inventory.CO2); add("REF", "Pt (Platinum)", STATE.inventory.Pt, "#e5e4e2");
-add("REF", "Oxygen (O₂)", STATE.inventory.O2, "#00ffaa"); add("REF", "Nitrogen", STATE.inventory.Nitrogen); add("REF", "Argon", STATE.inventory.Argon);
-add("REF", "Neon", STATE.inventory.Neon); add("REF", "Krypton", STATE.inventory.Krypton); add("REF", "Xenon", STATE.inventory.Xenon);
-add("BIO", "Soil", STATE.inventory.Soil, "#8d6e63"); add("BIO", "Seeds: Sprouts", STATE.inventory["Seeds: Sprouts"], "var(--agri)"); add("BIO", "Seeds: Amaranth", STATE.inventory["Seeds: Amaranth"], "var(--agri)");
-add("BIO", "Seeds: Guarana", STATE.inventory["Seeds: Guarana"], "var(--agri)"); add("BIO", "Food", STATE.inventory.Food, "#88aa00");
-add("RAT", "Snack", STATE.inventory.Snack, "var(--kitchen)"); add("RAT", "Meal", STATE.inventory.Meal, "var(--kitchen)"); add("RAT", "Feast", STATE.inventory.Feast, "var(--kitchen)");
+add("RES", "H₂", STATE.inventory.H2, "var(--warning)");
+add("RES", "Raw Gas", STATE.inventory.Gas, "#ffaa00");
+add("RES", "Methane", STATE.inventory.Methane, "#90ee90");
+add("RES", "Liquid CH4", STATE.inventory["Liquid CH4"], "var(--fuel)");
+add("RES", "Liquid O2", STATE.inventory["Liquid O2"], "var(--neon)");
+add("FUEL", "Rocket Fuel", STATE.inventory["Rocket Fuel"], "var(--white)");
+add("MAT", "PVC", STATE.inventory.PVC, "var(--white)");
+add("MAT", "Perchlorate", STATE.inventory.Perchlorate, "var(--white)");
+add("MAT", "PLA", STATE.inventory.PLA, "var(--white)");
+add("CMP", "Empty Battery", STATE.inventory["Empty Battery"], "#888");
+add("CMP", "Full Battery", STATE.inventory["Full Battery"], "var(--neon)");
+add("MAT", "Amaranth", STATE.inventory.Amaranth, "#d400ff");
+add("MAT", "Ferm. Amaranth", STATE.inventory["Fermented Amaranth"], "#d400ff");
+add("MAT", "Guarana", STATE.inventory.Guarana, "#cc0000");
+add("MAT", "Ferm. Guarana", STATE.inventory["Fermented Guarana"], "#cc0000");
+add("RES", "Iron Ore", STATE.inventory["Iron Ore"]);
+add("RES", "Alum. Ore", STATE.inventory["Aluminium Ore"], "#e0e0e0");
+add("RES", "Copper Ore", STATE.inventory["Copper Ore"], "var(--copper)");
+add("RES", "Titanium Ore", STATE.inventory["Titanium Ore"], "var(--titanium)");
+add("RES", "Si (Silicon)", STATE.inventory.Si);
+add("RES", "Ice", STATE.inventory["Ice water"], "#0ff"); add("RES", "Regolith", STATE.inventory.Regolith);
+add("RES", "Barite", STATE.inventory.Barite, "#eee");
+add("RES", "Halite", STATE.inventory.Halite, "#eee");
+add("RES", "Scrap", STATE.inventory.Scrap);
+add("RES", "Bio-Waste", STATE.inventory["Biological Waste"], "#564");
+add("REF", "Water", STATE.inventory.Water, "#00aaff");
+add("REF", "Steel", STATE.inventory.Steel);
+add("REF", "CO₂", STATE.inventory.CO2);
+add("REF", "Pt (Platinum)", STATE.inventory.Pt, "#e5e4e2");
+add("REF", "Oxygen (O₂)", STATE.inventory.O2, "#00ffaa");
+add("REF", "Nitrogen", STATE.inventory.Nitrogen);
+add("REF", "Argon", STATE.inventory.Argon);
+add("REF", "Neon", STATE.inventory.Neon);
+add("REF", "Krypton", STATE.inventory.Krypton); add("REF", "Xenon", STATE.inventory.Xenon);
+add("BIO", "Soil", STATE.inventory.Soil, "#8d6e63");
+add("BIO", "Seeds: Sprouts", STATE.inventory["Seeds: Sprouts"], "var(--agri)");
+add("BIO", "Seeds: Amaranth", STATE.inventory["Seeds: Amaranth"], "var(--agri)");
+add("BIO", "Seeds: Guarana", STATE.inventory["Seeds: Guarana"], "var(--agri)");
+add("BIO", "Food", STATE.inventory.Food, "#88aa00");
+add("RAT", "Snack", STATE.inventory.Snack, "var(--kitchen)");
+add("RAT", "Meal", STATE.inventory.Meal, "var(--kitchen)");
+add("RAT", "Feast", STATE.inventory.Feast, "var(--kitchen)");
 add("RAT", "Energy Bar", STATE.inventory["Energy Bar"], "#d35400");
 for(let k in STATE.components) add("CMP", k.toUpperCase(), STATE.components[k], "#aaa");
 for(let k in STATE.hangar) add("SHIP", k.toUpperCase(), STATE.hangar[k], SPECS[k].color);
@@ -1608,36 +1556,36 @@ if(fGrid) { fGrid.innerHTML = ['probe','miner','hauler','gas'].map(k => { const 
 const sGrid = document.getElementById('shipyard-grid');
 if(sGrid) {
 const createBuildBtn = (type, costTxt, costStam) => { return `<button class="build-btn" onclick="startBuild('${type}', ${costStam})" style="width:100%; text-align:left; margin-bottom:2px; display:flex; justify-content:space-between; padding:10px;"><span style="font-weight:bold; color:${SPECS[type].color}">${type.toUpperCase()}</span><span style="color:#889; font-size:10px;">${costTxt} <span style="color:var(--stamina)">[-${costStam}E]</span></span></button>`; };
-let sHtml = createBuildBtn('probe', '10 Iron Ore 5Si', 10); sHtml += createBuildBtn('miner', 'MODULAR PARTS', 20); sHtml += createBuildBtn('hauler', 'MODULAR PARTS', 20); sHtml += createBuildBtn('gas', 'MODULAR PARTS', 20);
+let sHtml = createBuildBtn('probe', '10 Iron Ore 5Si', 10);
+sHtml += createBuildBtn('miner', 'MODULAR PARTS', 20);
+sHtml += createBuildBtn('hauler', 'MODULAR PARTS', 20);
+sHtml += createBuildBtn('gas', 'MODULAR PARTS', 20);
 sGrid.innerHTML = sHtml;
 }
 const qGrid = document.getElementById('hangar-build-queue');
-if(qGrid) {
-if(STATE.buildQueue.length === 0) { qGrid.innerHTML = "<div style='color:#445; text-align:center; padding:10px;'>FABRICATION IDLE</div>"; }
-else { qGrid.innerHTML = STATE.buildQueue.map((job, i) => { const p = Math.min(100, (job.progress / job.totalDuration) * 100); return `<div style="margin-bottom:5px;"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>${job.type.toUpperCase()}</span><span>${Math.floor(p)}%</span></div><div style="background:#111; height:4px; width:100%"><div style="height:100%; width:${p}%; background:var(--success)"></div></div></div>`; }).join(''); }
-}
+if(qGrid) { if(STATE.buildQueue.length === 0) { qGrid.innerHTML = "<div style='color:#445; text-align:center; padding:10px;'>FABRICATION IDLE</div>"; } else { qGrid.innerHTML = STATE.buildQueue.map((job, i) => { const p = Math.min(100, (job.progress / job.totalDuration) * 100); return `<div style="margin-bottom:5px;"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>${job.type.toUpperCase()}</span><span>${Math.floor(p)}%</span></div><div style="background:#111; height:4px; width:100%"><div style="height:100%; width:${p}%; background:var(--success)"></div></div></div>`; }).join(''); } }
 }
 function renderProficiency() {
 const c = document.getElementById('proficiency-content'); if(!c) return;
 let html = `<div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1); margin-bottom:10px;"><div style="color:var(--stamina); font-weight:bold; margin-bottom:5px;">PHYSICAL CONDITION</div><div style="display:flex; justify-content:space-between; font-size:10px; color:#aaa; margin-bottom:5px;"><span>STAMINA</span><span>${Math.floor(STATE.stamina.val)} / ${STATE.stamina.max}</span></div><div style="width:100%; height:6px; background:#111; border:1px solid #333;"><div style="height:100%; width:${(STATE.stamina.val/STATE.stamina.max)*100}%; background:var(--stamina);"></div></div></div>`;
 html += `<div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1);"><div style="color:var(--xp); font-weight:bold; margin-bottom:10px;">OPERATOR SKILLS</div>`;
-for(let key in STATE.skills) {
-const s = STATE.skills[key]; const p = Math.min(100, (s.xp / s.next) * 100); const name = key.replace(/_/g, ' ').toUpperCase();
-html += `<div style="margin-bottom:15px;"><div style="display:flex; justify-content:space-between; font-size:10px; color:#fff; margin-bottom:3px;"><span>${name} <span style="color:var(--neon)">LVL ${s.lvl}</span></span><span style="color:#667">${Math.floor(s.xp)} / ${Math.floor(s.next)} XP</span></div><div style="width:100%; height:4px; background:#111; position:relative;"><div style="height:100%; width:${p}%; background:var(--xp); box-shadow:0 0 5px var(--xp);"></div></div></div>`;
-}
+for(let key in STATE.skills) { const s = STATE.skills[key]; const p = Math.min(100, (s.xp / s.next) * 100); const name = key.replace(/_/g, ' ').toUpperCase(); html += `<div style="margin-bottom:15px;"><div style="display:flex; justify-content:space-between; font-size:10px; color:#fff; margin-bottom:3px;"><span>${name} <span style="color:var(--neon)">LVL ${s.lvl}</span></span><span style="color:#667">${Math.floor(s.xp)} / ${Math.floor(s.next)} XP</span></div><div style="width:100%; height:4px; background:#111; position:relative;"><div style="height:100%; width:${p}%; background:var(--xp); box-shadow:0 0 5px var(--xp);"></div></div></div>`; }
 html += `</div>`; c.innerHTML = html;
 }
 function craftComponent(k, s) {
 if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER.");
 if(!useStamina(s)) return;
-const c = COMPONENTS[k]; for(let r in c.cost) { if (STATE.inventory[r]!==undefined) STATE.inventory[r]-=c.cost[r]; else STATE.components[r]-=c.cost[r]; }
-if (k === 'battery') { createBattery('inventory'); log(`FACTORY: Battery created.`); } else { STATE.components[k]++; log(`FACTORY: ${c.name} created.`); }
+const c = COMPONENTS[k];
+for(let r in c.cost) { if (STATE.inventory[r]!==undefined) STATE.inventory[r]-=c.cost[r]; else STATE.components[r]-=c.cost[r]; }
+if (k === 'battery') { createBattery('inventory'); log(`FACTORY: Battery created.`); }
+else { STATE.components[k]++; log(`FACTORY: ${c.name} created.`); }
 renderFactory(); updateUI();
 }
 function launch(t, c, s) {
 if(STATE.power.gridStatus==='BLACKOUT') return; if(!useStamina(s)) return;
 STATE.inventory.H2-=c; STATE.hangar[t]--;
-const b = STATE.bodies.find(x=>x.type==="BASE"); const d = Math.abs(STATE.selectedObj.dist-b.dist)+0.2;
+const b = STATE.bodies.find(x=>x.type==="BASE");
+const d = Math.abs(STATE.selectedObj.dist-b.dist)+0.2;
 STATE.ships.push({ type:t, spec:SPECS[t], targetId:STATE.selectedObj.id, phase:'outbound', duration:d/(BASE_SPEED*SPECS[t].speed), progress:0, lastTick:Date.now(), startPos:getOrbitalPos(b,Date.now()*0.00005,AU_SCALE), cargoItem:null, cargoAmount:0 });
 log(`CMD: ${t} launched.`); closeModal(null, true); updateUI();
 }
@@ -1645,14 +1593,20 @@ function startBuild(t, s) {
 if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER.");
 if(!useStamina(s)) return;
 const sp = SPECS[t]; let ok=true;
-if (t==='probe') { if((STATE.inventory["Iron Ore"]||0)<sp.cost["Iron Ore"] || STATE.inventory.Si<sp.cost.Si) ok=false; } else { for(let p in sp.cost) if(STATE.components[p]<sp.cost[p]) ok=false; }
+if (t==='probe') { if((STATE.inventory["Iron Ore"]||0)<sp.cost["Iron Ore"] || STATE.inventory.Si<sp.cost.Si) ok=false; }
+else { for(let p in sp.cost) if(STATE.components[p]<sp.cost[p]) ok=false; }
 if(!ok) return log("ERR: MISSING PARTS.");
-if (t==='probe') { STATE.inventory["Iron Ore"]-=sp.cost["Iron Ore"]; STATE.inventory.Si-=sp.cost.Si; } else { for(let p in sp.cost) STATE.components[p]-=sp.cost[p]; }
-STATE.buildQueue.push({ type:t, progress:0, totalDuration:sp.buildTime }); renderHangar(); updateUI();
+if (t==='probe') { STATE.inventory["Iron Ore"]-=sp.cost["Iron Ore"]; STATE.inventory.Si-=sp.cost.Si; }
+else { for(let p in sp.cost) STATE.components[p]-=sp.cost[p]; }
+STATE.buildQueue.push({ type:t, progress:0, totalDuration:sp.buildTime });
+renderHangar(); updateUI();
 }
 function processBuildQueue(dt) {
 if (STATE.power.gridStatus === 'BLACKOUT') return;
-for (let i = STATE.buildQueue.length - 1; i >= 0; i--) { const j = STATE.buildQueue[i]; j.progress += dt * 1000; if (j.progress >= j.totalDuration) { STATE.hangar[j.type]++; log(`SHIPYARD: ${j.type} ready.`); STATE.buildQueue.splice(i, 1); } }
+for (let i = STATE.buildQueue.length - 1; i >= 0; i--) {
+const j = STATE.buildQueue[i]; j.progress += dt * 1000;
+if (j.progress >= j.totalDuration) { STATE.hangar[j.type]++; log(`SHIPYARD: ${j.type} ready.`); STATE.buildQueue.splice(i, 1); }
+}
 if(document.getElementById('modal-hangar').style.display === 'block') renderHangar();
 }
 function scanBody(b) {
@@ -1665,14 +1619,19 @@ let td=a; const tick=(a/POWER_CFG.batteryCap)*POWER_CFG.wearRate;
 for(let b of STATE.power.batteries.filter(x=>x.loc==='grid')){ if(td<=0)break; if(b.charge>0){ let t=Math.min(b.charge,td); b.charge-=t; b.wear=Math.min(100,b.wear+tick); td-=t; }}
 }
 function switchTab(t) {
-document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); document.getElementById(`tab-btn-${t}`).classList.add('active');
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+document.getElementById(`tab-btn-${t}`).classList.add('active');
 ['factory', 'refinery','greenhouse','kitchen', 'chemlab', 'fuel', 'dsn'].forEach(x=>document.getElementById(`tab-${x}`).style.display=(x===t)?'block':'none');
-if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); } if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); } if(t==='fuel') { renderFuelFactory(); } if(t==='chemlab') { renderChemLab(); }
+if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); }
+if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); }
+if(t==='fuel') { renderFuelFactory(); }
+if(t==='chemlab') { renderChemLab(); }
 }
 function claimDailyReward() {
 const now = Date.now();
 if (now - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
-STATE.lastDailyClaim = now; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1;
+STATE.lastDailyClaim = now;
+STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1;
 log("REWARD: +1 Energy Bar acquired."); updateUI(); StorageSys.save();
 }
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }
@@ -1681,8 +1640,10 @@ function log(m) { const c=UI_CACHE['console']; if(c) c.innerHTML = `<div><span s
 function updateUI() {
 try {
 if(UI_CACHE['sys-time']) UI_CACHE['sys-time'].innerText = new Date().toISOString().split('T')[1].split('.')[0];
-const fl = Math.floor(STATE.environment.flux * 100); if(UI_CACHE['top-flux-val']) UI_CACHE['top-flux-val'].innerText = `${fl}%`;
-const st = UI_CACHE['stamina-val']; if(st) { st.innerText = `${Math.floor(STATE.stamina.val)}/${STATE.stamina.max}`; st.style.color = (STATE.stamina.val<20)?"var(--danger)":"var(--stamina)"; }
+const fl = Math.floor(STATE.environment.flux * 100);
+if(UI_CACHE['top-flux-val']) UI_CACHE['top-flux-val'].innerText = `${fl}%`;
+const st = UI_CACHE['stamina-val'];
+if(st) { st.innerText = `${Math.floor(STATE.stamina.val)}/${STATE.stamina.max}`; st.style.color = (STATE.stamina.val<20)?"var(--danger)":"var(--stamina)"; }
 const btnDaily = UI_CACHE['btn-daily'];
 if(btnDaily) {
 const diff = Date.now() - STATE.lastDailyClaim;
@@ -1696,7 +1657,12 @@ if (gBats.length > 0) { const totalWear = gBats.reduce((a,b) => a + b.wear, 0); 
 UI_CACHE['grid-load'].innerText = eff.toFixed(1) + "%";
 }
 const gs = UI_CACHE['grid-status-text']; const fb = UI_CACHE['flux-bar'];
-if(gs && fb) { gs.innerText=STATE.power.gridStatus; fb.style.width=`${fl}%`; if(STATE.power.gridStatus==='ONLINE') { gs.style.color="var(--success)"; fb.style.background="var(--neon)"; } else if(STATE.power.gridStatus==='DRAINING') { gs.style.color="var(--warning)"; fb.style.background="var(--warning)"; } else { gs.style.color="var(--danger)"; fb.style.background="#333"; } }
+if(gs && fb) {
+gs.innerText=STATE.power.gridStatus; fb.style.width=`${fl}%`;
+if(STATE.power.gridStatus==='ONLINE') { gs.style.color="var(--success)"; fb.style.background="var(--neon)"; }
+else if(STATE.power.gridStatus==='DRAINING') { gs.style.color="var(--warning)"; fb.style.background="var(--warning)"; }
+else { gs.style.color="var(--danger)"; fb.style.background="#333"; }
+}
 const aps = UI_CACHE['active-systems-panel'];
 if(aps) {
 let h = '<div class="header" style="background:transparent; border-color:rgba(255,255,255,0.1); font-size:9px; color:#889;">ACTIVE SYSTEMS</div>'; let hasActive = false; const tag = '<span style="color:#4f4; float:right; text-shadow:0 0 5px #4f4;">LAUNCHED</span>';
@@ -1710,33 +1676,222 @@ if(STATE.chemlab && STATE.chemlab.slots.some(s => s.active)) { h += `<div style=
 if(STATE.greenhouse.slots.some(s => s.status === 'growing')) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">GREENHOUSE HYDROPONICS ${tag}</div>`; hasActive = true; }
 if(STATE.composter.slots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">BIO-COMPOSTER UNIT ${tag}</div>`; hasActive = true; }
 if(STATE.buildQueue.length > 0) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">SHIPYARD FABRICATION ${tag}</div>`; hasActive = true; }
-if(!hasActive) h += '<div style="padding:2px; color:#555; font-size:9px; font-style:italic;">SYSTEMS IDLE</div>'; aps.innerHTML = h;
+if(!hasActive) h += '<div style="padding:2px; color:#555; font-size:9px; font-style:italic;">SYSTEMS IDLE</div>';
+aps.innerHTML = h;
 }
-const consumables = ['Snack', 'Meal', 'Feast', 'Energy Bar']; consumables.forEach(k => { if (STATE.inventory[k] === undefined) STATE.inventory[k] = 0; });
+const consumables = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
+consumables.forEach(k => { if (STATE.inventory[k] === undefined) STATE.inventory[k] = 0; });
 const invEl = UI_CACHE['inventory'];
 if(invEl) {
 invEl.innerHTML = Object.entries(STATE.inventory).filter(([k, v]) => consumables.includes(k)).map(([k,v]) => {
-let act="", col="var(--kitchen)"; if (v > 0) { const last = STATE.cooldowns[k] || 0; const diff = Date.now() - last; if(diff < EATING_COOLDOWN_MS) { act=`<span style="font-size:8px; color:#555">[WAIT ${Math.ceil((EATING_COOLDOWN_MS-diff)/60000)}m]</span>`; } else { act=`<button class="consume-btn" onclick="consume('${k}')">EAT</button>`; } } else { act=`<span style="font-size:8px; color:#555">EMPTY</span>`; }
+let act="", col="var(--kitchen)";
+if (v > 0) { const last = STATE.cooldowns[k] || 0; const diff = Date.now() - last; if(diff < EATING_COOLDOWN_MS) { act=`<span style="font-size:8px; color:#555">[WAIT ${Math.ceil((EATING_COOLDOWN_MS-diff)/60000)}m]</span>`; } else { act=`<button class="consume-btn" onclick="consume('${k}')">EAT</button>`; } } else { act=`<span style="font-size:8px; color:#555">EMPTY</span>`; }
 return `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.01); padding:2px 4px; border-left:2px solid ${col}; margin-bottom:1px;"><div><span style="color:${col}">${k}</span></div><div style="display:flex; align-items:center;"> <span style="color:#eee; margin-right:5px;">${Math.floor(v)}</span>${act}</div></div>`;
 }).join('') || '<div style="color:#444">EMPTY</div>';
 }
-const gBats = STATE.power.batteries.filter(b => b.loc === 'grid'); let gh = "";
+const gBats = STATE.power.batteries.filter(b => b.loc === 'grid');
+let gh = "";
 if (gBats.length === 0) gh = "<div style='color:var(--danger); font-size:9px; font-weight:bold; animation:blink 1s infinite;'>[!] NO POWER</div>";
 else { gh = gBats.map(b => { const cp=(b.charge/POWER_CFG.batteryCap)*100, dp=b.wear, ep=100-cp-dp; return `<div class="battery-item active-slot"><span class="bat-id">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><span class="bat-text">${b.wear.toFixed(1)}% WR</span><button class="bat-action-btn eject" onclick="ejectBattery('${b.id}')">EJECT</button></div>`; }).join(''); }
 for(let i=0; i < (POWER_CFG.maxGridSlots - gBats.length); i++) gh += `<div style="border:1px dashed #334; padding:4px; font-size:9px; color:#445; text-align:center; margin-bottom:4px;">[ EMPTY SLOT ]</div>`;
 if(UI_CACHE['active-grid-list']) UI_CACHE['active-grid-list'].innerHTML = gh;
-const lBats = STATE.power.batteries.filter(b => b.loc === 'inventory'); let bh = "";
+const lBats = STATE.power.batteries.filter(b => b.loc === 'inventory');
+let bh = "";
 for (let i = 0; i < 5; i++) {
 if (i < lBats.length) { const b = lBats[i]; const cp = (b.charge / POWER_CFG.batteryCap) * 100; const dp = b.wear; const ep = 100 - cp - dp; bh += `<div class="battery-item"><span class="bat-id">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><div style="display:flex; gap:2px;"><button class="bat-action-btn" style="border-color:var(--agri); color:var(--agri);" onclick="installBattery('${b.id}')">INSTALL</button><button class="bat-action-btn" style="border-color:var(--danger); color:var(--danger);" onclick="storeBattery('${b.id}')">STORE</button></div></div>`; }
 else { bh += `<div style="border:1px dashed #334; padding:4px; font-size:9px; color:#445; text-align:center; margin-bottom:4px;">[ EMPTY RACK SLOT ]</div>`; }
 }
 if(UI_CACHE['battery-rack']) UI_CACHE['battery-rack'].innerHTML = bh;
 ['probe','miner','hauler','gas'].forEach(k => { if(UI_CACHE['c-'+k]) UI_CACHE['c-'+k].innerText = STATE.hangar[k]; });
-let fh = ""; if(STATE.ships.length===0) fh="<div style='padding:5px; color:#445'>NO ACTIVE FLIGHTS</div>";
+let fh = "";
+if(STATE.ships.length===0) fh="<div style='padding:5px; color:#445'>NO ACTIVE FLIGHTS</div>";
 else { fh = STATE.ships.map(s => { let sc="st-active", st="EN ROUTE"; if(s.phase==='mining'){sc="st-mining";st="MINING";} if(s.phase==='return'){sc="st-active";st="RETURN";} return `<div class="fleet-item"><div style="display:flex; align-items:center;"><span class="fleet-status ${sc}\"></span><span style="color:${s.spec.color}">${s.type.toUpperCase()}</span></div><div style="color:#8daab9">${st}</div></div>`; }).join(''); }
 if(UI_CACHE['fleet-list']) UI_CACHE['fleet-list'].innerHTML = fh;
-if(UI_CACHE['obj-list']) { UI_CACHE['obj-list'].innerHTML = STATE.bodies.filter(b => b.scanned || b.id < 10).slice(0, 15).map(b => `<tr onclick="STATE.bodies.find(x=>x.id===${b.id}) && openModal(STATE.bodies.find(x=>x.id===${b.id}))"><td style="color:${b.type==='BASE'?'var(--mars)':'#ccc'}">${b.name}</td><td>${b.type}</td><td>${b.dist.toFixed(1)}</td><td style="color:${(b.res&&b.res[0])?'var(--success)':'#555'}">${b.scanned?(b.res[0]||'-'):'???'}</td></tr>`).join(''); }
+if(UI_CACHE['obj-list']) {
+UI_CACHE['obj-list'].innerHTML = STATE.bodies.filter(b => b.scanned || b.id < 10).slice(0, 15).map(b => `<tr onclick="STATE.bodies.find(x=>x.id===${b.id}) && openModal(STATE.bodies.find(x=>x.id===${b.id}))"><td style="color:${b.type==='BASE'?'var(--mars)':'#ccc'}">${b.name}</td><td>${b.type}</td><td>${b.dist.toFixed(1)}</td><td style="color:${(b.res&&b.res[0])?'var(--success)':'#555'}">${b.scanned?(b.res[0]||'-'):'???'}</td></tr>`).join('');
+}
 } catch(e) { console.error("UI Error:", e); }
+}
+
+// ==========================================
+// --- SUPABASE & MARKET INTEGRATION LOGIC ---
+// ==========================================
+
+async function checkAuth() {
+    if (!supabase) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+        currentUser = session.user;
+        document.getElementById('auth-section').style.display = 'none';
+        document.getElementById('market-main-ui').style.display = 'block';
+        document.getElementById('net-status').innerText = "ONLINE: " + currentUser.email;
+        document.getElementById('net-status').style.color = "var(--success)";
+        populateMarketDropdowns();
+    }
+}
+
+async function netLogin() {
+    if (!supabase) return alert("Supabase not configured in code.");
+    const email = document.getElementById('auth-email').value;
+    const pass = document.getElementById('auth-pass').value;
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email, password: pass });
+    if (error) alert("Login Error: " + error.message);
+    else { 
+        log("NET: Logged in."); 
+        checkAuth(); 
+        syncStateToCloud(); // Auto sync on login
+    }
+}
+
+async function netSignup() {
+    if (!supabase) return alert("Supabase not configured in code.");
+    const email = document.getElementById('auth-email').value;
+    const pass = document.getElementById('auth-pass').value;
+    const { data, error } = await supabase.auth.signUp({ email: email, password: pass });
+    if (error) alert("Signup Error: " + error.message);
+    else alert("Signup successful! Check email or login if disabled confirm.");
+}
+
+async function syncStateToCloud() {
+    if (!currentUser) return;
+    // We only sync inventory for the economy protection
+    const { error } = await supabase.rpc('sync_inventory', { new_inventory: STATE.inventory });
+    if (error) {
+        log("NET: Sync Failed. " + error.message);
+    } else {
+        log("NET: Inventory Synced to Cloud.");
+    }
+}
+
+async function renderMarket() {
+    if (!currentUser) return;
+    await refreshMarket();
+    populateMarketDropdowns();
+}
+
+async function refreshMarket() {
+    const list = document.getElementById('market-offers-list');
+    list.innerHTML = "LOADING DATA...";
+    
+    const { data, error } = await supabase
+        .from('market_offers')
+        .select('*')
+        .eq('active', true)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        list.innerHTML = "ERROR LOADING MARKET";
+        return;
+    }
+
+    if (!data || data.length === 0) {
+        list.innerHTML = "NO ACTIVE OFFERS.";
+        return;
+    }
+
+    list.innerHTML = data.map(o => {
+        const isMine = o.seller_id === currentUser.id;
+        const btn = isMine 
+            ? `<span style="font-size:9px; color:#555">YOUR OFFER</span>`
+            : `<button class="nav-btn" style="font-size:9px;" onclick="acceptOffer('${o.id}')">BUY</button>`;
+            
+        return `<div class="offer-item">
+            <div>
+                <div style="color:var(--success); font-weight:bold;">${o.item_qty} x ${o.item_name}</div>
+                <div style="font-size:9px; color:#aaa;">SELLER: ...${o.seller_id.substr(0,4)}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="color:var(--warning); font-weight:bold;">${o.cost_qty} x ${o.cost_item}</div>
+                ${btn}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function populateMarketDropdowns() {
+    const sellSel = document.getElementById('m-sell-item');
+    const costSel = document.getElementById('m-cost-item');
+    if (sellSel.options.length > 0) return; // Already populated
+
+    const items = Object.keys(STATE.inventory).sort();
+    items.forEach(i => {
+        const opt1 = document.createElement('option');
+        opt1.value = i; opt1.innerText = i;
+        sellSel.appendChild(opt1);
+        
+        const opt2 = document.createElement('option');
+        opt2.value = i; opt2.innerText = i;
+        costSel.appendChild(opt2);
+    });
+}
+
+// --- SECURE SQL TRANSACTION WRAPPERS ---
+
+async function postOffer() {
+    const item = document.getElementById('m-sell-item').value;
+    const qty = parseInt(document.getElementById('m-sell-qty').value);
+    const costItem = document.getElementById('m-cost-item').value;
+    const costQty = parseInt(document.getElementById('m-cost-qty').value);
+
+    if (!qty || qty <= 0 || !costQty || costQty <= 0) return alert("Invalid Quantities");
+
+    // Pre-flight check (UI only)
+    if ((STATE.inventory[item] || 0) < qty) return alert("Not enough resources locally. Sync first?");
+
+    // 1. Sync first to ensure DB matches Local
+    await syncStateToCloud();
+
+    // 2. Call Secure DB Function
+    log("NET: Sending secure offer...");
+    const { data, error } = await supabase.rpc('create_trade_offer', {
+        p_item_name: item,
+        p_item_qty: qty,
+        p_cost_item: costItem,
+        p_cost_qty: costQty
+    });
+
+    if (error) {
+        log("NET ERROR: " + error.message);
+    } else {
+        if (data.success) {
+            log("MARKET: Offer Created.");
+            STATE.inventory = data.new_inventory; // Update local state from Server Authority
+            StorageSys.save();
+            updateUI();
+            refreshMarket();
+            document.getElementById('m-sell-qty').value = "";
+            document.getElementById('m-cost-qty').value = "";
+        } else {
+            alert("Transaction Failed: " + data.message);
+        }
+    }
+}
+
+async function acceptOffer(offerId) {
+    if (!confirm("Buy this offer? Resources will be deducted immediately.")) return;
+
+    // 1. Sync first
+    await syncStateToCloud();
+
+    // 2. Call Secure DB Function
+    log("NET: Processing transaction...");
+    const { data, error } = await supabase.rpc('buy_trade_offer', {
+        p_offer_id: offerId
+    });
+
+    if (error) {
+        log("NET ERROR: " + error.message);
+    } else {
+        if (data.success) {
+            log("MARKET: Purchase Successful!");
+            STATE.inventory = data.new_inventory; // Update local state from Server Authority
+            StorageSys.save();
+            updateUI();
+            refreshMarket();
+        } else {
+            alert("Purchase Failed: " + data.message);
+        }
+    }
 }
 
 init();
