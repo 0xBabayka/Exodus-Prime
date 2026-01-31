@@ -47,7 +47,8 @@ background-size: 100% 2px, 3px 100%; pointer-events: none; z-index: 0;
 }
 
 canvas { display: block; cursor: crosshair; position: relative; z-index: 1; will-change: transform; }
-.ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display:none; /* Скрыто до авторизации */ }
+.ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display:none;
+/* Скрыто до авторизации */ }
 .interactive { pointer-events: auto; }
 
 /* --- UI COMPONENTS --- */
@@ -276,26 +277,23 @@ color: #fff; padding: 10px; margin-bottom: 10px; font-family: monospace; font-si
 <body id="body">
 
 <div id="start-screen">
-    <div class="start-box">
-        <div class="start-title">EXODUS</div>
-        <div class="start-sub">PRIME // FORGE-7 COMMAND</div>
-        
-        <div id="login-form">
-            <input type="email" id="start-email" class="start-input" placeholder="ACCESS ID (EMAIL)">
-            <input type="password" id="start-pass" class="start-input" placeholder="SECURITY KEY">
-            
-            <button class="nav-btn" onclick="AuthSys.signIn('start')" style="width:100%; margin-bottom:10px; padding:10px; border-color:var(--success); color:var(--success); font-size:12px;">
-                INITIALIZE LINK (LOGIN)
-            </button>
-            <div style="display:flex; gap:10px; margin-bottom:10px;">
-                <button class="nav-btn" onclick="AuthSys.signUp('start')" style="flex:1; border-color:var(--neon);">REGISTER</button>
-            </div>
-             <button class="nav-btn" onclick="AuthSys.playOffline()" style="width:100%; border-color:#555; color:#888;">
-                OFFLINE SIMULATION MODE
-            </button>
-            <div id="start-msg" style="margin-top:15px; font-size:10px; color:var(--danger); min-height:15px;"></div>
-        </div>
-    </div>
+<div class="start-box">
+<div class="start-title">EXODUS</div>
+<div class="start-sub">PRIME // FORGE-7 COMMAND</div>
+
+<div id="login-form">
+<input type="email" id="start-email" class="start-input" placeholder="ACCESS ID (EMAIL)">
+<input type="password" id="start-pass" class="start-input" placeholder="SECURITY KEY">
+
+<button class="nav-btn" onclick="AuthSys.signIn('start')" style="width:100%; margin-bottom:10px; padding:10px; border-color:var(--success); color:var(--success); font-size:12px;">
+INITIALIZE LINK (LOGIN)
+</button>
+<div style="display:flex; gap:10px; margin-bottom:10px;">
+<button class="nav-btn" onclick="AuthSys.signUp('start')" style="flex:1; border-color:var(--neon);">REGISTER</button>
+</div>
+<div id="start-msg" style="margin-top:15px; font-size:10px; color:var(--danger); min-height:15px;"></div>
+</div>
+</div>
 </div>
 
 <canvas id="map"></canvas>
@@ -714,14 +712,15 @@ const { data } = await _sb.auth.getSession();
 this.user = data.session?.user || null;
 this.updateBtn();
 if(this.user) {
-    log("NET: Connected to Exodus Network.");
-    SyncSys.pull(); // Загрузка сохранения из облака
-    // Hide start screen if auto-logged in
-    document.getElementById('start-screen').style.display = 'none';
-    startGame();
+log("NET: Connected to Exodus Network.");
+// Initialize ONLY if user is online
+SyncSys.pull(); // Загрузка сохранения из облака
+// Hide start screen if auto-logged in
+document.getElementById('start-screen').style.display = 'none';
+startGame();
 } else {
-    // Show start screen if no session
-    document.getElementById('start-screen').style.display = 'flex';
+// Show start screen if no session
+document.getElementById('start-screen').style.display = 'flex';
 }
 },
 updateBtn: function() {
@@ -734,7 +733,7 @@ btn.id = 'btn-auth-trigger';
 btn.className = 'nav-btn';
 grp.insertBefore(btn, grp.firstChild);
 }
-btn.innerHTML = this.user ? "🟢 ONLINE" : "🔴 OFFLINE";
+btn.innerHTML = this.user ? "🟢 ONLINE" : "🔴 AUTH REQ";
 btn.style.borderColor = this.user ? "var(--success)" : "var(--danger)";
 btn.onclick = () => { if(!this.user) document.getElementById('modal-auth').style.display = 'block'; };
 },
@@ -748,9 +747,9 @@ const p = document.getElementById(pId).value;
 const msgEl = document.getElementById(msgId);
 
 if(!e || !p) {
-    msgEl.innerText = "ENTER EMAIL & PASSWORD";
-    msgEl.style.color = "var(--danger)";
-    return;
+msgEl.innerText = "ENTER EMAIL & PASSWORD";
+msgEl.style.color = "var(--danger)";
+return;
 }
 
 msgEl.innerText = "CONNECTING...";
@@ -759,28 +758,28 @@ msgEl.style.color = "var(--warning)";
 const { data, error } = await _sb.auth.signUp({ email: e, password: p });
 
 if(error) {
-    msgEl.innerText = error.message;
-    msgEl.style.color = "var(--danger)";
-} else { 
-    // Check if session exists (Auto confirm enabled)
-    if (data.session) {
-        msgEl.innerText = "SUCCESS! LOGGING IN...";
-        msgEl.style.color = "var(--success)";
-        this.user = data.session.user;
-        this.updateBtn();
-        SyncSys.pull();
-        if(context === 'start') {
-             setTimeout(() => {
-                document.getElementById('start-screen').style.display = 'none';
-                startGame();
-             }, 1000);
-        } else {
-             document.getElementById('modal-auth').style.display = 'none';
-        }
-    } else {
-        msgEl.innerText = "REGISTRATION OK. CHECK EMAIL.";
-        msgEl.style.color = "var(--success)";
-    }
+msgEl.innerText = error.message;
+msgEl.style.color = "var(--danger)";
+} else {
+// Check if session exists (Auto confirm enabled)
+if (data.session) {
+msgEl.innerText = "SUCCESS! LOGGING IN...";
+msgEl.style.color = "var(--success)";
+this.user = data.session.user;
+this.updateBtn();
+SyncSys.pull();
+if(context === 'start') {
+setTimeout(() => {
+document.getElementById('start-screen').style.display = 'none';
+startGame();
+}, 1000);
+} else {
+document.getElementById('modal-auth').style.display = 'none';
+}
+} else {
+msgEl.innerText = "REGISTRATION OK. CHECK EMAIL.";
+msgEl.style.color = "var(--success)";
+}
 }
 },
 signIn: async function(context) {
@@ -797,8 +796,8 @@ msgEl.style.color = "var(--warning)";
 
 const { data, error } = await _sb.auth.signInWithPassword({ email: e, password: p });
 if(error) {
-    msgEl.innerText = error.message;
-    msgEl.style.color = "var(--danger)";
+msgEl.innerText = error.message;
+msgEl.style.color = "var(--danger)";
 } else {
 this.user = data.user;
 document.getElementById('modal-auth').style.display = 'none';
@@ -809,17 +808,12 @@ SyncSys.pull();
 // If coming from start screen, launch game
 if(context === 'start') startGame();
 }
-},
-playOffline: function() {
-document.getElementById('start-screen').style.display = 'none';
-log("SYS: STARTING IN OFFLINE MODE.");
-startGame();
 }
 };
 
 // --- SYNC SYSTEM (Облачное сохранение) ---
 const SyncSys = {
-// Сохраняет локальный инвентарь в БД Supabase
+// Сохраняет инвентарь в БД Supabase
 push: async function() {
 if(!AuthSys.user) return;
 const updates = Object.entries(STATE.inventory).map(([k, v]) => ({
@@ -951,92 +945,22 @@ this.renderListings();
 }
 };
 
-// --- SAVE SYSTEM ---
-const SAVE_KEY = "EXODUS_PRIME_SAVE_V3";
+// --- SAVE SYSTEM (LOCAL REMOVED - ONLINE ONLY) ---
 const StorageSys = {
 save: function() {
-try { localStorage.setItem(SAVE_KEY, JSON.stringify(STATE));
-SyncSys.push(); // AUTO CLOUD SAVE
-} catch(e) { console.error("Save failed", e); }
+// Only Cloud Save allowed
+if (AuthSys.user) {
+SyncSys.push();
+}
 },
 load: function() {
-try {
-const data = localStorage.getItem(SAVE_KEY);
-if(data) {
-const parsed = JSON.parse(data);
-Object.assign(STATE, parsed);
-// Force existence of items if missing from old saves
-const items = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Biological Waste', 'Methane', 'O2', 'Aluminium Ore', 'Copper Ore', 'Titanium Ore', 'Halite', 'Liquid CH4', 'Liquid O2', 'Rocket Fuel', 'PVC', 'Perchlorate', 'PLA', 'Empty Battery', 'Full Battery', 'Amaranth', 'Seeds: Amaranth', 'Guarana', 'Seeds: Guarana', 'Fermented Amaranth', 'Fermented Guarana'];
-items.forEach(i => { if(STATE.inventory[i] === undefined) STATE.inventory[i] = 0; });
-if(STATE.inventory.Barite === undefined) STATE.inventory.Barite = 0;
-if (!STATE.composter) STATE.composter = { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] };
-if (!STATE.refinery.sabatierSlots) STATE.refinery.sabatierSlots = [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }];
-if (!STATE.refinery.smelterSlots) STATE.refinery.smelterSlots = [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }];
-// --- FUEL FACTORY INIT CHECK ---
-if (!STATE.fuelFactory) {
-STATE.fuelFactory = {
-slots: [
-{ id: 0, active: false, mode: null, startTime: 0, duration: 0 },
-{ id: 1, active: false, mode: null, startTime: 0, duration: 0 },
-{ id: 2, active: false, mode: null, startTime: 0, duration: 0 },
-{ id: 3, active: false, mode: null, startTime: 0, duration: 0 }
-]
-};
-} else {
-STATE.fuelFactory.slots.forEach(s => { if(s.mode === undefined) s.mode = null; });
-}
-
-// --- UPGRADE: DUAL C.A.D SLOTS ---
-if (!STATE.cad.slots) {
-const oldActive = STATE.cad.active || false;
-const oldStart = STATE.cad.startTime || 0;
-const oldDur = STATE.cad.duration || 0;
-STATE.cad = {
-slots: [
-{ id: 0, active: oldActive, startTime: oldStart, duration: oldDur },
-{ id: 1, active: false, startTime: 0, duration: 0 }
-]
-};
-log("SYS: C.A.D. UPGRADED TO DUAL CELL.");
-}
-
-// --- NEW: CHEM LAB INIT CHECK ---
-if (!STATE.chemlab) {
-STATE.chemlab = {
-slots: [
-{ id: 0, active: false, mode: null, startTime: 0, duration: 0 },
-{ id: 1, active: false, mode: null, startTime: 0, duration: 0 },
-{ id: 2, active: false, mode: null, startTime: 0, duration: 0 },
-{ id: 3, active: false, mode: null, startTime: 0, duration: 0 }
-]
-};
-log("SYS: CHEM LAB MODULE INSTALLED.");
-}
-
-// --- NEW: FERMENTATION SLOT CHECK ---
-if (!STATE.refinery.fermenterSlot) {
-STATE.refinery.fermenterSlot = { active: false, startTime: 0, duration: 0, mode: null };
-log("SYS: FERMENTATION CELL INSTALLED.");
-} else if (STATE.refinery.fermenterSlot.mode === undefined) {
-STATE.refinery.fermenterSlot.mode = null;
-}
-
-// --- SKILLS EXPANSION CHECK ---
-const newSkills = ['metallurgy', 'chemistry', 'piloting', 'planetary_exploration', 'engineering', 'energy'];
-newSkills.forEach(s => {
-if (!STATE.skills[s]) STATE.skills[s] = { lvl: 0, xp: 0, next: 100 };
-});
-
-if (!STATE.lastDailyClaim) STATE.lastDailyClaim = 0;
-return true;
-}
-} catch(e) { console.error("Load failed", e); }
+// Return false ensures startGame() initializes basic system (planets, etc)
+// Inventory is populated asynchronously by SyncSys.pull()
 return false;
 },
 reset: function() {
-if(confirm("WIPE SAVE DATA?")) {
-localStorage.clear(); STATE.inventory = {};
-setTimeout(() => location.reload(), 100);
+if(confirm("RELOAD SESSION? (Unsaved local progress may be lost)")) {
+location.reload();
 }
 }
 };
@@ -1160,19 +1084,14 @@ AuthSys.init(); // This now controls the flow. It will call startGame() if sessi
 function startGame() {
 document.getElementById('game-ui').style.display = 'block';
 
+// Force new system creation since local storage is disabled.
+// Inventory persists via Cloud Sync (SyncSys).
 if (!StorageSys.load()) {
 createSystem();
 createBattery('grid'); createBattery('grid'); createBattery('inventory'); createBattery('inventory'); createBattery('inventory');
 STATE.power.batteries[0].charge = 20; STATE.power.batteries[1].charge = 10;
 STATE.power.batteries[2].charge = 33.33; STATE.power.batteries[3].charge = 33.33;
 STATE.power.batteries[4].charge = 33.33;
-} else {
-// Restore session integrity
-while(STATE.power.batteries.length < 5) {
-createBattery('inventory');
-STATE.power.batteries[STATE.power.batteries.length-1].charge = 33.33;
-}
-log("SYS: SESSION RESTORED.");
 }
 
 resize();
