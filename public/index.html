@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Exodus-Prime: Forge-7 Command [v6.3.5 CHEM-FIX]</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body id="body">
+
+    <canvas id="map"></canvas>
+
+    <div class="ui-layer">
+        <div id="top-bar" class="interactive">
+            <div style="display:flex; gap:15px; align-items: center;">
+                <span style="font-weight:bold; letter-spacing:2px; color:#fff;">EXODUS<span style="color:var(--neon)">//</span>PRIME</span>
+                <span><span class="tb-val" id="sys-name">SECTOR-42</span></span>
+                <span>FLUX: <span class="tb-val" id="top-flux-val">--%</span></span>
+                <span>STAM: <span class="tb-val" id="stamina-val" style="color:var(--stamina)">100/100</span></span>
+                <button id="btn-daily" class="nav-btn" style="font-size:9px; padding:1px 6px; height:20px; border-color:var(--warning); color:var(--warning);" onclick="claimDailyReward()">...LM</button>
+            </div>
+
+            <div class="top-center-group">
+                <button class="nav-btn" onclick="openProficiency()">🎓 PROFICIENCY</button>
+                <button class="nav-btn" onclick="openBaseModalFromUI()">🏠 BASE</button>
+                <button class="nav-btn" onclick="openHangar()">🚀 HANGAR</button>
+                <button class="nav-btn" onclick="openWarehouse()">📦 STORAGE</button>
+                <button class="nav-btn" onclick="openMarket()">⚖️ MARKET</button>
+            </div>
+
+            <div class="top-btn-group">
+                <span>UTC: <span class="tb-val" id="sys-time">00:00:00</span></span>
+            </div>
+        </div>
+
+        <div id="left-panel" class="panel interactive draggable">
+            <div class="header">FORGE-7 COMMAND</div>
+            <div style="margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                <div style="font-size:9px; color:#889; margin-bottom:5px;">LOCAL OPERATIONS</div>
+                <button class="scav-btn" id="btn-scavenge" onclick="scavenge()">
+                    SCAVENGE SECTOR <span style="font-size:9px; opacity:0.7">[-1 Stam / -1 Energy]</span>
+                </button>
+                <div id="scav-progress" style="height:2px; width:0%; background:var(--xp); transition:width 0.1s; box-shadow: 0 0 5px var(--xp);"></div>
+            </div>
+            <div class="flux-display">
+                <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                    <span style="color:#889">GRID STATUS</span>
+                    <b id="grid-status-text" style="color:var(--success)">ONLINE</b>
+                </div>
+                <div class="meter-container">
+                    <div id="flux-bar" class="meter-fill" style="width: 0%;"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:9px; margin-top:4px;">
+                    <span style="color:var(--neon)">GEN: <span id="grid-output">0.0</span> kW</span>
+                    <span style="color:var(--success)">CHG EFF: <span id="grid-load">100.0</span>%</span>
+                </div>
+            </div>
+
+            <div id="active-systems-panel" style="margin-bottom:10px;"></div>
+
+            <div style="margin-bottom: 10px;">
+                <div class="header" style="background:transparent; border-color:rgba(255,255,255,0.1); font-size:9px;">ACTIVE GRID [SLOTS: 3]</div>
+                <div id="active-grid-list"></div>
+            </div>
+            <div style="margin-top: 5px; margin-bottom: 10px;">
+                <div class="header" style="background:transparent; border-color:rgba(255,255,255,0.1); font-size:9px; color:#889;">BATTERY STORAGE</div>
+                <div id="battery-rack"></div>
+            </div>
+            <div id="inventory" class="scan-overlay" style="display:grid; grid-template-columns: 1fr; gap:2px;"></div>
+        </div>
+
+        <div id="right-panel" class="panel interactive draggable">
+            <div class="header">FLEET LINK</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:2px; margin-bottom:10px; text-align:center;">
+                <div style="background:rgba(255,255,255,0.02); padding:4px;"><div id="c-probe" style="color:var(--probe); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">PRB</span></div>
+                <div style="background:rgba(255,255,255,0.02); padding:4px;"><div id="c-miner" style="color:var(--miner); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">MNR</span></div>
+                <div style="background:rgba(255,255,255,0.02); padding:4px;"><div id="c-hauler" style="color:var(--hauler); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">HLR</span></div>
+                <div style="background:rgba(255,255,255,0.02); padding:4px;"><div id="c-gas" style="color:var(--gas); font-weight:bold;">0</div><span style="font-size:8px; color:#555;">GAS</span></div>
+            </div>
+            <div id="fleet-list"></div>
+        </div>
+
+        <div id="scanner-panel" class="panel interactive draggable">
+            <div class="header">SECTOR SCANNER</div>
+            <div style="overflow-y:auto; flex:1;">
+                <table>
+                    <thead><tr><th width="30%">OBJECT</th><th width="20%">TYPE</th><th width="15%">DIST</th><th>SIGNATURE</th></tr></thead>
+                    <tbody id="obj-list"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="log-panel" class="panel interactive draggable">
+            <div class="header" style="justify-content:space-between;"><span>SYSTEM LOG</span></div>
+            <div id="console" style="flex:1; overflow-y:auto; font-size:9px; line-height:1.4; color:#8daab9;">
+                > System init... OK<br>> Hangar Module... ONLINE<br>> Storage Protocol V2... ONLINE<br>> Power Grid... ONLINE
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay">
+        <div id="modal-base" class="modal draggable" style="display:none; border-color: var(--neon);">
+            <div class="header" style="font-size:14px;">FORGE-7 INDUSTRIAL COMPLEX</div>
+            <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
+
+            <div style="margin-bottom:10px; border-bottom:1px solid var(--panel-border); padding-bottom:5px;">
+                <button class="tab-btn active" id="tab-btn-refinery" onclick="switchTab('refinery')">REFINERY</button>
+                <button class="tab-btn green" id="tab-btn-greenhouse" onclick="switchTab('greenhouse')">GREENHOUSE</button>
+                <button class="tab-btn orange" id="tab-btn-kitchen" onclick="switchTab('kitchen')">KITCHEN</button>
+                <button class="tab-btn purple" id="tab-btn-chemlab" onclick="switchTab('chemlab')">CHEMICAL LAB</button>
+                <button class="tab-btn" id="tab-btn-factory" onclick="switchTab('factory')">FACTORY</button>
+                <button class="tab-btn red" id="tab-btn-fuel" onclick="switchTab('fuel')">ROCKET FUEL</button>
+                <button class="tab-btn" id="tab-btn-dsn" onclick="switchTab('dsn')">DEEP SPACE NETWORK</button>
+            </div>
+
+            <div id="tab-refinery">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <div id="cad-container" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; grid-column: span 2;"></div>
+
+                    <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
+                        <div style="color:white; font-weight:bold;">SMELTER & FORGE</div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">
+                            1. 500 Reg -> Iron Ore [6h] (30kW, -3 Stam)<br>
+                            2. 800 Reg -> Alum. Ore [6h] (40kW, -10 Stam)<br>
+                            3. 1200 Reg -> Copper Ore [6h] (40kW, -5 Stam)<br>
+                            4. 2000 Reg -> Titanium Ore [6h] (40kW, -5 Stam)<br>
+                            5. 10 CO₂, 10 Iron Ore -> Steel + Barite [6h]
+                        </div>
+                        <div id="smelter-ui" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;"></div>
+                    </div>
+
+                    <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
+                        <div style="color:var(--neon); font-weight:bold;">TWIN-CELL WATER PURIFIER</div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">Cycle Cost: 25 Ice, 10kW <span style="color:var(--stamina)">[-2 Stam]</span> | Duration: 4h</div>
+                        <div style="font-size:9px; color:#666; margin-bottom:5px;">Output: 16 Water, 4 Regolith</div>
+                        <div class="wf-container" id="water-filter-ui"></div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1); grid-column: span 2;">
+                        <div style="color:var(--warning); font-weight:bold;">SABATIER REACTOR</div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">
+                            Split (3.5h): 2 Water, 10kW <span style="color:var(--stamina)">[-2 Stam]</span><br>
+                            Methane (4h): 2 CO₂, 5 H₂, 10kW <span style="color:var(--stamina)">[-4 Stam]</span>
+                        </div>
+                        <div id="sabatier-ui" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:5px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-greenhouse" style="display:none; position:relative;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; padding:8px; border:1px solid var(--agri); background:rgba(68, 238, 119, 0.05);">
+                    <div>
+                        <span style="color:#aaa; margin-right:10px;">AGRI LVL: <b id="gh-skill-val" style="color:var(--agri)">0</b></span>
+                        <span style="color:#aaa;">SOIL: <b id="gh-soil-val" style="color:white;">0</b></span>
+                    </div>
+                    <div><span style="color:#aaa;">SEEDS (SPROUTS): <b id="gh-seeds-val" style="color:var(--success)">0</b></span></div>
+                </div>
+                <div id="greenhouse-grid" class="gh-grid"></div>
+                <div id="composter-section" style="margin-top:20px; border-top:1px solid rgba(68, 238, 119, 0.2); padding-top:10px;">
+                    <div style="color:var(--agri); font-weight:bold; margin-bottom:5px;">BIO-COMPOSTER UNIT</div>
+                    <div style="font-size:10px; color:#889; margin-bottom:8px;">Convert: 20 Regolith, 5 Waste, 8 Water → 10 Soil.<br>Cost per cycle: 15kW, 8 Stamina. Duration: 18h.</div>
+                    <div id="composter-ui" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;"></div>
+                </div>
+                <div id="crop-select-overlay" class="crop-select-overlay" style="display:none; position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(5,8,10,0.95); z-index: 10; flex-direction: column; justify-content: center; padding: 20px; box-sizing: border-box;">
+                    <h3 style="color:var(--agri); text-align:center; margin-top:0;">SELECT CROP</h3>
+                    <div style="display:grid; grid-template-columns: 1fr; gap:10px;">
+                        <button onclick="plantCrop('Sprouts')">
+                            <div style="font-weight:bold; color:var(--success)">SPROUTS</div>
+                            <div style="font-size:9px; color:#889;">Time: 4h | Yield: 10-14 Food</div>
+                            <div style="font-size:9px; color:#aaa;">Cost: 1 Seed, 1 Water, 1 Soil, 1 Energy, 1 Stamina</div>
+                        </button>
+                        <button onclick="plantCrop('Potato')" style="margin-top:5px;">
+                            <div style="font-weight:bold; color:#C49C48">POTATO</div>
+                            <div style="font-size:9px; color:#889;">Time: 8h | Yield: 25-55 Food</div>
+                            <div style="font-size:9px; color:#aaa;">Cost: 1 Seed, 5 Water, 4 Soil, 10 Energy, 3 Stamina</div>
+                        </button>
+                        <button onclick="plantCrop('Maize')" style="margin-top:5px;">
+                            <div style="font-weight:bold; color:var(--maize)">MAIZE</div>
+                            <div style="font-size:9px; color:#889;">Time: 12h | Yield: 70-90 Food</div>
+                            <div style="font-size:9px; color:#aaa;">Cost: 1 Seed, 10 Water, 5 Soil, 15 Energy, 5 Stamina</div>
+                        </button>
+
+                        <button onclick="plantCrop('Amaranth')" style="margin-top:5px;">
+                            <div style="font-weight:bold; color:#d400ff">AMARANTH</div>
+                            <div style="font-size:9px; color:#889;">Time: 12h | Yield: 10-20 Units</div>
+                            <div style="font-size:9px; color:#aaa;">Cost: 1 Seed, 10 Water, 3 Soil, 15 Energy, 3 Stamina</div>
+                        </button>
+                        <button onclick="plantCrop('Guarana')" style="margin-top:5px;">
+                            <div style="font-weight:bold; color:#cc0000">GUARANA</div>
+                            <div style="font-size:9px; color:#889;">Time: 24h | Yield: 20-30 Units</div>
+                            <div style="font-size:9px; color:#aaa;">Cost: 1 Seed, 10 Water, 4 Soil, 10 Energy, 5 Stamina</div>
+                        </button>
+                    </div>
+                    <button style="margin-top:10px; border-color:#555;" onclick="closeCropSelect()">CANCEL</button>
+                </div>
+            </div>
+
+            <div id="tab-kitchen" style="display:none;">
+                <div style="display:grid; grid-template-columns:1fr; gap:10px;">
+                    <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1);">
+                        <div style="color:var(--kitchen); font-weight:bold; margin-bottom:10px;">RATION PREPARATION UNIT</div>
+                        <p style="font-size:10px; color:#889;">Convert raw biomass and water into edible rations. Caution: Generates biological waste.</p>
+                        <button class="btn-kitchen" onclick="createRation('Snack')">
+                            <div><div style="font-weight:bold; color:#fff;">SNACK</div><div style="font-size:9px; color:#889;">+16 Stam, +2 Waste</div></div>
+                            <div style="text-align:right; font-size:9px; color:#889;">Cost: 30 Food, 10 Water, 1 Energy</div>
+                        </button>
+                        <button class="btn-kitchen" onclick="createRation('Meal')">
+                            <div><div style="font-weight:bold; color:#fff;">MEAL</div><div style="font-size:9px; color:#889;">+20-28 Stam, +4 Waste</div></div>
+                            <div style="text-align:right; font-size:9px; color:#889;">Cost: 60 Food, 20 Water, 2 Energy</div>
+                        </button>
+                        <button class="btn-kitchen" onclick="createRation('Feast')">
+                            <div><div style="font-weight:bold; color:#fff;">FEAST</div><div style="font-size:9px; color:#889;">+28-36 Stam, +6 Waste</div></div>
+                            <div style="text-align:right; font-size:9px; color:#889;">Cost: 90 Food, 30 Water, 3 Energy</div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-chemlab" style="display:none;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <div style="grid-column:span 2; background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(155, 89, 182, 0.3);">
+                        <div style="color:var(--chem); font-weight:bold;">CHEMICAL SYNTHESIS LAB</div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">
+                            <b>Polymer (PVC):</b> 5 Methane, 5 H₂, 5 Water -> 2-4 PVC [10% Bonus].<br>
+                            Cost: 20kW, 4 Stamina. Duration: 8h.
+                        </div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">
+                            <b>Perchlorate:</b> 5 Halite, 6 Water -> 1-3 Perchlorate.<br>
+                            Cost: 20kW, 5 Stamina. Duration: 6h.
+                        </div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">
+                            <b>PLA Plastic:</b> 20 Ferm. Guarana, 5 CO₂ -> 5-10 PLA.<br>
+                            Cost: 20kW, 2 Stamina. Duration: 6h.
+                        </div>
+                        <div style="font-size:10px; color:#889; margin:5px 0;">
+                            <b>Empty Battery:</b> 5 Perchlorate, 5 Water, 2 Iron, 2 PVC.<br>
+                            Cost: 2kW, 2 Stamina. Output: 1 (+1-2 Bonus 10%). Duration: 4h.
+                        </div>
+                    </div>
+                    <div id="chemlab-ui" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; grid-column:span 2;"></div>
+                </div>
+            </div>
+
+            <div id="tab-factory" style="display:none;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                    <div style="border:1px solid rgba(255,255,255,0.1); padding:10px;">
+                        <div style="color:var(--neon); font-weight:bold; margin-bottom:10px; border-bottom:1px solid #334;">METALWORKS</div>
+                        <div style="font-size:10px; color:#889; margin-bottom:5px;">
+                            <b>Alum. Plate:</b> 5 Alum. Ore, 35kW, 5 Stam. (2-5 Units).
+                        </div>
+                        <div style="font-size:10px; color:#889; margin-bottom:5px;">
+                            <b>Titanium Plate:</b> 5 Ti. Ore, 35kW, 5 Stam. (2-5 Units).
+                        </div>
+                        <div id="metalworks-ui" style="padding:5px;"></div>
+                    </div>
+                    <div style="border:1px solid rgba(255,255,255,0.1); padding:10px;">
+                        <div style="color:var(--neon); font-weight:bold; margin-bottom:10px; border-bottom:1px solid #334;">MACHINE PARTS</div>
+                        <div style="font-size:10px; color:#889; margin-bottom:5px;">
+                            <b>Machined Parts:</b> 5 Al. Plate, 5 Steel, 40kW, 5 Stam.<br>
+                            Output: 2-3 Units (+1-2 Bonus 11.11%). Time: 6h.
+                        </div>
+                        <div style="font-size:10px; color:#889; margin-bottom:5px;">
+                            <b>Moving Parts:</b> 3 Al. Plate, 3 Ti. Plate, 40kW, 5 Stam.<br>
+                            Output: 2-3 Units (+1-2 Bonus 11.11%). Time: 6h.
+                        </div>
+                        <div id="machineparts-content" style="padding:5px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-fuel" style="display:none;">
+                <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(231, 76, 60, 0.3); margin-bottom:10px;">
+                    <div style="color:var(--fuel); font-weight:bold;">LIQUEFACTION & PROCESSING</div>
+                    <div style="font-size:10px; color:#889; margin:top:5px;">
+                        1. <b>Methane:</b> 25 CH4, 30kW, 10 Stam -> 20 Liquid CH4 (2h)<br>
+                        2. <b>Oxygen:</b> 25 O2, 30kW, 10 Stam -> 20 Liquid O2 (2h)<br>
+                        3. <b>Synthesis:</b> 20 Liq CH4 + 20 Liq O2, 30kW, 15 Stam -> 40 Rocket Fuel (4h)
+                    </div>
+                </div>
+                <div id="fuel-factory-ui" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;"></div>
+            </div>
+
+            <div id="tab-dsn" style="display:none;">
+                <div style="text-align:center; color:#555; padding:20px;">
+                    // DEEP SPACE NETWORK: OFFLINE //
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-hangar" class="modal draggable" style="display:none; border-color: var(--miner);">
+            <div class="header" style="font-size:14px; color:white;">SHIP HANGAR & SHIPYARD</div>
+            <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
+            <div style="margin-bottom:15px;">
+                <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">DOCKED FLEET</div>
+                <div id="hangar-fleet-grid" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:5px;"></div>
+            </div>
+            <div>
+                <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">SHIP FABRICATION</div>
+                <div id="shipyard-grid" style="display:grid; grid-template-columns:1fr; gap:5px;"></div>
+                <div id="hangar-build-queue" style="margin-top:10px; border-top:1px solid #334; padding-top:5px;"></div>
+            </div>
+        </div>
+
+        <div id="modal-warehouse" class="modal draggable" style="display:none; width:700px; border-color: #889;">
+            <div class="header" style="font-size:14px; color:white;">GLOBAL WAREHOUSE</div>
+            <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#555" onclick="closeModal(null, true)">[×]</div>
+            <div id="warehouse-content" class="scan-overlay" style="padding:10px;"></div>
+        </div>
+
+        <div id="modal-proficiency" class="modal draggable" style="display:none; border-color: var(--xp);">
+            <div class="header" style="font-size:14px; color:white;">PERSONNEL RECORD</div>
+            <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
+            <div id="proficiency-content" class="scan-overlay" style="padding:10px;"></div>
+        </div>
+
+        <div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning);">
+            <div class="header" style="font-size:14px; color:white;">GALACTIC MARKET</div>
+            <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
+            <div style="margin-bottom:10px;">
+                <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">CURRENT OFFERS</div>
+                <div id="market-offers-list" class="scan-overlay" style="height:300px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:8px; margin-bottom:5px; border:1px solid rgba(255,255,255,0.1);">
+                        <div style="text-align:left;">
+                            <div style="color:var(--xp); font-weight:bold;">SCAVENGING LICENSE</div>
+                            <div style="font-size:9px; color:#889;">Auth Key to unlock higher skill tiers.</div>
+                        </div>
+                        <button class="nav-btn" style="border-color:var(--warning); color:var(--warning);" onclick="buyLicense()">BUY (200 SCRAP)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-target" class="modal draggable" style="display:none;">
+            <div class="header" id="m-t-name" style="font-size:14px;">TARGET</div>
+            <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#555" onclick="closeModal(null, true)">[×]</div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                <div><div style="font-size:10px; color:#889;">DIST (FROM BASE)</div><div id="m-t-dist" style="color:white;">0 AU</div></div>
+                <div><div style="font-size:10px; color:#889;">EST. TIME</div><div id="m-t-time" style="color:var(--neon);">00:00</div></div>
+                <div><div style="font-size:10px; color:#889;">ATMOS</div><div id="m-t-res" style="color:var(--success);">?</div></div>
+            </div>
+            <div id="launch-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
