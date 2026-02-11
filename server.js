@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const User = require('./models/User');
 
 const app = express();
-const PORT = process.env.PORT ||;
+const PORT = process.env.PORT || 10000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me';
 
 // Middleware
@@ -112,4 +112,5 @@ app.post('/api/game/save', auth, async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+
 
