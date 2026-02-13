@@ -189,6 +189,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const oldState = user.gameState || {}; // Предыдущее сохраненное состояние
+        let timeSinceLastSave = 0;
 
         // --- 1. ЗАЩИТА ОТ ПЕРЕМОТКИ ВРЕМЕНИ (ANTI-TIME-CHEAT) ---
         if (clientTime) {
@@ -203,10 +204,13 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // --- 2. ПРОВЕРКА ЧАСТОТЫ СОХРАНЕНИЙ ---
         if (user.lastSaveTime) {
-            const timeSinceLastSave = serverNow - new Date(user.lastSaveTime).getTime();
+            timeSinceLastSave = serverNow - new Date(user.lastSaveTime).getTime();
             if (timeSinceLastSave < 1000) { 
                 return res.status(429).json({ msg: 'Saving too frequently. Slow down.' });
             }
+        } else {
+            // Если это первое сохранение, даем буфер времени (например, 30 сек), чтобы разрешить начальные ресурсы
+            timeSinceLastSave = 30000;
         }
 
         // --- 3. ПРОВЕРКА СТАМИНЫ (CAP CHECK & CONSUMPTION CHECK) ---
@@ -216,7 +220,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_STAMINA_LIMIT = 100;
 
             // A. Cap Check: Проверка превышения лимита
-            // Если текущее значение или максимальное значение больше 100 -> Чит (Memory hack)
             if (newState.stamina.val > MAX_STAMINA_LIMIT || newState.stamina.max > MAX_STAMINA_LIMIT) {
                 await logAction('CHEAT_STAMINA_CAP', user.id, user.username, req, { 
                     val: newState.stamina.val, 
@@ -226,37 +229,24 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             // B. Consumption Check: Проверка оправданности роста стамины
-            // Логика работает только если есть предыдущее состояние для сравнения
             if (oldState.stamina && oldState.inventory && newState.inventory) {
                 const oldVal = parseFloat(oldState.stamina.val) || 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
 
-                // Если стамина увеличилась
                 if (staminaDiff > 0) {
-                    // Список еды, которая дает стамину (из кода клиента)
-                    const foodItems = [
-                        'Snack', 
-                        'Meal', 
-                        'Feast', 
-                        'Energy Bar', 
-                        'Energy Isotonic'
-                    ];
-
+                    const foodItems = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Energy Isotonic'];
                     let hasConsumedFood = false;
 
-                    // Проверяем, уменьшилось ли количество хоть одного типа еды
                     for (const item of foodItems) {
                         const oldQty = oldState.inventory[item] || 0;
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
                             hasConsumedFood = true;
-                            break; // Нашли потребление, выход из цикла
+                            break;
                         }
                     }
 
-                    // Если стамина выросла, но еда не уменьшилась -> Чит
-                    // (Учитываем небольшой порог погрешности float, на всякий случай, но здесь логика жесткая: diff > 0.5)
                     if (!hasConsumedFood && staminaDiff > 0.5) {
                         await logAction('CHEAT_STAMINA_NO_CONSUME', user.id, user.username, req, { 
                             oldStamina: oldVal, 
@@ -267,6 +257,61 @@ app.post('/api/game/save', auth, async (req, res) => {
                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
+            }
+        }
+
+        // --- 4. VALIDATION: SCAVENGING & RESOURCES (ICE, REGOLITH, SCRAP) ---
+        if (oldState.inventory && newState.inventory) {
+            // Рассчитываем изменение ресурсов
+            const dRegolith = (newState.inventory.Regolith || 0) - (oldState.inventory.Regolith || 0);
+            const dIce = (newState.inventory["Ice water"] || 0) - (oldState.inventory["Ice water"] || 0);
+            const dScrap = (newState.inventory.Scrap || 0) - (oldState.inventory.Scrap || 0);
+
+            // Параметры Scavenging из клиента (CODE_LOCAL)
+            const SCAV_DURATION_MS = 5000;
+            // Max Regolith: 5 (base) + 5 (lucky bonus) = 10
+            const MAX_REG_PER_SCAV = 10;
+            // Max Ice: 3 (base) = 3
+            const MAX_ICE_PER_SCAV = 3;
+            // Max Scrap: 5 (base) + 5 (lucky bonus) = 10
+            const MAX_SCRAP_PER_SCAV = 10;
+
+            // Рассчитываем, сколько раз игрок мог теоретически нажать Scavenge за время между сохранениями
+            // Добавляем +2 к количеству действий как буфер на сетевые задержки и погрешность таймера
+            const maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
+
+            // Буфер для ресурсов, добытых кораблями (например, Miner привозит 50-75 ед.) или фильтрами
+            // Так как корабли прибывают мгновенно, а сейв раз в 30 сек, большой скачок допустим, 
+            // но мы ограничиваем аномально огромные значения (накрутку).
+            const SHIP_BUFFER = 100;
+
+            // 1. Валидация Scrap (Scrap добывается почти только Scavenging)
+            // Здесь буфер меньше, так как корабли обычно не возят Scrap (согласно конфигу SPECS)
+            if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
+                 await logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
+                    delta: dScrap, 
+                    maxAllowed: (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20,
+                    timeElapsed: timeSinceLastSave 
+                });
+                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Scrap increase detected.' });
+            }
+
+            // 2. Валидация Ice (Scavenging + Ice World Mining + Trade)
+            if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)) {
+                 await logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
+                    delta: dIce,
+                    maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
+                });
+                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
+            }
+
+            // 3. Валидация Regolith (Scavenging + Mining + Water Filter Output)
+            if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)) {
+                 await logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
+                    delta: dRegolith,
+                    maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
+                });
+                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
         }
 
