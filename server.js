@@ -6,26 +6,26 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet'); 
 const rateLimit = require('express-rate-limit'); 
-const User = require('./models/User');
+const User = require('./models/User'); // Убедитесь, что этот путь верный в вашей структуре
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me';
 
 // --- SECURITY MIDDLEWARE (HELMET) ---
-// ИЗМЕНЕНИЕ: Настроили CSP, чтобы разрешить 'onclick' и другие инлайн-скрипты
+// Настроили CSP, чтобы разрешить 'onclick' и другие инлайн-скрипты
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
             "script-src": ["'self'", "'unsafe-inline'"], // Разрешает <script> внутри HTML
-            "script-src-attr": ["'unsafe-inline'"],      // Разрешает onclick="..." (Ваша ошибка была здесь)
-            "img-src": ["'self'", "data:", "*"],         // Разрешает картинки (на случай если они есть)
+            "script-src-attr": ["'unsafe-inline'"],      // Разрешает onclick="..."
+            "img-src": ["'self'", "data:", "*"],          // Разрешает картинки
         },
     },
 }));
 
-// --- НОВАЯ МОДЕЛЬ ДЛЯ ЛОГОВ (Лучше вынести в models/ActionLog.js) ---
+// --- МОДЕЛЬ ДЛЯ ЛОГОВ ---
 const ActionLogSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
     username: { type: String },
@@ -78,8 +78,9 @@ app.use(cors());
 app.use(express.static('public'));
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('MongoDB Atlas Connected'))
+// Убедитесь, что переменная окружения MONGO_URI задана
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime')
+    .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
 
 // --- AUTH MIDDLEWARE ---
@@ -111,6 +112,10 @@ app.post('/api/auth/register', async (req, res) => {
         user = new User({ username, password });
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
+        
+        // Инициализация пустого состояния игры при регистрации
+        user.gameState = {}; 
+        
         await user.save();
 
         await logAction('REGISTER_SUCCESS', user.id, username, req);
@@ -171,10 +176,11 @@ app.get('/api/game/load', auth, async (req, res) => {
     }
 });
 
-// 4. Save Game (Protected)
+// 4. Save Game (Protected) with Anti-Cheat
 app.post('/api/game/save', auth, async (req, res) => {
     try {
         const { gameState, clientTime } = req.body;
+        const newState = gameState; // Алиас для удобства
         const serverNow = Date.now();
 
         const user = await User.findById(req.user.id);
@@ -182,7 +188,9 @@ app.post('/api/game/save', auth, async (req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        // --- ЗАЩИТА ОТ ПЕРЕМОТКИ ВРЕМЕНИ (ANTI-TIME-CHEAT) ---
+        const oldState = user.gameState || {}; // Предыдущее сохраненное состояние
+
+        // --- 1. ЗАЩИТА ОТ ПЕРЕМОТКИ ВРЕМЕНИ (ANTI-TIME-CHEAT) ---
         if (clientTime) {
             const timeDifference = Math.abs(serverNow - clientTime);
             const maxAllowedDifference = 5 * 60 * 1000; 
@@ -193,7 +201,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        // Проверка на частоту сохранений
+        // --- 2. ПРОВЕРКА ЧАСТОТЫ СОХРАНЕНИЙ ---
         if (user.lastSaveTime) {
             const timeSinceLastSave = serverNow - new Date(user.lastSaveTime).getTime();
             if (timeSinceLastSave < 1000) { 
@@ -201,6 +209,68 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
+        // --- 3. ПРОВЕРКА СТАМИНЫ (CAP CHECK & CONSUMPTION CHECK) ---
+        
+        // Проверка наличия объектов стамины в новом состоянии
+        if (newState.stamina) {
+            const MAX_STAMINA_LIMIT = 100;
+
+            // A. Cap Check: Проверка превышения лимита
+            // Если текущее значение или максимальное значение больше 100 -> Чит (Memory hack)
+            if (newState.stamina.val > MAX_STAMINA_LIMIT || newState.stamina.max > MAX_STAMINA_LIMIT) {
+                await logAction('CHEAT_STAMINA_CAP', user.id, user.username, req, { 
+                    val: newState.stamina.val, 
+                    max: newState.stamina.max 
+                });
+                return res.status(400).json({ msg: 'Game integrity error: Stamina values exceed allowable limits.' });
+            }
+
+            // B. Consumption Check: Проверка оправданности роста стамины
+            // Логика работает только если есть предыдущее состояние для сравнения
+            if (oldState.stamina && oldState.inventory && newState.inventory) {
+                const oldVal = parseFloat(oldState.stamina.val) || 0;
+                const newVal = parseFloat(newState.stamina.val) || 0;
+                const staminaDiff = newVal - oldVal;
+
+                // Если стамина увеличилась
+                if (staminaDiff > 0) {
+                    // Список еды, которая дает стамину (из кода клиента)
+                    const foodItems = [
+                        'Snack', 
+                        'Meal', 
+                        'Feast', 
+                        'Energy Bar', 
+                        'Energy Isotonic'
+                    ];
+
+                    let hasConsumedFood = false;
+
+                    // Проверяем, уменьшилось ли количество хоть одного типа еды
+                    for (const item of foodItems) {
+                        const oldQty = oldState.inventory[item] || 0;
+                        const newQty = newState.inventory[item] || 0;
+                        if (newQty < oldQty) {
+                            hasConsumedFood = true;
+                            break; // Нашли потребление, выход из цикла
+                        }
+                    }
+
+                    // Если стамина выросла, но еда не уменьшилась -> Чит
+                    // (Учитываем небольшой порог погрешности float, на всякий случай, но здесь логика жесткая: diff > 0.5)
+                    if (!hasConsumedFood && staminaDiff > 0.5) {
+                        await logAction('CHEAT_STAMINA_NO_CONSUME', user.id, user.username, req, { 
+                            oldStamina: oldVal, 
+                            newStamina: newVal,
+                            diff: staminaDiff,
+                            details: "Stamina increased without inventory consumption"
+                        });
+                        return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
+                    }
+                }
+            }
+        }
+
+        // --- СОХРАНЕНИЕ ---
         user.gameState = gameState;
         user.lastSaveTime = serverNow;
         await user.save();
