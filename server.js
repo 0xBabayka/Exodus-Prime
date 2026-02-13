@@ -269,24 +269,13 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             // Параметры Scavenging из клиента (CODE_LOCAL)
             const SCAV_DURATION_MS = 5000;
-            // Max Regolith: 5 (base) + 5 (lucky bonus) = 10
             const MAX_REG_PER_SCAV = 10;
-            // Max Ice: 3 (base) = 3
             const MAX_ICE_PER_SCAV = 3;
-            // Max Scrap: 5 (base) + 5 (lucky bonus) = 10
             const MAX_SCRAP_PER_SCAV = 10;
 
-            // Рассчитываем, сколько раз игрок мог теоретически нажать Scavenge за время между сохранениями
-            // Добавляем +2 к количеству действий как буфер на сетевые задержки и погрешность таймера
             const maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
-
-            // Буфер для ресурсов, добытых кораблями (например, Miner привозит 50-75 ед.) или фильтрами
-            // Так как корабли прибывают мгновенно, а сейв раз в 30 сек, большой скачок допустим, 
-            // но мы ограничиваем аномально огромные значения (накрутку).
             const SHIP_BUFFER = 100;
 
-            // 1. Валидация Scrap (Scrap добывается почти только Scavenging)
-            // Здесь буфер меньше, так как корабли обычно не возят Scrap (согласно конфигу SPECS)
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                  await logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -296,7 +285,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Scrap increase detected.' });
             }
 
-            // 2. Валидация Ice (Scavenging + Ice World Mining + Trade)
             if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)) {
                  await logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
@@ -305,13 +293,75 @@ app.post('/api/game/save', auth, async (req, res) => {
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
-            // 3. Валидация Regolith (Scavenging + Mining + Water Filter Output)
             if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)) {
                  await logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith,
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
+            }
+
+            // --- 5. VALIDATION: FOOD PRODUCTION & CONSUMPTION ---
+            
+            // 5a. Calculate Deltas for Rations and High-Tier Consumables
+            const dSnack = (newState.inventory.Snack || 0) - (oldState.inventory.Snack || 0);
+            const dMeal = (newState.inventory.Meal || 0) - (oldState.inventory.Meal || 0);
+            const dFeast = (newState.inventory.Feast || 0) - (oldState.inventory.Feast || 0);
+            const dIsotonic = (newState.inventory["Energy Isotonic"] || 0) - (oldState.inventory["Energy Isotonic"] || 0);
+            
+            // Deltas for raw crops/food
+            const dFood = (newState.inventory.Food || 0) - (oldState.inventory.Food || 0);
+            const dAmaranth = (newState.inventory.Amaranth || 0) - (oldState.inventory.Amaranth || 0);
+            const dGuarana = (newState.inventory.Guarana || 0) - (oldState.inventory.Guarana || 0);
+
+            // 5b. Validate Ration Cooking (Input/Output consistency)
+            // Calculate how much generic "Food" resource SHOULD have been spent based on rations created
+            let impliedFoodCost = 0;
+            if (dSnack > 0) impliedFoodCost += dSnack * 30; // Cost: 30 Food
+            if (dMeal > 0) impliedFoodCost += dMeal * 60;   // Cost: 60 Food
+            if (dFeast > 0) impliedFoodCost += dFeast * 90; // Cost: 90 Food
+
+            // 5c. Validate Maximum Harvest (Buffer check)
+            // Theoretical max harvest logic:
+            // Maize Yield: 70-90. Crit (Skill/5 stacks): 1.5x. Max per slot ~135.
+            // Greenhouse Slots: 6. Max total single harvest: ~810 Food.
+            // We give a generous buffer (1200) to account for rapid clicks or slight sync delays.
+            // Formula: The "Net Change in Food" + "Food Spent on Rations" must be <= "Max Possible New Food from Harvest"
+            // Example: If I cooked 1 Meal (Cost 60), my dFood is -60. (-60 + 60) <= 1200. OK.
+            // Example: If I hacked +100 Meals, dFood is 0 (didn't spend). (0 + 6000) > 1200. CHEAT.
+            const MAX_FOOD_HARVEST_BUFFER = 1200; 
+            
+            if ((dFood + impliedFoodCost) > MAX_FOOD_HARVEST_BUFFER) {
+                await logAction('CHEAT_RESOURCE_FOOD_BALANCE', user.id, user.username, req, {
+                    dFood, 
+                    impliedFoodCost, 
+                    netGain: dFood + impliedFoodCost,
+                    limit: MAX_FOOD_HARVEST_BUFFER
+                });
+                return res.status(400).json({ msg: 'Game integrity error: Abnormal Food/Ration production balance.' });
+            }
+
+            // 5d. Validate Specific Crops (Amaranth/Guarana)
+            // Amaranth/Guarana are items, not "Food" resource.
+            // Amaranth Max: ~20 * 1.5 * 6 = 180. Buffer: 300.
+            if (dAmaranth > 300) {
+                await logAction('CHEAT_CROP_AMARANTH', user.id, user.username, req, { delta: dAmaranth });
+                return res.status(400).json({ msg: 'Game integrity error: Abnormal Amaranth harvest.' });
+            }
+            // Guarana Max: ~30 * 1.5 * 6 = 270. Buffer: 400.
+            if (dGuarana > 400) {
+                await logAction('CHEAT_CROP_GUARANA', user.id, user.username, req, { delta: dGuarana });
+                return res.status(400).json({ msg: 'Game integrity error: Abnormal Guarana harvest.' });
+            }
+
+            // 5e. Validate Time-Gated Production (Isotonic)
+            // Isotonic takes 2 hours to brew. Max slots = 2. Max yield per slot = 5. 
+            // Max yield per cycle = 10.
+            // Even if multiple cycles finished exactly between saves (highly unlikely in 30s window),
+            // a value > 25 indicates speed-hacking or inventory injection.
+            if (dIsotonic > 25) {
+                await logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
+                return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
         }
 
