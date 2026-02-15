@@ -213,7 +213,61 @@ app.post('/api/game/save', auth, async (req, res) => {
             timeSinceLastSave = 30000;
         }
 
-        // --- 3. ПРОВЕРКА СТАМИНЫ (CAP CHECK & CONSUMPTION CHECK) ---
+        // --- 3. SECURITY: POWER & BATTERY VALIDATION (NEW) ---
+        if (newState.power && newState.power.batteries) {
+            const batteries = newState.power.batteries;
+            
+            // Константы из клиентского кода (CODE_LOCAL: 732)
+            // panelBaseOutput = 0.015 kW per tick/second (зависит от dt клиента, но в логике offline используется как множитель времени)
+            // batteryCap = 33.33
+            const BATTERY_CAP = 33.33;
+            // Даем небольшой буфер для плавающей запятой (0.2)
+            const MAX_ALLOWED_CHARGE = BATTERY_CAP + 0.2; 
+            
+            // Макс. выработка в секунду: 0.015 * 1.0 (Flux) = 0.015 kW/s.
+            // Берем 0.02 для запаса.
+            const MAX_GEN_PER_SEC = 0.02; 
+            
+            let totalNewCharge = 0;
+            let totalOldCharge = 0;
+
+            // A. Проверка каждого аккумулятора на превышение лимита
+            for (let bat of batteries) {
+                if (bat.charge > MAX_ALLOWED_CHARGE) {
+                    await logAction('CHEAT_BATTERY_OVERCHARGE', user.id, user.username, req, {
+                        batId: bat.id,
+                        charge: bat.charge,
+                        limit: BATTERY_CAP
+                    });
+                    return res.status(400).json({ msg: 'Game integrity error: Battery charge exceeds physical capacity.' });
+                }
+                totalNewCharge += (bat.charge || 0);
+            }
+
+            // B. Проверка скорости накопления энергии (Generation Rate Check)
+            // Сравниваем общее кол-во энергии сейчас и в прошлом сохранении
+            if (oldState.power && oldState.power.batteries) {
+                oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
+                
+                const chargeDelta = totalNewCharge - totalOldCharge;
+                const elapsedSeconds = timeSinceLastSave / 1000;
+                
+                // Максимально возможный прирост = время * макс_выработку + буфер (например, 5 kW на случай квестов/наград)
+                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 5.0;
+
+                // Проверяем только если заряд вырос
+                if (chargeDelta > maxPossibleGain) {
+                     await logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
+                        delta: chargeDelta,
+                        maxAllowed: maxPossibleGain,
+                        elapsedTime: elapsedSeconds
+                    });
+                    return res.status(400).json({ msg: 'Game integrity error: Abnormal power generation detected.' });
+                }
+            }
+        }
+
+        // --- 4. ПРОВЕРКА СТАМИНЫ (CAP CHECK & CONSUMPTION CHECK) ---
         
         // Проверка наличия объектов стамины в новом состоянии
         if (newState.stamina) {
@@ -260,7 +314,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        // --- 4. VALIDATION: SCAVENGING & RESOURCES (ICE, REGOLITH, SCRAP) ---
+        // --- 5. VALIDATION: SCAVENGING & RESOURCES (ICE, REGOLITH, SCRAP) ---
         if (oldState.inventory && newState.inventory) {
             // Рассчитываем изменение ресурсов
             const dRegolith = (newState.inventory.Regolith || 0) - (oldState.inventory.Regolith || 0);
@@ -301,9 +355,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
-            // --- 5. VALIDATION: FOOD PRODUCTION & CONSUMPTION ---
+            // --- 6. VALIDATION: FOOD PRODUCTION & CONSUMPTION ---
             
-            // 5a. Calculate Deltas for Rations and High-Tier Consumables
+            // 6a. Calculate Deltas for Rations and High-Tier Consumables
             const dSnack = (newState.inventory.Snack || 0) - (oldState.inventory.Snack || 0);
             const dMeal = (newState.inventory.Meal || 0) - (oldState.inventory.Meal || 0);
             const dFeast = (newState.inventory.Feast || 0) - (oldState.inventory.Feast || 0);
@@ -314,14 +368,14 @@ app.post('/api/game/save', auth, async (req, res) => {
             const dAmaranth = (newState.inventory.Amaranth || 0) - (oldState.inventory.Amaranth || 0);
             const dGuarana = (newState.inventory.Guarana || 0) - (oldState.inventory.Guarana || 0);
 
-            // 5b. Validate Ration Cooking (Input/Output consistency)
+            // 6b. Validate Ration Cooking (Input/Output consistency)
             // Calculate how much generic "Food" resource SHOULD have been spent based on rations created
             let impliedFoodCost = 0;
             if (dSnack > 0) impliedFoodCost += dSnack * 30; // Cost: 30 Food
             if (dMeal > 0) impliedFoodCost += dMeal * 60;   // Cost: 60 Food
             if (dFeast > 0) impliedFoodCost += dFeast * 90; // Cost: 90 Food
 
-            // 5c. Validate Maximum Harvest (Buffer check)
+            // 6c. Validate Maximum Harvest (Buffer check)
             // Theoretical max harvest logic:
             // Maize Yield: 70-90. Crit (Skill/5 stacks): 1.5x. Max per slot ~135.
             // Greenhouse Slots: 6. Max total single harvest: ~810 Food.
@@ -341,7 +395,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Food/Ration production balance.' });
             }
 
-            // 5d. Validate Specific Crops (Amaranth/Guarana)
+            // 6d. Validate Specific Crops (Amaranth/Guarana)
             // Amaranth/Guarana are items, not "Food" resource.
             // Amaranth Max: ~20 * 1.5 * 6 = 180. Buffer: 300.
             if (dAmaranth > 300) {
@@ -354,7 +408,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Guarana harvest.' });
             }
 
-            // 5e. Validate Time-Gated Production (Isotonic)
+            // 6e. Validate Time-Gated Production (Isotonic)
             // Isotonic takes 2 hours to brew. Max slots = 2. Max yield per slot = 5. 
             // Max yield per cycle = 10.
             // Even if multiple cycles finished exactly between saves (highly unlikely in 30s window),
