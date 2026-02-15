@@ -19,7 +19,7 @@ app.use(helmet({
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
             "script-src": ["'self'", "'unsafe-inline'"], // Разрешает <script> внутри HTML
-            "script-src-attr": ["'unsafe-inline'"],      // Разрешает onclick="..."
+            "script-src-attr": ["'unsafe-inline'"],       // Разрешает onclick="..."
             "img-src": ["'self'", "data:", "*"],          // Разрешает картинки
         },
     },
@@ -479,6 +479,48 @@ app.post('/api/game/save', auth, async (req, res) => {
                             hasMiner: hasMiner
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${ore.key}.` });
+                    }
+                }
+            }
+
+            // --- 9. VALIDATION: CAD SYSTEM (GASES) ---
+            // Resources: CO2, Nitrogen, Argon, Neon, Krypton, Xenon
+            // Analysis of Client Code (completeCad):
+            // - CAD produces CO2 (2-5 base) + (1-10 bonus) -> Max ~15
+            // - Rare gases (N2, Ar, Ne, Kr, Xe) -> Max 1-2 per run
+            // - System has 2 slots. Manual restart is required.
+            // - Therefore, in any single save interval, a slot can effectively produce output only once 
+            //   (unless user is scripting clicks faster than humanly possible, which we limit anyway).
+
+            const cadGases = [
+                { key: "CO2", maxPerRun: 15 }, // 5 base + 10 bonus
+                { key: "Nitrogen", maxPerRun: 2 },
+                { key: "Argon", maxPerRun: 2 },
+                { key: "Neon", maxPerRun: 2 },
+                { key: "Krypton", maxPerRun: 2 },
+                { key: "Xenon", maxPerRun: 2 }
+            ];
+
+            const MAX_CAD_SLOTS = 2; // In current client version
+            const CAD_SAFETY_BUFFER = 5; // Buffer for edge cases / minor sync issues
+
+            for (const gas of cadGases) {
+                const oldQty = oldState.inventory[gas.key] || 0;
+                const newQty = newState.inventory[gas.key] || 0;
+                const dQty = newQty - oldQty;
+
+                if (dQty > 0) {
+                    // Limit = (Max Output per Slot * Number of Slots) + Safety Buffer
+                    // This assumes that within one save delta (30s), user can't finish more than 1 cycle per slot manually.
+                    const limit = (gas.maxPerRun * MAX_CAD_SLOTS) + CAD_SAFETY_BUFFER;
+
+                    if (dQty > limit) {
+                        await logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
+                            resource: gas.key,
+                            delta: dQty,
+                            limit: limit
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${gas.key} (CAD violation).` });
                     }
                 }
             }
