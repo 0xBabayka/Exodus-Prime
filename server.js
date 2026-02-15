@@ -213,20 +213,19 @@ app.post('/api/game/save', auth, async (req, res) => {
             timeSinceLastSave = 30000;
         }
 
-        // --- 3. SECURITY: POWER & BATTERY VALIDATION (NEW) ---
+        // --- 3. SECURITY: POWER & BATTERY VALIDATION (FIXED) ---
         if (newState.power && newState.power.batteries) {
             const batteries = newState.power.batteries;
             
-            // Константы из клиентского кода (CODE_LOCAL: 732)
-            // panelBaseOutput = 0.015 kW per tick/second (зависит от dt клиента, но в логике offline используется как множитель времени)
+            // panelBaseOutput = 0.015 kW per tick/second
             // batteryCap = 33.33
             const BATTERY_CAP = 33.33;
-            // Даем небольшой буфер для плавающей запятой (0.2)
-            const MAX_ALLOWED_CHARGE = BATTERY_CAP + 0.2; 
+            // [FIX] Увеличен буфер для float (с 0.2 до 2.0), чтобы избежать ложных срабатываний при полном заряде
+            const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0; 
             
-            // Макс. выработка в секунду: 0.015 * 1.0 (Flux) = 0.015 kW/s.
-            // Берем 0.02 для запаса.
-            const MAX_GEN_PER_SEC = 0.02; 
+            // [FIX] Увеличен лимит генерации. Старое значение 0.02 (1 панель) вызывало ошибки у развитых игроков.
+            // 0.5 kW/s позволяет иметь ~30 панелей/генераторов без бана, но блокирует накрутку.
+            const MAX_GEN_PER_SEC = 0.5; 
             
             let totalNewCharge = 0;
             let totalOldCharge = 0;
@@ -253,7 +252,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const elapsedSeconds = timeSinceLastSave / 1000;
                 
                 // Максимально возможный прирост = время * макс_выработку + буфер (например, 5 kW на случай квестов/наград)
-                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 5.0;
+                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0; // Увеличен статический буфер до 10
 
                 // Проверяем только если заряд вырос
                 if (chargeDelta > maxPossibleGain) {
