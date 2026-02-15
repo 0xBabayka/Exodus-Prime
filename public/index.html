@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v7.2 ONLINE]</title>
+<title>Exodus-Prime: Forge-7 Command [v7.3 ONLINE]</title>
 <style>
 :root {
 --neon: #00E5FF; /* Яркий Циан */
@@ -592,6 +592,10 @@ Cost: 35kW, 5 Stamina. Output: 2 Units. Time: 4h.
 <b>PVC Pipe:</b> 2 PVC, 1 Elec. Silicon.<br>
 Cost: 15kW, 2 Stamina. Output: 3-5 Units. Time: 3h.
 </div>
+<div style="font-size:10px; color:#889; margin-bottom:5px;">
+<b>Electronic Parts:</b> 8 Copper, 2 PVC, 1 Elec. Silicon, 500 Reg.<br>
+Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
+</div>
 <div id="printer-ui" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;"></div>
 </div>
 </div>
@@ -842,7 +846,8 @@ moving_parts: { cost: { "Aluminium Plate": 3, "Titanium Plate": 3, power: 40, st
 };
 const PRINTER_CFG = {
 structural_part: { cost: { Steel: 10, "Titanium Plate": 3, "Aluminium Plate": 5, power: 35, stamina: 5 }, output: 2, duration: 4 * 60 * 60 * 1000 },
-pvc_pipe: { cost: { PVC: 2, "Electric silicon": 1, power: 15, stamina: 2 }, output: { min: 3, max: 5 }, duration: 3 * 60 * 60 * 1000 }
+pvc_pipe: { cost: { PVC: 2, "Electric silicon": 1, power: 15, stamina: 2 }, output: { min: 3, max: 5 }, duration: 3 * 60 * 60 * 1000 },
+electronic_parts: { cost: { "Copper Ore": 8, PVC: 2, "Electric silicon": 1, Regolith: 500, power: 30, stamina: 5 }, output: { min: 2, max: 3 }, duration: 4 * 60 * 60 * 1000 }
 };
 const ROASTING_CFG = { cost: { "Fermented Guarana": 20, power: 10, stamina: 1 }, output: { min: 15, max: 20 }, duration: 8 * 60 * 60 * 1000 };
 const GRINDER_CFG = { cost: { "Roasted Guarana": 18, power: 18, stamina: 1 }, output: { min: 7, max: 13 }, duration: 4 * 60 * 60 * 1000 };
@@ -924,7 +929,7 @@ CO2: 0, Nitrogen: 0, Argon: 0, Neon: 0, Krypton: 0, Xenon: 0, Pt: 5, Gas: 0, Scr
 Soil: 100, "Seeds: Sprouts": 100, "Seeds: Amaranth": 5, "Seeds: Guarana": 5, "Seeds: Potato": 5, "Seeds: Maize": 5, Food: 0, Regolith: 0, "Biological Waste": 0, Methane: 0, O2: 0,
 Snack: 0, Meal: 0, Feast: 0, "Energy Bar": 10, Barite: 0,
 "Aluminium Ore": 0, "Copper Ore": 0, "Titanium Ore": 0, Halite: 0, "Liquid CH4": 0, "Liquid O2": 0, "Rocket Fuel": 100, PVC: 0, Perchlorate: 0, PLA: 0, "Empty Battery": 0, "Full Battery": 0, Amaranth: 0, Guarana: 0, Potato: 0, "Fermented Amaranth": 0, "Fermented Guarana": 0,
-"Scavenging License": 0, Worms: 0, "Aluminium Plate": 0, "Titanium Plate": 0, "Machined Parts": 0, "Moving Parts": 0, "Roasted Guarana": 0, "Ground Guarana": 0, "Energy Isotonic": 0, "Raw silicon": 0, "Electric silicon": 0, "Structural Part": 0, "PVC Pipe": 0
+"Scavenging License": 0, Worms: 0, "Aluminium Plate": 0, "Titanium Plate": 0, "Machined Parts": 0, "Moving Parts": 0, "Roasted Guarana": 0, "Ground Guarana": 0, "Energy Isotonic": 0, "Raw silicon": 0, "Electric silicon": 0, "Structural Part": 0, "PVC Pipe": 0, "Electronic Parts": 0
 },
 stamina: { val: 100, max: 100 },
 cooldowns: { Snack: 0, Meal: 0, Feast: 0, "Energy Bar": 0 },
@@ -1058,7 +1063,7 @@ if (baseBody.type !== 'BASE') { baseBody.type = 'BASE'; log("SYS: Base Protocol 
 STATE.bodies.push({ id: 4, name: "J-03", dist: 1.5, speed: 2.4, color: "#f40", size: 9, type: "BASE", angle: 0 });
 log("SYS: Base Reconstruction Complete.");
 }
-const items = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Biological Waste', 'Methane', 'O2', 'Aluminium Ore', 'Copper Ore', 'Titanium Ore', 'Halite', 'Liquid CH4', 'Liquid O2', 'Rocket Fuel', 'PVC', 'Perchlorate', 'PLA', 'Empty Battery', 'Full Battery', 'Amaranth', 'Seeds: Amaranth', 'Guarana', 'Seeds: Guarana', 'Fermented Amaranth', 'Fermented Guarana', 'Scavenging License', 'Worms', 'Potato', 'Seeds: Potato', 'Seeds: Maize', 'Aluminium Plate', 'Titanium Plate', 'Machined Parts', 'Moving Parts', 'Roasted Guarana', 'Ground Guarana', 'Energy Isotonic', 'Raw silicon', 'Electric silicon', 'Structural Part', 'PVC Pipe'];
+const items = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Biological Waste', 'Methane', 'O2', 'Aluminium Ore', 'Copper Ore', 'Titanium Ore', 'Halite', 'Liquid CH4', 'Liquid O2', 'Rocket Fuel', 'PVC', 'Perchlorate', 'PLA', 'Empty Battery', 'Full Battery', 'Amaranth', 'Seeds: Amaranth', 'Guarana', 'Seeds: Guarana', 'Fermented Amaranth', 'Fermented Guarana', 'Scavenging License', 'Worms', 'Potato', 'Seeds: Potato', 'Seeds: Maize', 'Aluminium Plate', 'Titanium Plate', 'Machined Parts', 'Moving Parts', 'Roasted Guarana', 'Ground Guarana', 'Energy Isotonic', 'Raw silicon', 'Electric silicon', 'Structural Part', 'PVC Pipe', 'Electronic Parts'];
 items.forEach(i => { if(STATE.inventory[i] === undefined) STATE.inventory[i] = 0; });
 
 // Ensure nested objects
@@ -1622,6 +1627,11 @@ if ((STATE.inventory["Titanium Plate"]||0) < cfg.cost["Titanium Plate"]) return 
 if ((STATE.inventory["Aluminium Plate"]||0) < cfg.cost["Aluminium Plate"]) return log("ERR: MISSING AL. PLATE."); STATE.inventory.Steel -= cfg.cost.Steel; STATE.inventory["Titanium Plate"] -= cfg.cost["Titanium Plate"];
 STATE.inventory["Aluminium Plate"] -= cfg.cost["Aluminium Plate"]; } else if (mode === 'pvc_pipe') { if ((STATE.inventory.PVC||0) < cfg.cost.PVC) return log("ERR: MISSING PVC.");
 if ((STATE.inventory["Electric silicon"]||0) < cfg.cost["Electric silicon"]) return log("ERR: MISSING ELEC. SILICON."); STATE.inventory.PVC -= cfg.cost.PVC; STATE.inventory["Electric silicon"] -= cfg.cost["Electric silicon"]; }
+else if (mode === 'electronic_parts') { if ((STATE.inventory["Copper Ore"]||0) < cfg.cost["Copper Ore"]) return log("ERR: MISSING COPPER ORE.");
+if ((STATE.inventory.PVC||0) < cfg.cost.PVC) return log("ERR: MISSING PVC.");
+if ((STATE.inventory["Electric silicon"]||0) < cfg.cost["Electric silicon"]) return log("ERR: MISSING ELEC. SILICON.");
+if ((STATE.inventory.Regolith||0) < cfg.cost.Regolith) return log("ERR: MISSING REGOLITH.");
+STATE.inventory["Copper Ore"] -= cfg.cost["Copper Ore"]; STATE.inventory.PVC -= cfg.cost.PVC; STATE.inventory["Electric silicon"] -= cfg.cost["Electric silicon"]; STATE.inventory.Regolith -= cfg.cost.Regolith; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
 log(`PRINTER: Job ${id+1} started [${mode.toUpperCase()}].`); renderPrinter(); updateUI();
@@ -1632,6 +1642,8 @@ if (s.mode === 'structural_part') { let yieldAmt = cfg.output; msg = `PRINTER: P
 STATE.inventory["Structural Part"] = (STATE.inventory["Structural Part"] || 0) + yieldAmt; xp = 40;
 } else if (s.mode === 'pvc_pipe') { let yieldAmt = Math.floor(Math.random() * (cfg.output.max - cfg.output.min + 1)) + cfg.output.min;
 msg = `PRINTER: Produced ${yieldAmt} PVC Pipe`; STATE.inventory["PVC Pipe"] = (STATE.inventory["PVC Pipe"] || 0) + yieldAmt; xp = 25; }
+else if (s.mode === 'electronic_parts') { let yieldAmt = Math.floor(Math.random() * (cfg.output.max - cfg.output.min + 1)) + cfg.output.min;
+msg = `PRINTER: Produced ${yieldAmt} Electronic Parts`; STATE.inventory["Electronic Parts"] = (STATE.inventory["Electronic Parts"] || 0) + yieldAmt; xp = 45; }
 if(xp > 0) { STATE.skills.engineering.xp += xp; if(STATE.skills.engineering.xp >= STATE.skills.engineering.next) { STATE.skills.engineering.lvl++; STATE.skills.engineering.xp = 0; STATE.skills.engineering.next = Math.floor(STATE.skills.engineering.next * 1.5);
 log(`SKILL UP: ENGINEERING LVL ${STATE.skills.engineering.lvl}`); } }
 s.mode = null; log(msg + "."); renderPrinter(); updateUI();
@@ -1642,7 +1654,7 @@ c.innerHTML = STATE.printer.slots.map(s => {
 let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>PRINTING...</button>` : `<button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--neon); color:var(--neon);"
-onclick="startPrinter(${s.id}, 'structural_part')">PRINT STRUCTURAL (10St, 3Ti, 5Al)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--white); color:var(--white);" onclick="startPrinter(${s.id}, 'pvc_pipe')">PRINT PIPE (2PVC, 1ElecSi)</button>`;
+onclick="startPrinter(${s.id}, 'structural_part')">PRINT STRUCTURAL (10St, 3Ti, 5Al)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--white); color:var(--white);" onclick="startPrinter(${s.id}, 'pvc_pipe')">PRINT PIPE (2PVC, 1ElecSi)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--copper); color:var(--copper);" onclick="startPrinter(${s.id}, 'electronic_parts')">PRINT ELECTRONICS (8Cu, 2PVC, 1ESi, 500Reg)</button>`;
 return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>PRINTER BED ${s.id+1}</span><span id="pr-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="pr-bar-${s.id}" style="height:100%; background:var(--neon); width:${p}%"></div></div>${btn}</div>`;
 }).join('');
 }
@@ -1948,6 +1960,8 @@ add("BIO", "Potato", STATE.inventory.Potato, "#C49C48"); add("BIO", "Seeds: Amar
 add("RAT", "Energy Isotonic", STATE.inventory["Energy Isotonic"], "var(--neon)"); add("RAT", "Snack", STATE.inventory.Snack, "var(--kitchen)"); add("RAT", "Meal", STATE.inventory.Meal, "var(--kitchen)"); add("RAT", "Feast", STATE.inventory.Feast, "var(--kitchen)");
 add("RAT", "Energy Bar", STATE.inventory["Energy Bar"], "#d35400");
 for(let k in STATE.components) add("CMP", k.toUpperCase(), STATE.components[k], "#aaa"); for(let k in STATE.hangar) add("SHIP", k.toUpperCase(), STATE.hangar[k], SPECS[k].color);
+// Add Electronic Parts to the list
+add("MAT", "Electronic Parts", STATE.inventory["Electronic Parts"], "var(--neon)");
 htmlBuffer.push(`<div class="wh-scroll-container"><div class="wh-grid" style="margin:0;">`); htmlBuffer.push(itemsBuffer.join('')); htmlBuffer.push(`</div></div>`); g.innerHTML = htmlBuffer.join('');
 }
 function renderHangar() {
