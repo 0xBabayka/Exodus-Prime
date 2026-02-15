@@ -257,7 +257,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
                 // Проверяем только если заряд вырос
                 if (chargeDelta > maxPossibleGain) {
-                     await logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
+                      await logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
                         delta: chargeDelta,
                         maxAllowed: maxPossibleGain,
                         elapsedTime: elapsedSeconds
@@ -315,11 +315,14 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // --- 5. VALIDATION: SCAVENGING & RESOURCES (ICE, REGOLITH, SCRAP) ---
+        // Инициализируем dScrap здесь, так как он нужен и для проверки Scavenging, и для проверки покупки семян
+        let dScrap = 0;
+        
         if (oldState.inventory && newState.inventory) {
             // Рассчитываем изменение ресурсов
             const dRegolith = (newState.inventory.Regolith || 0) - (oldState.inventory.Regolith || 0);
             const dIce = (newState.inventory["Ice water"] || 0) - (oldState.inventory["Ice water"] || 0);
-            const dScrap = (newState.inventory.Scrap || 0) - (oldState.inventory.Scrap || 0);
+            dScrap = (newState.inventory.Scrap || 0) - (oldState.inventory.Scrap || 0);
 
             // Параметры Scavenging из клиента (CODE_LOCAL)
             const SCAV_DURATION_MS = 5000;
@@ -381,8 +384,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             // Greenhouse Slots: 6. Max total single harvest: ~810 Food.
             // We give a generous buffer (1200) to account for rapid clicks or slight sync delays.
             // Formula: The "Net Change in Food" + "Food Spent on Rations" must be <= "Max Possible New Food from Harvest"
-            // Example: If I cooked 1 Meal (Cost 60), my dFood is -60. (-60 + 60) <= 1200. OK.
-            // Example: If I hacked +100 Meals, dFood is 0 (didn't spend). (0 + 6000) > 1200. CHEAT.
             const MAX_FOOD_HARVEST_BUFFER = 1200; 
             
             if ((dFood + impliedFoodCost) > MAX_FOOD_HARVEST_BUFFER) {
@@ -416,6 +417,35 @@ app.post('/api/game/save', auth, async (req, res) => {
             if (dIsotonic > 25) {
                 await logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
+            }
+            
+            // --- 7. VALIDATION: SEEDS (DROPS & SPAWN) ---
+            // Проверка на появление семян. Источники: Сбор урожая (Harvest) или Покупка (Market).
+            // В коде клиента: Макс выпадение за 1 слот = 5 семян (шанс 25%).
+            // Всего слотов: 6. Максимум за 1 сохранение (если собрали все сразу) = 30 семян.
+            // Ставим буфер 50, чтобы избежать ложных срабатываний.
+            const seedTypes = ['Seeds: Sprouts', 'Seeds: Potato', 'Seeds: Maize', 'Seeds: Amaranth', 'Seeds: Guarana'];
+            const MAX_SEEDS_DROP_BUFFER = 50;
+
+            for (const seedName of seedTypes) {
+                const oldSeedQty = oldState.inventory[seedName] || 0;
+                const newSeedQty = newState.inventory[seedName] || 0;
+                const dSeed = newSeedQty - oldSeedQty;
+
+                if (dSeed > 0) {
+                    // Логика: Если семена выросли, а деньги (Scrap) не уменьшились (dScrap >= 0),
+                    // значит семена получены через Harvest (дроп) или чит.
+                    // Если dScrap < 0, возможно была покупка, тогда лимит дропа не применяем строго.
+                    if (dScrap >= 0 && dSeed > MAX_SEEDS_DROP_BUFFER) {
+                         await logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
+                            seedType: seedName,
+                            delta: dSeed,
+                            limit: MAX_SEEDS_DROP_BUFFER,
+                            dScrap: dScrap
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
+                    }
+                }
             }
         }
 
