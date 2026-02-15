@@ -2048,9 +2048,52 @@ const cp = (b.charge / POWER_CFG.batteryCap) * 100; const dp = b.wear; const ep 
 bh += `<div class="battery-item"><span class="bat-id">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><div style="display:flex; gap:2px;"><button class="bat-action-btn" style="border-color:var(--agri); color:var(--agri);"
 onclick="installBattery('${b.id}')">INSTALL</button><button class="bat-action-btn" style="border-color:var(--danger); color:var(--danger);" onclick="storeBattery('${b.id}')">STORE</button></div></div>`; } else { bh += `<div class="battery-item" style="justify-content:center; border:1px dashed #334; color:#445;">[ RACK SLOT EMPTY ]</div>`;
 } } if(UI_CACHE['battery-rack']) UI_CACHE['battery-rack'].innerHTML = bh;
-let fh = ""; if(STATE.ships.length === 0) { fh = "<div style='padding:5px; color:#445; text-align:center;'>NO ACTIVE FLIGHTS</div>";
-} else { fh = STATE.ships.map(s => { let sc = "st-active", st = ""; let dist = 0; if(s.phase === 'mining') { sc = "st-mining"; let rem = Math.max(0, 5 - ((Date.now() - s.mineStart)/1000)); st = `MINING ${rem.toFixed(0)}s`; } else { if(s.phase === 'return') sc = "st-active"; let rem = Math.max(0, (1 - s.progress) * s.duration); let m = Math.floor(rem / 60); let sec = Math.floor(rem % 60); let ts = `${m}:${sec<10?'0':''}${sec}`; st = (s.phase === 'return' ? "RTN" : "OUT") + ` ${ts}`; } return `<div class="fleet-item"><div style="display:flex; align-items:center;"><span class="fleet-status ${sc}"></span><span style="color:${s.spec.color}; font-weight:bold;">${s.type.toUpperCase()}</span></div><div style="color:var(--neon); font-family:monospace;">${st}</div></div>`; }).join('');
-} if(UI_CACHE['fleet-list']) UI_CACHE['fleet-list'].innerHTML = fh;
+
+// UPDATE FLEET LIST (Right Panel)
+const flList = UI_CACHE['fleet-list'];
+if (flList) {
+if (STATE.ships.length === 0) {
+flList.innerHTML = "<div style='padding:5px; color:#445; text-align:center; font-size:9px;'>NO ACTIVE FLIGHTS</div>";
+} else {
+flList.innerHTML = STATE.ships.map(s => {
+// Logic to determine status string
+let statusStr = "";
+let pClass = "st-active";
+
+if(s.phase === 'mining') {
+pClass = "st-mining";
+// Mine duration is hardcoded 5000ms in loop()
+let mined = Date.now() - s.mineStart;
+let rem = Math.max(0, 5000 - mined);
+statusStr = `MINING ${(rem/1000).toFixed(1)}s`;
+} else {
+// Outbound or Return
+let dur = s.duration; // in seconds
+let rem = Math.max(0, (1 - s.progress) * dur);
+let m = Math.floor(rem / 60);
+let sec = Math.floor(rem % 60);
+let timeStr = `${m}:${sec<10?'0':''}${sec}`;
+statusStr = (s.phase==='outbound' ? "OUT " : "RTN ") + timeStr;
+}
+
+return `
+<div class="fleet-item">
+<div style="display:flex; align-items:center;">
+<span class="fleet-status ${pClass}"></span>
+<span style="color:${s.spec.color}; font-weight:bold;">${s.type.toUpperCase()}</span>
+</div>
+<div style="color:var(--neon); font-family:monospace;">${statusStr}</div>
+</div>`;
+}).join('');
+}
+}
+
+// UPDATE FLEET COUNTS (Top of Right Panel)
+if(UI_CACHE['c-probe']) UI_CACHE['c-probe'].innerText = STATE.hangar.probe;
+if(UI_CACHE['c-miner']) UI_CACHE['c-miner'].innerText = STATE.hangar.miner;
+if(UI_CACHE['c-hauler']) UI_CACHE['c-hauler'].innerText = STATE.hangar.hauler;
+if(UI_CACHE['c-gas']) UI_CACHE['c-gas'].innerText = STATE.hangar.gas;
+
 if(UI_CACHE['obj-list']) { let sorted = STATE.bodies.filter(b => b.type !== 'Star' && b.type !== 'BASE').sort((a,b) => a.dist - b.dist);
 UI_CACHE['obj-list'].innerHTML = sorted.map(b => {
 let d = b.dist.toFixed(2);
@@ -2064,11 +2107,11 @@ return `<tr style="${rowClass}" onclick="openModal(STATE.bodies.find(x=>x.id===$
 <td>${d} AU</td>
 <td style="color:${sigColor}">${sig}</td>
 </tr>`;
-}).join('');} // Закрытие if(UI_CACHE['obj-list'])
+}).join('');}
 
-  } catch(e) {
-    console.error("UI ERR:", e);
-  }
+} catch(e) {
+console.error("UI ERR:", e);
+}
 } // Закрытие функции updateUI
 
 // --- INITIALIZATION ---
@@ -2077,4 +2120,3 @@ window.onload = init;
 </script>
 </body>
 </html>
-
