@@ -379,10 +379,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             if (dFeast > 0) impliedFoodCost += dFeast * 90; // Cost: 90 Food
 
             // 6c. Validate Maximum Harvest (Buffer check)
-            // Theoretical max harvest logic:
-            // Maize Yield: 70-90. Crit (Skill/5 stacks): 1.5x. Max per slot ~135.
-            // Greenhouse Slots: 6. Max total single harvest: ~810 Food.
-            // We give a generous buffer (1200) to account for rapid clicks or slight sync delays.
             // Formula: The "Net Change in Food" + "Food Spent on Rations" must be <= "Max Possible New Food from Harvest"
             const MAX_FOOD_HARVEST_BUFFER = 1200; 
             
@@ -398,32 +394,22 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             // 6d. Validate Specific Crops (Amaranth/Guarana)
             // Amaranth/Guarana are items, not "Food" resource.
-            // Amaranth Max: ~20 * 1.5 * 6 = 180. Buffer: 300.
             if (dAmaranth > 300) {
                 await logAction('CHEAT_CROP_AMARANTH', user.id, user.username, req, { delta: dAmaranth });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Amaranth harvest.' });
             }
-            // Guarana Max: ~30 * 1.5 * 6 = 270. Buffer: 400.
             if (dGuarana > 400) {
                 await logAction('CHEAT_CROP_GUARANA', user.id, user.username, req, { delta: dGuarana });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Guarana harvest.' });
             }
 
             // 6e. Validate Time-Gated Production (Isotonic)
-            // Isotonic takes 2 hours to brew. Max slots = 2. Max yield per slot = 5. 
-            // Max yield per cycle = 10.
-            // Even if multiple cycles finished exactly between saves (highly unlikely in 30s window),
-            // a value > 25 indicates speed-hacking or inventory injection.
             if (dIsotonic > 25) {
                 await logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
             
             // --- 7. VALIDATION: SEEDS (DROPS & SPAWN) ---
-            // Проверка на появление семян. Источники: Сбор урожая (Harvest) или Покупка (Market).
-            // В коде клиента: Макс выпадение за 1 слот = 5 семян (шанс 25%).
-            // Всего слотов: 6. Максимум за 1 сохранение (если собрали все сразу) = 30 семян.
-            // Ставим буфер 50, чтобы избежать ложных срабатываний.
             const seedTypes = ['Seeds: Sprouts', 'Seeds: Potato', 'Seeds: Maize', 'Seeds: Amaranth', 'Seeds: Guarana'];
             const MAX_SEEDS_DROP_BUFFER = 50;
 
@@ -433,9 +419,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const dSeed = newSeedQty - oldSeedQty;
 
                 if (dSeed > 0) {
-                    // Логика: Если семена выросли, а деньги (Scrap) не уменьшились (dScrap >= 0),
-                    // значит семена получены через Harvest (дроп) или чит.
-                    // Если dScrap < 0, возможно была покупка, тогда лимит дропа не применяем строго.
+                    // Если семена выросли, а деньги (Scrap) не уменьшились, проверка лимита дропа
                     if (dScrap >= 0 && dSeed > MAX_SEEDS_DROP_BUFFER) {
                          await logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
                             seedType: seedName,
@@ -444,6 +428,57 @@ app.post('/api/game/save', auth, async (req, res) => {
                             dScrap: dScrap
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
+                    }
+                }
+            }
+
+            // --- 8. VALIDATION: ORES & REFINED METALS (NEW) ---
+            // Целевые ресурсы: Iron Ore, Aluminium Ore, Copper Ore, Titanium Ore, Steel, Raw silicon
+            
+            const oreTypes = [
+                { key: "Iron Ore", maxPerSmelt: 15 },       // ~5 базовых + бонусы
+                { key: "Aluminium Ore", maxPerSmelt: 15 },
+                { key: "Copper Ore", maxPerSmelt: 15 },
+                { key: "Titanium Ore", maxPerSmelt: 15 },
+                { key: "Raw silicon", maxPerSmelt: 5 },     // Выход меньше (1 шт + бонусы)
+                { key: "Steel", maxPerSmelt: 15 }
+            ];
+
+            // Проверяем наличие корабля-майнера для расчета буфера
+            const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
+            const SHIP_CARGO_BUFFER = 150; // Буфер на случай возвращения корабля (50-100 ед + бонусы)
+            
+            // Дополнительная проверка на наличие активных плавилен не производится строго, 
+            // так как сохранение может прийти в момент завершения. Используем "Sanity Check" лимиты.
+
+            for (const ore of oreTypes) {
+                const oldQty = oldState.inventory[ore.key] || 0;
+                const newQty = newState.inventory[ore.key] || 0;
+                const dQty = newQty - oldQty;
+
+                if (dQty > 0) {
+                    // Базовый лимит: 2 слота плавильни * макс выход за цикл
+                    let allowedGain = ore.maxPerSmelt * 2; 
+
+                    // Если есть майнер, добавляем буфер на возможный привоз груза
+                    // Примечание: Steel и Raw silicon тоже могут быть в бонусах майнера (см. клиентский код)
+                    if (hasMiner) {
+                        allowedGain += SHIP_CARGO_BUFFER;
+                    }
+
+                    // Ставим разумный "Hard Cap" на случай лагов или нескольких быстрых циклов (накопление)
+                    // Если изменение превышает разумные пределы за одно сохранение (30 сек)
+                    const SAFETY_MARGIN = 20; // Небольшой запас
+                    const finalLimit = allowedGain + SAFETY_MARGIN;
+
+                    if (dQty > finalLimit) {
+                         await logAction(`CHEAT_RESOURCE_${ore.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
+                            resource: ore.key,
+                            delta: dQty,
+                            limit: finalLimit,
+                            hasMiner: hasMiner
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${ore.key}.` });
                     }
                 }
             }
