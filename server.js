@@ -4,23 +4,22 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const helmet = require('helmet'); 
-const rateLimit = require('express-rate-limit'); 
-const User = require('./models/User'); // Убедитесь, что этот путь верный в вашей структуре
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const User = require('./models/User'); 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me';
 
 // --- SECURITY MIDDLEWARE (HELMET) ---
-// Настроили CSP, чтобы разрешить 'onclick' и другие инлайн-скрипты
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            "script-src": ["'self'", "'unsafe-inline'"], // Разрешает <script> внутри HTML
-            "script-src-attr": ["'unsafe-inline'"],       // Разрешает onclick="..."
-            "img-src": ["'self'", "data:", "*"],          // Разрешает картинки
+            "script-src": ["'self'", "'unsafe-inline'"],
+            "script-src-attr": ["'unsafe-inline'"],
+            "img-src": ["'self'", "data:", "*"],
         },
     },
 }));
@@ -36,10 +35,14 @@ const ActionLogSchema = new mongoose.Schema({
 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
-// Вспомогательная функция для записи лога
+// --- HELPER: FIRE AND FORGET LOGGING ---
+// Мы не ждем выполнения этой функции в основном потоке
 const logAction = async (action, userId, username, req, details = {}) => {
+    // Получаем IP сразу, так как req может быть очищен garbage collector'ом
+    // если ответ уйдет очень быстро (редкий кейс, но хорошая практика)
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
     try {
-        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
         const newLog = new ActionLog({
             action,
             userId,
@@ -48,37 +51,36 @@ const logAction = async (action, userId, username, req, details = {}) => {
             details
         });
         await newLog.save();
-        console.log(`[LOG] Action: ${action} | User: ${username || 'Guest'}`);
+        // Опционально: можно убрать console.log для продакшена, чтобы не засорять вывод
+        console.log(`[LOG] Action: ${action} | User: ${username || 'Guest'}`); 
     } catch (err) {
-        console.error('Logging Error:', err);
+        // Важно: так как мы не используем await при вызове, ошибки здесь
+        // не должны всплывать выше, иначе будет UnhandledPromiseRejection
+        console.error('Logging Error (Background):', err.message);
     }
 };
 
 // --- RATE LIMITING ---
-
-// 1. Глобальный лимитер (для всех маршрутов)
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 минут
-    max: 100, // Лимит 100 запросов с одного IP
+    windowMs: 15 * 60 * 1000, 
+    max: 100, 
     message: { msg: 'Too many requests from this IP, please try again later' }
 });
 app.use(globalLimiter);
 
-// 2. Лимитер для авторизации (более строгий для защиты от брутфорса)
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 минут
-    max: 20, // Лимит 20 попыток входа/регистрации
+    windowMs: 15 * 60 * 1000, 
+    max: 20, 
     message: { msg: 'Too many login attempts, please try again later' }
 });
-app.use('/api/auth', authLimiter); // Применяем только к маршрутам auth
+app.use('/api/auth', authLimiter); 
 
 // Middleware
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
 
 // MongoDB Connection
-// Убедитесь, что переменная окружения MONGO_URI задана
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime')
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
@@ -105,20 +107,20 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         let user = await User.findOne({ username });
         if (user) {
-            await logAction('REGISTER_FAIL_EXISTS', null, username, req);
+            // FIRE AND FORGET: Нет await
+            logAction('REGISTER_FAIL_EXISTS', null, username, req);
             return res.status(400).json({ msg: 'User already exists' });
         }
 
         user = new User({ username, password });
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
-        
-        // Инициализация пустого состояния игры при регистрации
         user.gameState = {}; 
         
         await user.save();
 
-        await logAction('REGISTER_SUCCESS', user.id, username, req);
+        // FIRE AND FORGET: Нет await
+        logAction('REGISTER_SUCCESS', user.id, username, req);
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
@@ -137,17 +139,20 @@ app.post('/api/auth/login', async (req, res) => {
     try {
         let user = await User.findOne({ username });
         if (!user) {
-            await logAction('LOGIN_FAIL_USER', null, username, req);
+            // FIRE AND FORGET: Нет await
+            logAction('LOGIN_FAIL_USER', null, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            await logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
+            // FIRE AND FORGET: Нет await
+            logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
         }
 
-        await logAction('LOGIN_SUCCESS', user.id, username, req);
+        // FIRE AND FORGET: Нет await
+        logAction('LOGIN_SUCCESS', user.id, username, req);
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
@@ -165,9 +170,9 @@ app.get('/api/game/load', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
 
-        await logAction('GAME_LOAD', user.id, user.username, req);
+        // FIRE AND FORGET: Нет await (клиент получит сохранение быстрее)
+        logAction('GAME_LOAD', user.id, user.username, req);
 
-        // Добавлен заголовок с серверным временем для синхронизации клиента.
         res.setHeader('x-server-time', Date.now());
         res.json(user.gameState);
     } catch (err) {
@@ -180,7 +185,7 @@ app.get('/api/game/load', auth, async (req, res) => {
 app.post('/api/game/save', auth, async (req, res) => {
     try {
         const { gameState, clientTime } = req.body;
-        const newState = gameState; // Алиас для удобства
+        const newState = gameState; 
         const serverNow = Date.now();
 
         const user = await User.findById(req.user.id);
@@ -188,52 +193,47 @@ app.post('/api/game/save', auth, async (req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        const oldState = user.gameState || {}; // Предыдущее сохраненное состояние
+        const oldState = user.gameState || {}; 
         let timeSinceLastSave = 0;
 
-        // --- 1. ЗАЩИТА ОТ ПЕРЕМОТКИ ВРЕМЕНИ (ANTI-TIME-CHEAT) ---
+        // --- ANTI-CHEAT CHECKS ---
+
+        // 1. Time Check
         if (clientTime) {
             const timeDifference = Math.abs(serverNow - clientTime);
             const maxAllowedDifference = 5 * 60 * 1000; 
 
             if (timeDifference > maxAllowedDifference) {
-                await logAction('CHEAT_ATTEMPT_TIME', user.id, user.username, req, { clientTime, serverNow });
+                // FIRE AND FORGET
+                logAction('CHEAT_ATTEMPT_TIME', user.id, user.username, req, { clientTime, serverNow });
                 return res.status(400).json({ msg: 'Time manipulation detected or device clock out of sync. Please sync your clock.' });
             }
         }
 
-        // --- 2. ПРОВЕРКА ЧАСТОТЫ СОХРАНЕНИЙ ---
+        // 2. Frequency Check
         if (user.lastSaveTime) {
             timeSinceLastSave = serverNow - new Date(user.lastSaveTime).getTime();
             if (timeSinceLastSave < 1000) { 
                 return res.status(429).json({ msg: 'Saving too frequently. Slow down.' });
             }
         } else {
-            // Если это первое сохранение, даем буфер времени (например, 30 сек), чтобы разрешить начальные ресурсы
             timeSinceLastSave = 30000;
         }
 
-        // --- 3. SECURITY: POWER & BATTERY VALIDATION (FIXED) ---
+        // 3. Power & Battery Check
         if (newState.power && newState.power.batteries) {
             const batteries = newState.power.batteries;
-            
-            // panelBaseOutput = 0.015 kW per tick/second
-            // batteryCap = 33.33
             const BATTERY_CAP = 33.33;
-            // [FIX] Увеличен буфер для float (с 0.2 до 2.0), чтобы избежать ложных срабатываний при полном заряде
             const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0; 
-            
-            // [FIX] Увеличен лимит генерации. Старое значение 0.02 (1 панель) вызывало ошибки у развитых игроков.
-            // 0.5 kW/s позволяет иметь ~30 панелей/генераторов без бана, но блокирует накрутку.
             const MAX_GEN_PER_SEC = 0.5; 
             
             let totalNewCharge = 0;
             let totalOldCharge = 0;
 
-            // A. Проверка каждого аккумулятора на превышение лимита
             for (let bat of batteries) {
                 if (bat.charge > MAX_ALLOWED_CHARGE) {
-                    await logAction('CHEAT_BATTERY_OVERCHARGE', user.id, user.username, req, {
+                    // FIRE AND FORGET
+                    logAction('CHEAT_BATTERY_OVERCHARGE', user.id, user.username, req, {
                         batId: bat.id,
                         charge: bat.charge,
                         limit: BATTERY_CAP
@@ -243,20 +243,16 @@ app.post('/api/game/save', auth, async (req, res) => {
                 totalNewCharge += (bat.charge || 0);
             }
 
-            // B. Проверка скорости накопления энергии (Generation Rate Check)
-            // Сравниваем общее кол-во энергии сейчас и в прошлом сохранении
             if (oldState.power && oldState.power.batteries) {
                 oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
                 
                 const chargeDelta = totalNewCharge - totalOldCharge;
                 const elapsedSeconds = timeSinceLastSave / 1000;
-                
-                // Максимально возможный прирост = время * макс_выработку + буфер (например, 5 kW на случай квестов/наград)
-                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0; // Увеличен статический буфер до 10
+                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0; 
 
-                // Проверяем только если заряд вырос
                 if (chargeDelta > maxPossibleGain) {
-                      await logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
+                    // FIRE AND FORGET
+                      logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
                         delta: chargeDelta,
                         maxAllowed: maxPossibleGain,
                         elapsedTime: elapsedSeconds
@@ -266,22 +262,19 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        // --- 4. ПРОВЕРКА СТАМИНЫ (CAP CHECK & CONSUMPTION CHECK) ---
-        
-        // Проверка наличия объектов стамины в новом состоянии
+        // 4. Stamina Check
         if (newState.stamina) {
             const MAX_STAMINA_LIMIT = 100;
 
-            // A. Cap Check: Проверка превышения лимита
             if (newState.stamina.val > MAX_STAMINA_LIMIT || newState.stamina.max > MAX_STAMINA_LIMIT) {
-                await logAction('CHEAT_STAMINA_CAP', user.id, user.username, req, { 
+                // FIRE AND FORGET
+                logAction('CHEAT_STAMINA_CAP', user.id, user.username, req, { 
                     val: newState.stamina.val, 
                     max: newState.stamina.max 
                 });
                 return res.status(400).json({ msg: 'Game integrity error: Stamina values exceed allowable limits.' });
             }
 
-            // B. Consumption Check: Проверка оправданности роста стамины
             if (oldState.stamina && oldState.inventory && newState.inventory) {
                 const oldVal = parseFloat(oldState.stamina.val) || 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
@@ -301,7 +294,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                     }
 
                     if (!hasConsumedFood && staminaDiff > 0.5) {
-                        await logAction('CHEAT_STAMINA_NO_CONSUME', user.id, user.username, req, { 
+                        // FIRE AND FORGET
+                        logAction('CHEAT_STAMINA_NO_CONSUME', user.id, user.username, req, { 
                             oldStamina: oldVal, 
                             newStamina: newVal,
                             diff: staminaDiff,
@@ -313,17 +307,14 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        // --- 5. VALIDATION: SCAVENGING & RESOURCES (ICE, REGOLITH, SCRAP) ---
-        // Инициализируем dScrap здесь, так как он нужен и для проверки Scavenging, и для проверки покупки семян
+        // 5. Scavenging & Resources Check
         let dScrap = 0;
         
         if (oldState.inventory && newState.inventory) {
-            // Рассчитываем изменение ресурсов
             const dRegolith = (newState.inventory.Regolith || 0) - (oldState.inventory.Regolith || 0);
             const dIce = (newState.inventory["Ice water"] || 0) - (oldState.inventory["Ice water"] || 0);
             dScrap = (newState.inventory.Scrap || 0) - (oldState.inventory.Scrap || 0);
 
-            // Параметры Scavenging из клиента (CODE_LOCAL)
             const SCAV_DURATION_MS = 5000;
             const MAX_REG_PER_SCAV = 10;
             const MAX_ICE_PER_SCAV = 3;
@@ -333,7 +324,8 @@ app.post('/api/game/save', auth, async (req, res) => {
             const SHIP_BUFFER = 100;
 
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
-                 await logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
+                // FIRE AND FORGET
+                 logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
                     maxAllowed: (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20,
                     timeElapsed: timeSinceLastSave 
@@ -342,7 +334,8 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)) {
-                 await logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
+                // FIRE AND FORGET
+                 logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
                 });
@@ -350,39 +343,34 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)) {
-                 await logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
-                    delta: dRegolith,
+                // FIRE AND FORGET
+                 logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
+                    delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
-            // --- 6. VALIDATION: FOOD PRODUCTION & CONSUMPTION ---
-            
-            // 6a. Calculate Deltas for Rations and High-Tier Consumables
+            // 6. Food & Harvest Check
             const dSnack = (newState.inventory.Snack || 0) - (oldState.inventory.Snack || 0);
             const dMeal = (newState.inventory.Meal || 0) - (oldState.inventory.Meal || 0);
             const dFeast = (newState.inventory.Feast || 0) - (oldState.inventory.Feast || 0);
             const dIsotonic = (newState.inventory["Energy Isotonic"] || 0) - (oldState.inventory["Energy Isotonic"] || 0);
             
-            // Deltas for raw crops/food
             const dFood = (newState.inventory.Food || 0) - (oldState.inventory.Food || 0);
             const dAmaranth = (newState.inventory.Amaranth || 0) - (oldState.inventory.Amaranth || 0);
             const dGuarana = (newState.inventory.Guarana || 0) - (oldState.inventory.Guarana || 0);
 
-            // 6b. Validate Ration Cooking (Input/Output consistency)
-            // Calculate how much generic "Food" resource SHOULD have been spent based on rations created
             let impliedFoodCost = 0;
-            if (dSnack > 0) impliedFoodCost += dSnack * 30; // Cost: 30 Food
-            if (dMeal > 0) impliedFoodCost += dMeal * 60;   // Cost: 60 Food
-            if (dFeast > 0) impliedFoodCost += dFeast * 90; // Cost: 90 Food
+            if (dSnack > 0) impliedFoodCost += dSnack * 30; 
+            if (dMeal > 0) impliedFoodCost += dMeal * 60;   
+            if (dFeast > 0) impliedFoodCost += dFeast * 90; 
 
-            // 6c. Validate Maximum Harvest (Buffer check)
-            // Formula: The "Net Change in Food" + "Food Spent on Rations" must be <= "Max Possible New Food from Harvest"
             const MAX_FOOD_HARVEST_BUFFER = 1200; 
             
             if ((dFood + impliedFoodCost) > MAX_FOOD_HARVEST_BUFFER) {
-                await logAction('CHEAT_RESOURCE_FOOD_BALANCE', user.id, user.username, req, {
+                // FIRE AND FORGET
+                logAction('CHEAT_RESOURCE_FOOD_BALANCE', user.id, user.username, req, {
                     dFood, 
                     impliedFoodCost, 
                     netGain: dFood + impliedFoodCost,
@@ -391,24 +379,24 @@ app.post('/api/game/save', auth, async (req, res) => {
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Food/Ration production balance.' });
             }
 
-            // 6d. Validate Specific Crops (Amaranth/Guarana)
-            // Amaranth/Guarana are items, not "Food" resource.
             if (dAmaranth > 300) {
-                await logAction('CHEAT_CROP_AMARANTH', user.id, user.username, req, { delta: dAmaranth });
+                // FIRE AND FORGET
+                logAction('CHEAT_CROP_AMARANTH', user.id, user.username, req, { delta: dAmaranth });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Amaranth harvest.' });
             }
             if (dGuarana > 400) {
-                await logAction('CHEAT_CROP_GUARANA', user.id, user.username, req, { delta: dGuarana });
+                // FIRE AND FORGET
+                logAction('CHEAT_CROP_GUARANA', user.id, user.username, req, { delta: dGuarana });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Guarana harvest.' });
             }
 
-            // 6e. Validate Time-Gated Production (Isotonic)
             if (dIsotonic > 25) {
-                await logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
+                // FIRE AND FORGET
+                logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
             
-            // --- 7. VALIDATION: SEEDS (DROPS & SPAWN) ---
+            // 7. Seeds Check
             const seedTypes = ['Seeds: Sprouts', 'Seeds: Potato', 'Seeds: Maize', 'Seeds: Amaranth', 'Seeds: Guarana'];
             const MAX_SEEDS_DROP_BUFFER = 50;
 
@@ -418,9 +406,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const dSeed = newSeedQty - oldSeedQty;
 
                 if (dSeed > 0) {
-                    // Если семена выросли, а деньги (Scrap) не уменьшились, проверка лимита дропа
                     if (dScrap >= 0 && dSeed > MAX_SEEDS_DROP_BUFFER) {
-                         await logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
+                          // FIRE AND FORGET
+                          logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
                             seedType: seedName,
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
@@ -431,47 +419,37 @@ app.post('/api/game/save', auth, async (req, res) => {
                 }
             }
 
-            // --- 8. VALIDATION: ORES & REFINED METALS (NEW) ---
-            // Целевые ресурсы: Iron Ore, Aluminium Ore, Copper Ore, Titanium Ore, Steel, Raw silicon
-            
+            // 8. Ores & Smelting Check
             const oreTypes = [
-                { key: "Iron Ore", maxPerSmelt: 15 },       // ~5 базовых + бонусы
+                { key: "Iron Ore", maxPerSmelt: 15 },       
                 { key: "Aluminium Ore", maxPerSmelt: 15 },
                 { key: "Copper Ore", maxPerSmelt: 15 },
                 { key: "Titanium Ore", maxPerSmelt: 15 },
-                { key: "Raw silicon", maxPerSmelt: 5 },     // Выход меньше (1 шт + бонусы)
+                { key: "Raw silicon", maxPerSmelt: 5 },     
                 { key: "Steel", maxPerSmelt: 15 }
             ];
 
-            // Проверяем наличие корабля-майнера для расчета буфера
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
-            const SHIP_CARGO_BUFFER = 150; // Буфер на случай возвращения корабля (50-100 ед + бонусы)
+            const SHIP_CARGO_BUFFER = 150; 
             
-            // Дополнительная проверка на наличие активных плавилен не производится строго, 
-            // так как сохранение может прийти в момент завершения. Используем "Sanity Check" лимиты.
-
             for (const ore of oreTypes) {
                 const oldQty = oldState.inventory[ore.key] || 0;
                 const newQty = newState.inventory[ore.key] || 0;
                 const dQty = newQty - oldQty;
 
                 if (dQty > 0) {
-                    // Базовый лимит: 2 слота плавильни * макс выход за цикл
                     let allowedGain = ore.maxPerSmelt * 2; 
 
-                    // Если есть майнер, добавляем буфер на возможный привоз груза
-                    // Примечание: Steel и Raw silicon тоже могут быть в бонусах майнера (см. клиентский код)
                     if (hasMiner) {
                         allowedGain += SHIP_CARGO_BUFFER;
                     }
 
-                    // Ставим разумный "Hard Cap" на случай лагов или нескольких быстрых циклов (накопление)
-                    // Если изменение превышает разумные пределы за одно сохранение (30 сек)
-                    const SAFETY_MARGIN = 20; // Небольшой запас
+                    const SAFETY_MARGIN = 20; 
                     const finalLimit = allowedGain + SAFETY_MARGIN;
 
                     if (dQty > finalLimit) {
-                         await logAction(`CHEAT_RESOURCE_${ore.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
+                          // FIRE AND FORGET
+                          logAction(`CHEAT_RESOURCE_${ore.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             resource: ore.key,
                             delta: dQty,
                             limit: finalLimit,
@@ -482,17 +460,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                 }
             }
 
-            // --- 9. VALIDATION: CAD SYSTEM (GASES) ---
-            // Resources: CO2, Nitrogen, Argon, Neon, Krypton, Xenon
-            // Analysis of Client Code (completeCad):
-            // - CAD produces CO2 (2-5 base) + (1-10 bonus) -> Max ~15
-            // - Rare gases (N2, Ar, Ne, Kr, Xe) -> Max 1-2 per run
-            // - System has 2 slots. Manual restart is required.
-            // - Therefore, in any single save interval, a slot can effectively produce output only once 
-            //   (unless user is scripting clicks faster than humanly possible, which we limit anyway).
-
+            // 9. CAD Gases Check
             const cadGases = [
-                { key: "CO2", maxPerRun: 15 }, // 5 base + 10 bonus
+                { key: "CO2", maxPerRun: 15 }, 
                 { key: "Nitrogen", maxPerRun: 2 },
                 { key: "Argon", maxPerRun: 2 },
                 { key: "Neon", maxPerRun: 2 },
@@ -500,8 +470,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Xenon", maxPerRun: 2 }
             ];
 
-            const MAX_CAD_SLOTS = 2; // In current client version
-            const CAD_SAFETY_BUFFER = 5; // Buffer for edge cases / minor sync issues
+            const MAX_CAD_SLOTS = 2; 
+            const CAD_SAFETY_BUFFER = 5; 
 
             for (const gas of cadGases) {
                 const oldQty = oldState.inventory[gas.key] || 0;
@@ -509,12 +479,11 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const dQty = newQty - oldQty;
 
                 if (dQty > 0) {
-                    // Limit = (Max Output per Slot * Number of Slots) + Safety Buffer
-                    // This assumes that within one save delta (30s), user can't finish more than 1 cycle per slot manually.
                     const limit = (gas.maxPerRun * MAX_CAD_SLOTS) + CAD_SAFETY_BUFFER;
 
                     if (dQty > limit) {
-                        await logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
+                        // FIRE AND FORGET
+                        logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
                             resource: gas.key,
                             delta: dQty,
                             limit: limit
@@ -523,14 +492,58 @@ app.post('/api/game/save', auth, async (req, res) => {
                     }
                 }
             }
+
+            // 10. Water Filter Check
+            const dWater = (newState.inventory.Water || 0) - (oldState.inventory.Water || 0);
+
+            if (dWater > 0) {
+                const FILTER_SLOTS = 2;
+                const WATER_PER_SLOT = 25;
+                const WATER_BUFFER = 10; 
+                const maxWaterGain = (FILTER_SLOTS * WATER_PER_SLOT) + WATER_BUFFER;
+
+                if (dWater > maxWaterGain) {
+                     // FIRE AND FORGET
+                     logAction('CHEAT_RESOURCE_WATER_FILTER', user.id, user.username, req, {
+                        delta: dWater,
+                        limit: maxWaterGain
+                    });
+                    return res.status(400).json({ msg: 'Game integrity error: Abnormal Water increase (Filter violation).' });
+                }
+            }
+
+            // 11. Fermentation Check
+            const dFermGuarana = (newState.inventory["ferm Guarana"] || 0) - (oldState.inventory["ferm Guarana"] || 0);
+            const dFermAmaranth = (newState.inventory["ferm Amaranth"] || 0) - (oldState.inventory["ferm Amaranth"] || 0);
+
+            const totalFermGain = Math.max(0, dFermGuarana) + Math.max(0, dFermAmaranth);
+
+            if (totalFermGain > 0) {
+                const FERM_SLOTS = 2;
+                const FERM_PER_SLOT = 37; 
+                const FERM_BUFFER = 3; 
+                const maxFermGain = (FERM_SLOTS * FERM_PER_SLOT) + FERM_BUFFER;
+
+                if (totalFermGain > maxFermGain) {
+                    // FIRE AND FORGET
+                    logAction('CHEAT_RESOURCE_FERMENTATION', user.id, user.username, req, {
+                        dFermGuarana,
+                        dFermAmaranth,
+                        totalGain: totalFermGain,
+                        limit: maxFermGain
+                    });
+                    return res.status(400).json({ msg: 'Game integrity error: Abnormal Fermentation output detected.' });
+                }
+            }
         }
 
-        // --- СОХРАНЕНИЕ ---
+        // --- SUCCESSFUL SAVE ---
         user.gameState = gameState;
         user.lastSaveTime = serverNow;
-        await user.save();
+        await user.save(); // Ждем сохранения юзера (критично)
 
-        await logAction('GAME_SAVE', req.user.id, user.username, req, {
+        // FIRE AND FORGET (Лог сохранения)
+        logAction('GAME_SAVE', req.user.id, user.username, req, {
             savedAt: serverNow
         });
 
