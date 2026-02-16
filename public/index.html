@@ -905,14 +905,8 @@ this.item.style.top = (e.clientY - this.offsetY) + 'px'; this.item.style.transfo
 stopDrag: function() { this.item = null; }
 };
 
-const COMPONENTS = {
-hull: { name: "Hull Plating", cost: { Steel: 20 } },
-engine: { name: "Ion Engine", cost: { Steel: 10, H2: 50 } },
-electronics: { name: "Electronics", cost: { Si: 15, Steel: 5 } },
-avionics: { name: "Avionics Suite", cost: { Si: 20, Pt: 1 } },
-lifesupport: { name: "Life Support", cost: { Steel: 10, Water: 5 } },
-battery: { name: "Micro-Cell", cost: { Steel: 10, Si: 10, Electronics: 1 } }
-};
+const COMPONENTS = {}; // Removed old components as requested
+
 const SPECS = {
 probe:  { speed: 3.0, fuel: 0.2, cargo: 0,   color: '#00ffaa', buildTime: 2000, cost: {"Iron Ore":10, Si:5}, name: "Probe", desc: "Scanner" },
 miner:  { speed: 1.0, fuel: 1.0, cargo: 50,  color: '#0099ff', buildTime: 5000, cost: { hull:1, engine:1, electronics:1 }, name: "Miner", bonus: ['Iron Ore', 'Si', 'Steel'] },
@@ -941,7 +935,7 @@ chemistry: { lvl: 1, xp: 0, next: 100 },
 planetary_exploration: { lvl: 1, xp: 0, next: 100 },
 engineering: { lvl: 1, xp: 0, next: 100 }
 },
-components: { hull: 0, engine: 0, electronics: 0, avionics: 0, lifesupport: 0 },
+components: {}, // Cleared component storage
 hangar: { probe: 1, miner: 0, hauler: 0, gas: 0 },
 ships: [], bodies: [],
 buildQueue: [],
@@ -1654,7 +1648,8 @@ c.innerHTML = STATE.printer.slots.map(s => {
 let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>PRINTING...</button>` : `<button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--neon); color:var(--neon);"
-onclick="startPrinter(${s.id}, 'structural_part')">PRINT STRUCTURAL (10St, 3Ti, 5Al)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--white); color:var(--white);" onclick="startPrinter(${s.id}, 'pvc_pipe')">PRINT PIPE (2PVC, 1ElecSi)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--copper); color:var(--copper);" onclick="startPrinter(${s.id}, 'electronic_parts')">PRINT ELECTRONICS (8Cu, 2PVC, 1ESi, 500Reg)</button>`;
+onclick="startPrinter(${s.id}, 'structural_part')">PRINT STRUCTURAL (10St, 3Ti, 5Al)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--white); color:var(--white);"
+onclick="startPrinter(${s.id}, 'pvc_pipe')">PRINT PIPE (2PVC, 1ElecSi)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--copper); color:var(--copper);" onclick="startPrinter(${s.id}, 'electronic_parts')">PRINT ELECTRONICS (8Cu, 2PVC, 1ESi, 500Reg)</button>`;
 return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>PRINTER BED ${s.id+1}</span><span id="pr-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="pr-bar-${s.id}" style="height:100%; background:var(--neon); width:${p}%"></div></div>${btn}</div>`;
 }).join('');
 }
@@ -1967,11 +1962,14 @@ htmlBuffer.push(`<div class="wh-scroll-container"><div class="wh-grid" style="ma
 function renderHangar() {
 const fGrid = document.getElementById('hangar-fleet-grid'); if(fGrid) { fGrid.innerHTML = ['probe','miner','hauler','gas'].map(k => { const count = STATE.hangar[k]; return `<div style="min-width:80px; text-align:center; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.1); padding:10px;"><div style="font-weight:bold; color:${SPECS[k].color}">${k.toUpperCase()}</div><div style="font-size:20px; margin:5px 0;">${count}</div><div style="font-size:9px; color:#666">DOCKED</div></div>`; }).join('');
 }
-const sGrid = document.getElementById('shipyard-grid'); if(sGrid) { const createBuildBtn = (type, costTxt, costStam) => { return `<button class="build-btn" onclick="startBuild('${type}', ${costStam})" style="width:100%; text-align:left; margin-bottom:2px; display:flex; justify-content:space-between; padding:10px;"><span style="font-weight:bold; color:${SPECS[type].color}">${type.toUpperCase()}</span><span style="color:#889; font-size:10px;">${costTxt} <span style="color:var(--stamina)">[-${costStam}E]</span></span></button>`;
-}; let sHtml = createBuildBtn('probe', '10 Iron Ore 5Si', 10); sHtml += createBuildBtn('miner', 'MODULAR PARTS', 20);
-sHtml += createBuildBtn('hauler', 'MODULAR PARTS', 20); sHtml += createBuildBtn('gas', 'MODULAR PARTS', 20);
-sHtml += `<div style="margin-top:15px;"><div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px; color:var(--neon);">T2 SHIPS [ADVANCED]</div><div style="display:flex; gap:10px; padding:10px; border:1px dashed rgba(0, 229, 255, 0.2); background:rgba(0,0,0,0.2); justify-content:center; align-items:center;"><span style="color:#556; font-size:9px;">// SYSTEM OFFLINE: LOGIC PENDING //</span></div></div>`;
-sGrid.innerHTML = sHtml; }
+const sGrid = document.getElementById('shipyard-grid');
+if(sGrid) {
+// MODIFIED FOR REQUEST: DISABLE CONSTRUCTION AND REMOVE T1 SHIP UI
+sGrid.innerHTML = `<div style="padding:20px; text-align:center; color:var(--danger); border:1px dashed var(--danger);">
+SYSTEM UPDATE IN PROGRESS<br>
+SHIP FABRICATION OFFLINE
+</div>`;
+}
 const qGrid = document.getElementById('hangar-build-queue'); if(qGrid) { if(STATE.buildQueue.length === 0) { qGrid.innerHTML = "<div style='color:#445; text-align:center; padding:10px;'>FABRICATION IDLE</div>";
 } else { qGrid.innerHTML = STATE.buildQueue.map((job, i) => { const p = Math.min(100, (job.progress / job.totalDuration) * 100); return `<div style="margin-bottom:5px;"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>${job.type.toUpperCase()}</span><span>${Math.floor(p)}%</span></div><div style="background:#111; height:4px; width:100%"><div style="height:100%; width:${p}%; background:var(--success)"></div></div></div>`; }).join('');
 } }
