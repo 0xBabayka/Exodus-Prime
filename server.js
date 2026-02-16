@@ -325,7 +325,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                 // FIRE AND FORGET
-                 logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
+                  logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
                     maxAllowed: (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20,
                     timeElapsed: timeSinceLastSave 
@@ -335,7 +335,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)) {
                 // FIRE AND FORGET
-                 logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
+                  logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
                 });
@@ -344,7 +344,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)) {
                 // FIRE AND FORGET
-                 logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
+                  logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
                 });
@@ -363,7 +363,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             let impliedFoodCost = 0;
             if (dSnack > 0) impliedFoodCost += dSnack * 30; 
-            if (dMeal > 0) impliedFoodCost += dMeal * 60;   
+            if (dMeal > 0) impliedFoodCost += dMeal * 60;    
             if (dFeast > 0) impliedFoodCost += dFeast * 90; 
 
             const MAX_FOOD_HARVEST_BUFFER = 1200; 
@@ -503,8 +503,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const maxWaterGain = (FILTER_SLOTS * WATER_PER_SLOT) + WATER_BUFFER;
 
                 if (dWater > maxWaterGain) {
-                     // FIRE AND FORGET
-                     logAction('CHEAT_RESOURCE_WATER_FILTER', user.id, user.username, req, {
+                      // FIRE AND FORGET
+                      logAction('CHEAT_RESOURCE_WATER_FILTER', user.id, user.username, req, {
                         delta: dWater,
                         limit: maxWaterGain
                     });
@@ -513,8 +513,8 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             // 11. Fermentation Check
-            const dFermGuarana = (newState.inventory["ferm Guarana"] || 0) - (oldState.inventory["ferm Guarana"] || 0);
-            const dFermAmaranth = (newState.inventory["ferm Amaranth"] || 0) - (oldState.inventory["ferm Amaranth"] || 0);
+            const dFermGuarana = (newState.inventory["Fermented Guarana"] || 0) - (oldState.inventory["Fermented Guarana"] || 0);
+            const dFermAmaranth = (newState.inventory["Fermented Amaranth"] || 0) - (oldState.inventory["Fermented Amaranth"] || 0);
 
             const totalFermGain = Math.max(0, dFermGuarana) + Math.max(0, dFermAmaranth);
 
@@ -533,6 +533,129 @@ app.post('/api/game/save', auth, async (req, res) => {
                         limit: maxFermGain
                     });
                     return res.status(400).json({ msg: 'Game integrity error: Abnormal Fermentation output detected.' });
+                }
+            }
+
+            // 11.5. Kitchen Chain Check (Roasting, Grinding, Brewing) - NEW ADDITION
+            const kitchenItems = [
+                // Roasting: 2 slots, max ~20 output per slot. Limit = 45
+                { key: "Roasted Guarana", maxPerSlot: 20, slots: 2, buffer: 5 },
+                // Grinding: 2 slots, max ~13 output per slot. Limit = 31
+                { key: "Ground Guarana", maxPerSlot: 13, slots: 2, buffer: 5 },
+                // Brewing: 2 slots, max ~5 output per slot. Limit = 13
+                { key: "Energy Isotonic", maxPerSlot: 5, slots: 2, buffer: 3 }
+            ];
+
+            for (const item of kitchenItems) {
+                const oldQ = oldState.inventory[item.key] || 0;
+                const newQ = newState.inventory[item.key] || 0;
+                const delta = newQ - oldQ;
+
+                if (delta > 0) {
+                    const limit = (item.maxPerSlot * item.slots) + item.buffer;
+
+                    if (delta > limit) {
+                        // FIRE AND FORGET
+                        logAction(`CHEAT_KITCHEN_${item.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
+                            resource: item.key,
+                            delta: delta,
+                            limit: limit
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal Kitchen output for ${item.key}.` });
+                    }
+                }
+            }
+
+            // 12. Chemical Lab Check
+            const chemItems = [
+                { key: "PVC", maxPerSlot: 12 },
+                { key: "Perchlorate", maxPerSlot: 3 },
+                { key: "PLA", maxPerSlot: 10 },
+                { key: "Empty Battery", maxPerSlot: 3 },
+                { key: "Electric silicon", maxPerSlot: 3 }
+            ];
+
+            const CHEM_SLOTS = 4;
+            const CHEM_BUFFER = 5; 
+
+            for (const item of chemItems) {
+                const oldQ = oldState.inventory[item.key] || 0;
+                const newQ = newState.inventory[item.key] || 0;
+                const delta = newQ - oldQ;
+
+                if (delta > 0) {
+                    const limit = (item.maxPerSlot * CHEM_SLOTS) + CHEM_BUFFER;
+                    
+                    if (delta > limit) {
+                        // FIRE AND FORGET
+                        logAction(`CHEAT_CHEMLAB_${item.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
+                            resource: item.key,
+                            delta: delta,
+                            limit: limit
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal Chemical Lab output for ${item.key}.` });
+                    }
+                }
+            }
+            
+            // 13. Factory Check (Metalworks, Machine Parts, Printer)
+            const factoryItems = [
+                // Metalworks (3 слота, максимум база 5 + бонус 5 = 10 на слот)
+                { key: "Aluminium Plate", maxPerSlot: 10, slots: 3, buffer: 5 },
+                { key: "Titanium Plate", maxPerSlot: 10, slots: 3, buffer: 5 },
+                // Machine Parts (3 слота, максимум база 3 + бонус 2 = 5 на слот)
+                { key: "Machined Parts", maxPerSlot: 5, slots: 3, buffer: 5 },
+                { key: "Moving Parts", maxPerSlot: 5, slots: 3, buffer: 5 },
+                // Printer (2 слота)
+                { key: "Structural Part", maxPerSlot: 2, slots: 2, buffer: 2 }, // Фиксировано 2
+                { key: "PVC Pipe", maxPerSlot: 5, slots: 2, buffer: 3 }, // Максимум 5
+                { key: "Electronic Parts", maxPerSlot: 3, slots: 2, buffer: 2 } // Максимум 3
+            ];
+
+            for (const item of factoryItems) {
+                const oldQ = oldState.inventory[item.key] || 0;
+                const newQ = newState.inventory[item.key] || 0;
+                const delta = newQ - oldQ;
+
+                if (delta > 0) {
+                    const limit = (item.maxPerSlot * item.slots) + item.buffer;
+
+                    if (delta > limit) {
+                        // FIRE AND FORGET
+                        logAction(`CHEAT_FACTORY_${item.key.toUpperCase().replace(/ /g, '_')}`, user.id, user.username, req, {
+                            resource: item.key,
+                            delta: delta,
+                            limit: limit
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal Factory output for ${item.key}.` });
+                    }
+                }
+            }
+
+            // 14. Fuel Factory Check
+            const fuelItems = [
+                { key: "Liquid CH4", maxPerSlot: 20, slots: 4, buffer: 2 },
+                { key: "Liquid O2", maxPerSlot: 20, slots: 4, buffer: 2 },
+                { key: "Rocket Fuel", maxPerSlot: 40, slots: 4, buffer: 4 }
+            ];
+
+            for (const item of fuelItems) {
+                const oldQ = oldState.inventory[item.key] || 0;
+                const newQ = newState.inventory[item.key] || 0;
+                const delta = newQ - oldQ;
+
+                if (delta > 0) {
+                    const limit = (item.maxPerSlot * item.slots) + item.buffer;
+
+                    if (delta > limit) {
+                        // FIRE AND FORGET
+                        logAction(`CHEAT_FUEL_${item.key.toUpperCase().replace(/ /g, '_')}`, user.id, user.username, req, {
+                            resource: item.key,
+                            delta: delta,
+                            limit: limit
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: Abnormal Fuel Factory output for ${item.key}.` });
+                    }
                 }
             }
         }
