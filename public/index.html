@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v7.3 ONLINE]</title>
+<title>Exodus-Prime: Forge-7 Command [v7.4 ONLINE]</title>
 <style>
 :root {
 --neon: #00E5FF; /* Яркий Циан */
@@ -714,6 +714,7 @@ restoreOfflineProgress(STATE.lastSaveTime || Date.now());
 } else {
 // New game
 createSystem();
+ensureBaseStructure(); // ADDED: Ensure composter exists for new users
 createBattery('grid'); createBattery('grid'); createBattery('grid'); createBattery('inventory'); createBattery('inventory');
 STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STATE.power.batteries[2].charge = 20; STATE.power.batteries[3].charge = 20; STATE.power.batteries[4].charge = 20;
 log("SYS: NEW USER INITIALIZED.");
@@ -743,6 +744,7 @@ localStorage.setItem('exodus_token', AUTH_TOKEN);
 document.getElementById('auth-overlay').style.display = 'none';
 
 createSystem();
+ensureBaseStructure(); // ADDED: Ensure composter exists for new users
 createBattery('grid'); createBattery('grid'); createBattery('grid'); createBattery('inventory'); createBattery('inventory');
 STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STATE.power.batteries[2].charge = 20; STATE.power.batteries[3].charge = 20; STATE.power.batteries[4].charge = 20;
 log("SYS: IDENTITY ESTABLISHED.");
@@ -1027,6 +1029,7 @@ ensureBaseStructure();
 restoreOfflineProgress(STATE.lastSaveTime || Date.now());
 } else {
 createSystem(); // New game logic for existing user but empty state
+ensureBaseStructure();
 createBattery('grid'); createBattery('grid'); createBattery('inventory');
 }
 document.getElementById('auth-overlay').style.display = 'none';
