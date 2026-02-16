@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v7.6 ONLINE]</title>
+<title>Exodus-Prime: Forge-7 Command [v7.7 MARKET UPDATE]</title>
 <style>
 :root {
 --neon: #00E5FF; /* Яркий Циан */
@@ -269,6 +269,19 @@ font-family: 'Consolas', monospace; box-sizing: border-box;
 .auth-toggle { margin-top: 15px; font-size: 10px; color: #889; cursor: pointer; text-decoration: underline; }
 .auth-toggle:hover { color: #fff; }
 .auth-err { color: var(--danger); font-size: 10px; margin-bottom: 10px; min-height: 15px; }
+
+/* --- MARKET NEW STYLES --- */
+.mkt-offer-card {
+display: flex; justify-content: space-between; align-items: center;
+background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1);
+padding: 8px; margin-bottom: 6px; font-size: 10px; transition: 0.2s;
+}
+.mkt-offer-card:hover { border-color: var(--warning); background: rgba(255, 215, 0, 0.05); }
+.mkt-input-group { display: flex; gap: 5px; margin-bottom: 10px; }
+.mkt-input {
+flex: 1; background: rgba(0,0,0,0.3); border: 1px solid #334;
+color: #fff; padding: 5px; font-family: monospace;
+}
 </style>
 </head>
 <body id="body">
@@ -651,15 +664,54 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 <div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning);">
 <div class="header" style="font-size:14px; color:white;">GALACTIC MARKET</div>
 <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
-<div style="margin-bottom:10px;">
-<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">CURRENT OFFERS</div>
+
+<div style="margin-bottom:10px; border-bottom:1px solid var(--panel-border); padding-bottom:5px;">
+<button class="tab-btn active" id="btn-mkt-sys" onclick="switchMarketTab('sys')">SYSTEM</button>
+<button class="tab-btn" id="btn-mkt-p2p" onclick="switchMarketTab('p2p')">P2P TRADING</button>
+</div>
+
+<div id="mkt-sys-view">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">SYSTEM OFFERS</div>
 <div id="market-offers-list" class="scan-overlay" style="height:300px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center;">
+
 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:8px; margin-bottom:5px; border:1px solid rgba(255,255,255,0.1);">
 <div style="text-align:left;">
 <div style="color:var(--xp); font-weight:bold;">SCAVENGING LICENSE</div>
 <div style="font-size:9px; color:#889;">Auth Key to unlock higher skill tiers.</div>
 </div>
 <button class="nav-btn" style="border-color:var(--warning); color:var(--warning);" onclick="buyLicense()">BUY (200 SCRAP)</button>
+</div>
+
+</div>
+</div>
+
+<div id="mkt-p2p-view" style="display:none;">
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+
+<div style="border:1px solid rgba(255,255,255,0.1); padding:10px; background:rgba(255,255,255,0.02);">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px;">CREATE OFFER</div>
+<div class="mkt-input-group">
+<select id="p2p-item-select" class="mkt-input" style="flex:2;">
+</select>
+<input type="number" id="p2p-qty" class="mkt-input" placeholder="QTY" min="1" value="1">
+</div>
+<div class="mkt-input-group">
+<input type="number" id="p2p-price" class="mkt-input" placeholder="PRICE ($H3)" min="1">
+<button class="nav-btn" onclick="postOffer()" style="border-color:var(--neon); color:var(--neon);">POST</button>
+</div>
+<div style="font-size:9px; color:#666; margin-top:5px;">Fee: 5% of Sale Price.</div>
+</div>
+
+<div style="border:1px solid rgba(255,255,255,0.1); padding:10px; background:rgba(255,255,255,0.02); height:150px; overflow-y:auto;">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px;">MY ACTIVE LISTINGS</div>
+<div id="p2p-my-offers">
+</div>
+</div>
+</div>
+
+<div style="margin-top:15px;">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px;">GALACTIC EXCHANGE LISTINGS</div>
+<div id="p2p-public-offers" class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:5px;">
 </div>
 </div>
 </div>
@@ -1004,7 +1056,8 @@ brewerSlots: [ { id: 0, active: false, startTime: 0, duration: 0 }, { id: 1, act
 },
 greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty', crop: null, startTime: 0, duration: 0 })), selectedSlot: null },
 composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] },
-lastDailyClaim: 0
+lastDailyClaim: 0,
+market: { offers: [] } // MARKET INITIALIZATION
 };
 
 function init() {
@@ -1040,6 +1093,7 @@ ensureBaseStructure();
 createBattery('grid'); createBattery('grid'); createBattery('inventory');
 }
 document.getElementById('auth-overlay').style.display = 'none';
+initMarket(); // Initialize Market Data
 startGameLoop();
 })
 .catch(() => {
@@ -1794,10 +1848,7 @@ function unlockScavenging() {
 if (!STATE.skills.scavenging.locked) return; if ((STATE.inventory["Scavenging License"] || 0) < 1) return log("ERR: Missing License.");
 STATE.inventory["Scavenging License"]--; STATE.skills.scavenging.locked = false; levelUpScavenging(); renderProficiency(); updateUI();
 }
-function buyLicense() {
-if ((STATE.inventory.Scrap || 0) < 200) return log("MARKET: Insufficient Scrap (Need 200).");
-STATE.inventory.Scrap -= 200; STATE.inventory["Scavenging License"] = (STATE.inventory["Scavenging License"] || 0) + 1; log("MARKET: Scavenging License acquired."); renderWarehouse(); updateUI();
-}
+// License purchase moved to new buyLicense function in Market section below
 
 function useStamina(v) { if(STATE.stamina.val>=v) { STATE.stamina.val-=v; updateUI(); return true; } log("ALERT: HUNGRY."); return false; }
 
@@ -1934,9 +1985,7 @@ else log("ERR: Base coordinates lost."); }
 function openWarehouse() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-hangar','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-warehouse').style.display='block'; renderWarehouse(); }
 function openHangar() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-hangar').style.display='block'; renderHangar(); }
 function openProficiency() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-proficiency').style.display='block'; renderProficiency(); }
-function openMarket() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-market').style.display='block'; renderMarket(); }
-function renderMarket() { /* Logic later */ }
-function createOffer() { log("MARKET: CREATE OFFER system initializing..."); /* Logic later */ }
+// MARKET REPLACED BELOW
 function closeModal(e, f) { if(f) document.getElementById('modal-overlay').style.display='none'; }
 
 function renderWarehouse() {
@@ -2145,9 +2194,183 @@ console.error("UI ERR:", e);
 }
 } // Закрытие функции updateUI
 
-// --- INITIALIZATION ---
-window.onload = init;
+// --- NEW P2P MARKET LOGIC ---
 
+// License purchase moved here from old logic
+function buyLicense() {
+if ((STATE.inventory.Scrap || 0) < 200) return log("MARKET: Insufficient Scrap (Need 200).");
+STATE.inventory.Scrap -= 200;
+STATE.inventory["Scavenging License"] = (STATE.inventory["Scavenging License"] || 0) + 1;
+log("MARKET: Scavenging License acquired.");
+renderWarehouse();
+updateUI();
+}
+
+function initMarket() {
+// Initialize market state if missing
+if(!STATE.market) STATE.market = {};
+if(!STATE.market.offers) STATE.market.offers = [];
+
+// Add mock offers if empty (Simulation)
+if(STATE.market.offers.filter(o => o.seller !== 'ME').length === 0) {
+STATE.market.offers.push({id: 'm1', seller: 'MiningCorp_X', item: 'Iron Ore', qty: 100, price: 50, currency: 'HELIUM3'});
+STATE.market.offers.push({id: 'm2', seller: 'Star_Drifter', item: 'Food', qty: 20, price: 100, currency: 'HELIUM3'});
+STATE.market.offers.push({id: 'm3', seller: 'Void_Walker', item: 'Rocket Fuel', qty: 50, price: 500, currency: 'HELIUM3'});
+}
+}
+
+function switchMarketTab(t) {
+document.getElementById('btn-mkt-sys').classList.remove('active');
+document.getElementById('btn-mkt-p2p').classList.remove('active');
+document.getElementById(`btn-mkt-${t}`).classList.add('active');
+
+document.getElementById('mkt-sys-view').style.display = (t==='sys') ? 'block' : 'none';
+document.getElementById('mkt-p2p-view').style.display = (t==='p2p') ? 'block' : 'none';if(t === 'p2p') renderP2PMarket();
+    }
+
+    // Рендеринг интерфейса P2P торговли
+    function renderP2PMarket() {
+        // 1. Заполнение выпадающего списка (Select Box) предметами из инвентаря
+        const sel = document.getElementById('p2p-item-select');
+        if(!sel) return;
+        sel.innerHTML = '';
+        
+        // Фильтруем предметы: есть в наличии, не валюта, не семена, не лицензия
+        const sellable = Object.keys(STATE.inventory).filter(k => 
+            STATE.inventory[k] > 0 && 
+            k !== 'Helium3' && 
+            !k.includes('Seeds') && 
+            k !== 'Scavenging License'
+        );
+        
+        sellable.sort().forEach(k => {
+            const opt = document.createElement('option');
+            opt.value = k;
+            opt.innerText = `${k} (${Math.floor(STATE.inventory[k])})`;
+            sel.appendChild(opt);
+        });
+
+        // 2. Рендеринг моих предложений (My Offers)
+        const myOffersEl = document.getElementById('p2p-my-offers');
+        if(myOffersEl) {
+            const myOffers = STATE.market.offers.filter(o => o.seller === 'ME');
+            
+            if(myOffers.length === 0) {
+                myOffersEl.innerHTML = '<div style="color:#555; text-align:center; font-size:9px; padding:10px;">NO ACTIVE LISTINGS</div>';
+            } else {
+                myOffersEl.innerHTML = myOffers.map(o => `
+                <div class="mkt-offer-card" style="border-color:var(--neon);">
+                    <div><span style="color:var(--neon);">${o.item}</span> x${o.qty}</div>
+                    <div><span style="color:#ffd700;">${o.price} H3</span></div>
+                    <button class="nav-btn danger" style="padding:1px 5px; font-size:8px;" onclick="cancelOffer('${o.id}')">CANCEL</button>
+                </div>
+                `).join('');
+            }
+        }
+
+        // 3. Рендеринг публичных предложений (Public Offers)
+        const pubOffersEl = document.getElementById('p2p-public-offers');
+        if(pubOffersEl) {
+            const pubOffers = STATE.market.offers.filter(o => o.seller !== 'ME');
+            
+            if(pubOffers.length === 0) {
+                pubOffersEl.innerHTML = '<div style="color:#555; text-align:center; padding:20px;">MARKET EMPTY</div>';
+            } else {
+                pubOffersEl.innerHTML = pubOffers.map(o => `
+                <div class="mkt-offer-card">
+                    <div style="width:30%"><span style="color:#aaa;">${o.seller}</span></div>
+                    <div style="width:30%; font-weight:bold; color:#fff;">${o.item} <span style="color:#889;">x${o.qty}</span></div>
+                    <div style="width:20%; color:#ffd700; text-align:right;">${o.price} H3</div>
+                    <div style="width:20%; text-align:right;">
+                        <button class="nav-btn" style="padding:2px 8px; border-color:var(--success); color:var(--success);" onclick="buyOffer('${o.id}')">BUY</button>
+                    </div>
+                </div>
+                `).join('');
+            }
+        }
+    }
+
+    // Создание предложения (Продажа)
+    function postOffer() {
+        const item = document.getElementById('p2p-item-select').value;
+        const qty = parseInt(document.getElementById('p2p-qty').value);
+        const price = parseInt(document.getElementById('p2p-price').value);
+
+        if(!item) return log("MKT: Select an item.");
+        if(isNaN(qty) || qty <= 0) return log("MKT: Invalid Quantity.");
+        if(isNaN(price) || price <= 0) return log("MKT: Invalid Price.");
+        if((STATE.inventory[item] || 0) < qty) return log("MKT: Insufficient Items.");
+
+        // Списываем предмет из инвентаря
+        STATE.inventory[item] -= qty;
+
+        // Создаем объект предложения
+        const offer = {
+            id: 'o_' + Date.now() + Math.random().toString(36).substr(2, 4),
+            seller: 'ME',
+            item: item,
+            qty: qty,
+            price: price,
+            currency: 'HELIUM3'
+        };
+
+        STATE.market.offers.push(offer);
+        log(`MKT: Listed ${qty} ${item} for ${price} H3.`);
+        renderP2PMarket();
+        updateUI();
+    }
+
+    // Отмена своего предложения
+    function cancelOffer(id) {
+        const idx = STATE.market.offers.findIndex(o => o.id === id);
+        if(idx === -1) return;
+        const o = STATE.market.offers[idx];
+        if(o.seller !== 'ME') return;
+
+        // Возвращаем предметы в инвентарь
+        STATE.inventory[o.item] = (STATE.inventory[o.item] || 0) + o.qty;
+        
+        // Удаляем из списка маркета
+        STATE.market.offers.splice(idx, 1);
+        
+        log(`MKT: Listing cancelled. ${o.item} returned.`);
+        renderP2PMarket();
+        updateUI();
+    }
+
+    // Покупка чужого предложения
+    function buyOffer(id) {
+        const idx = STATE.market.offers.findIndex(o => o.id === id);
+        if(idx === -1) return log("MKT: Offer expired.");
+        const o = STATE.market.offers[idx];
+
+        // Проверка средств (Helium3)
+        if((STATE.inventory.Helium3 || 0) < o.price) return log("MKT: Insufficient Funds.");
+
+        // Транзакция
+        STATE.inventory.Helium3 -= o.price;
+        STATE.inventory[o.item] = (STATE.inventory[o.item] || 0) + o.qty;
+        
+        STATE.market.offers.splice(idx, 1); // Удаляем лот из маркета
+
+        log(`MKT: Purchased ${o.qty} ${o.item} from ${o.seller}.`);
+        renderP2PMarket();
+        updateUI();
+    }
+
+    // Открытие модального окна маркета
+    function openMarket() { 
+        document.getElementById('modal-overlay').style.display='block'; 
+        // Скрываем другие модальные окна
+        ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency'].forEach(id => {
+            if(document.getElementById(id)) document.getElementById(id).style.display='none';
+        });
+        document.getElementById('modal-market').style.display='block'; 
+        switchMarketTab('sys'); 
+    }
+    
+    // STARTUP
+    window.onload = init;
 </script>
 </body>
 </html>
