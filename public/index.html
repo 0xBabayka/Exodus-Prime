@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v7.5 ONLINE]</title>
+<title>Exodus-Prime: Forge-7 Command [v7.6 ONLINE]</title>
 <style>
 :root {
 --neon: #00E5FF; /* Яркий Циан */
@@ -302,6 +302,7 @@ font-family: 'Consolas', monospace; box-sizing: border-box;
 <span>FLUX: <span class="tb-val" id="top-flux-val">--%</span></span>
 <span>STAM: <span class="tb-val" id="stamina-val" style="color:var(--stamina)">100/100</span></span>
 <button id="btn-daily" class="nav-btn" style="font-size:9px; padding:1px 6px; height:20px; border-color:var(--warning); color:var(--warning);" onclick="claimDailyReward()">...LM</button>
+<button id="btn-missions" class="nav-btn" style="font-size:9px; padding:1px 6px; height:20px; border-color:#d400ff; color:#d400ff;" onclick="openDailyMissions()">MISSIONS</button>
 </div>
 
 <div class="top-center-group">
@@ -2018,6 +2019,10 @@ function switchTab(t) { document.querySelectorAll('.tab-btn').forEach(b=>b.class
 } if(t==='printer') { renderPrinter(); } }
 function claimDailyReward() { const now = Date.now(); if (now - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
 STATE.lastDailyClaim = now; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1; log("REWARD: +1 Energy Bar acquired."); updateUI(); ServerSys.save(); }
+// NEW: Open Daily Missions
+function openDailyMissions() {
+log("SYS: MISSION BOARD MODULE OFFLINE (PENDING UPDATE).");
+}
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }
 function log(m) { const c=UI_CACHE['console']; if(c) c.innerHTML = `<div><span style="color:#556">[${new Date().toLocaleTimeString().split(' ')[0]}]</span> ${m}</div>` + c.innerHTML; }
 
