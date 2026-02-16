@@ -1050,7 +1050,7 @@ document.getElementById('auth-overlay').style.display = 'flex';
 }
 
 function startGameLoop() {
-setInterval(() => ServerSys.save(), 30000); // Save every 30s to reduce server load
+setInterval(() => ServerSys.save(), 3000); // Save every 3s to reduce server load
 window.addEventListener('beforeunload', () => ServerSys.save());
 STATE.lastFrameTime = performance.now();
 requestAnimationFrame(loop);
@@ -2146,3 +2146,4 @@ window.onload = init;
 </script>
 </body>
 </html>
+
