@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v7.4 ONLINE]</title>
+<title>Exodus-Prime: Forge-7 Command [v7.5 ONLINE]</title>
 <style>
 :root {
 --neon: #00E5FF; /* Яркий Циан */
@@ -313,6 +313,11 @@ font-family: 'Consolas', monospace; box-sizing: border-box;
 </div>
 
 <div class="top-btn-group">
+<div style="margin-right:10px; border:1px solid rgba(255,255,255,0.2); padding:2px 8px; background:rgba(255,255,255,0.05); border-radius:2px; display:flex; align-items:center;">
+<span style="color:#ffd700; font-weight:bold; font-size:10px; letter-spacing:0.5px;">$HELIUM3:</span>
+<span id="top-h3-val" style="color:#fff; margin-left:5px; font-weight:bold; font-size:10px;">0</span>
+</div>
+
 <button class="nav-btn danger" onclick="logout()" style="border-color:var(--danger); color:var(--danger)">LOGOUT</button>
 <span>UTC: <span class="tb-val" id="sys-time">00:00:00</span></span>
 </div>
@@ -925,7 +930,8 @@ CO2: 0, Nitrogen: 0, Argon: 0, Neon: 0, Krypton: 0, Xenon: 0, Pt: 5, Gas: 0, Scr
 Soil: 100, "Seeds: Sprouts": 100, "Seeds: Amaranth": 5, "Seeds: Guarana": 5, "Seeds: Potato": 5, "Seeds: Maize": 5, Food: 0, Regolith: 0, "Biological Waste": 0, Methane: 0, O2: 0,
 Snack: 0, Meal: 0, Feast: 0, "Energy Bar": 10, Barite: 0,
 "Aluminium Ore": 0, "Copper Ore": 0, "Titanium Ore": 0, Halite: 0, "Liquid CH4": 0, "Liquid O2": 0, "Rocket Fuel": 100, PVC: 0, Perchlorate: 0, PLA: 0, "Empty Battery": 0, "Full Battery": 0, Amaranth: 0, Guarana: 0, Potato: 0, "Fermented Amaranth": 0, "Fermented Guarana": 0,
-"Scavenging License": 0, Worms: 0, "Aluminium Plate": 0, "Titanium Plate": 0, "Machined Parts": 0, "Moving Parts": 0, "Roasted Guarana": 0, "Ground Guarana": 0, "Energy Isotonic": 0, "Raw silicon": 0, "Electric silicon": 0, "Structural Part": 0, "PVC Pipe": 0, "Electronic Parts": 0
+"Scavenging License": 0, Worms: 0, "Aluminium Plate": 0, "Titanium Plate": 0, "Machined Parts": 0, "Moving Parts": 0, "Roasted Guarana": 0, "Ground Guarana": 0, "Energy Isotonic": 0, "Raw silicon": 0, "Electric silicon": 0, "Structural Part": 0, "PVC Pipe": 0, "Electronic Parts": 0,
+Helium3: 0 // ADDED: New Currency
 },
 stamina: { val: 100, max: 100 },
 cooldowns: { Snack: 0, Meal: 0, Feast: 0, "Energy Bar": 0 },
@@ -1002,7 +1008,7 @@ lastDailyClaim: 0
 
 function init() {
 // Cache DOM elements
-['sys-time', 'top-flux-val', 'stamina-val', 'btn-daily', 'grid-output', 'grid-load', 'grid-status-text', 'flux-bar', 'active-systems-panel', 'inventory', 'active-grid-list', 'battery-rack', 'fleet-list', 'obj-list', 'console', 'c-probe', 'c-miner', 'c-hauler', 'c-gas', 'scav-progress', 'btn-scavenge'].forEach(id => {
+['sys-time', 'top-flux-val', 'stamina-val', 'btn-daily', 'grid-output', 'grid-load', 'grid-status-text', 'flux-bar', 'active-systems-panel', 'inventory', 'active-grid-list', 'battery-rack', 'fleet-list', 'obj-list', 'console', 'c-probe', 'c-miner', 'c-hauler', 'c-gas', 'scav-progress', 'btn-scavenge', 'top-h3-val'].forEach(id => {
 const el = document.getElementById(id);
 if(el) UI_CACHE[id] = el;
 });
@@ -1044,7 +1050,7 @@ document.getElementById('auth-overlay').style.display = 'flex';
 }
 
 function startGameLoop() {
-setInterval(() => ServerSys.save(), 3000); // Save every 3s to reduce server load
+setInterval(() => ServerSys.save(), 30000); // Save every 30s to reduce server load
 window.addEventListener('beforeunload', () => ServerSys.save());
 STATE.lastFrameTime = performance.now();
 requestAnimationFrame(loop);
@@ -1062,6 +1068,8 @@ log("SYS: Base Reconstruction Complete.");
 }
 const items = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Biological Waste', 'Methane', 'O2', 'Aluminium Ore', 'Copper Ore', 'Titanium Ore', 'Halite', 'Liquid CH4', 'Liquid O2', 'Rocket Fuel', 'PVC', 'Perchlorate', 'PLA', 'Empty Battery', 'Full Battery', 'Amaranth', 'Seeds: Amaranth', 'Guarana', 'Seeds: Guarana', 'Fermented Amaranth', 'Fermented Guarana', 'Scavenging License', 'Worms', 'Potato', 'Seeds: Potato', 'Seeds: Maize', 'Aluminium Plate', 'Titanium Plate', 'Machined Parts', 'Moving Parts', 'Roasted Guarana', 'Ground Guarana', 'Energy Isotonic', 'Raw silicon', 'Electric silicon', 'Structural Part', 'PVC Pipe', 'Electronic Parts'];
 items.forEach(i => { if(STATE.inventory[i] === undefined) STATE.inventory[i] = 0; });
+// ADDED: Initialize Helium3 if missing
+if (STATE.inventory.Helium3 === undefined) STATE.inventory.Helium3 = 0;
 
 // Ensure nested objects
 if (!STATE.composter) STATE.composter = { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] };
@@ -2064,6 +2072,9 @@ bh += `<div class="battery-item"><span class="bat-id">BAT-${b.id}</span><div cla
 onclick="installBattery('${b.id}')">INSTALL</button><button class="bat-action-btn" style="border-color:var(--danger); color:var(--danger);" onclick="storeBattery('${b.id}')">STORE</button></div></div>`; } else { bh += `<div class="battery-item" style="justify-content:center; border:1px dashed #334; color:#445;">[ RACK SLOT EMPTY ]</div>`;
 } } if(UI_CACHE['battery-rack']) UI_CACHE['battery-rack'].innerHTML = bh;
 
+// UPDATE HELIUM3 BALANCE DISPLAY
+if(UI_CACHE['top-h3-val']) UI_CACHE['top-h3-val'].innerText = (STATE.inventory.Helium3 || 0).toLocaleString();
+
 // UPDATE FLEET LIST (Right Panel)
 const flList = UI_CACHE['fleet-list'];
 if (flList) {
@@ -2135,4 +2146,3 @@ window.onload = init;
 </script>
 </body>
 </html>
-
