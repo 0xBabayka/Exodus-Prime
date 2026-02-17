@@ -168,8 +168,8 @@ app.post('/api/auth/register', async (req, res) => {
                 ]
             }
         };
-        await user.save();
 
+        await user.save();
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
         const payload = { user: { id: user.id } };
@@ -250,6 +250,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         // Игнорируем Helium3 от клиента, чтобы предотвратить накрутку через консоль браузера.
         // Сервер - единственный источник правды для рыночной валюты.
         const dbHelium3 = (oldState.inventory && oldState.inventory.Helium3) ? oldState.inventory.Helium3 : 0;
+        
         if (!newState.inventory) newState.inventory = {};
         newState.inventory.Helium3 = dbHelium3;
 
@@ -303,6 +304,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const chargeDelta = totalNewCharge - totalOldCharge;
                 const elapsedSeconds = timeSinceLastSave / 1000;
                 const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0;
+
                 if (chargeDelta > maxPossibleGain) {
                       logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
                         delta: chargeDelta,
@@ -329,6 +331,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldVal = parseFloat(oldState.stamina.val) || 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
+
                 if (staminaDiff > 0) {
                     const foodItems = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Energy Isotonic'];
                     let hasConsumedFood = false;
@@ -383,7 +386,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                  });
+                   });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -391,7 +394,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -449,7 +452,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                        });
+                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -466,6 +469,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             ];
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
+
             for (const ore of oreTypes) {
                 const oldQty = oldState.inventory[ore.key] || 0;
                 const newQty = newState.inventory[ore.key] || 0;
@@ -562,7 +566,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Roasted Guarana", maxPerSlot: 20, slots: 2, buffer: 5 },
                 { key: "Ground Guarana", maxPerSlot: 13, slots: 2, buffer: 5 },
                 { key: "Energy Isotonic", maxPerSlot: 5, slots: 2, buffer: 3 }
-            ];
+             ];
             for (const item of kitchenItems) {
                 const oldQ = oldState.inventory[item.key] || 0;
                 const newQ = newState.inventory[item.key] || 0;
@@ -735,6 +739,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         if(!item || !Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price <= 0) {
             return res.status(400).json({msg: "Invalid offer data"});
         }
+ 
         if(item === 'Helium3' || item === 'Scavenging License') return res.status(400).json({msg: "Restricted Item"});
 
         const user = await User.findById(req.user.id);
@@ -763,21 +768,40 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save();
 
         logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
-        res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: user.gameState.inventory });
+        
+        // Return updated list to ensure UI is in sync immediately
+        const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
+        const mappedOffers = offers.map(o => ({
+            id: o._id,
+            seller: (o.sellerId.toString() === req.user.id) ? 'ME' : o.sellerName,
+            item: o.item,
+            qty: o.qty,
+            price: o.price,
+            currency: o.currency
+        }));
 
+        res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
         console.error(err);
         res.status(500).send("Server Error");
     }
 });
 
-// 8. Cancel an Offer
+// 8. Cancel an Offer (UPDATED WITH FIX AND PROTECTION)
 app.post('/api/market/cancel', auth, async (req, res) => {
     try {
         const { offerId } = req.body;
+
+        // PROTECTION: Check if ID is valid to prevent crashes
+        if (!mongoose.Types.ObjectId.isValid(offerId)) {
+            return res.status(400).json({msg: "Invalid Offer ID"});
+        }
+
         const offer = await MarketOffer.findById(offerId);
 
         if(!offer) return res.status(404).json({msg: "Offer not found"});
+        
+        // PROTECTION: Strict Ownership Check
         if(offer.sellerId.toString() !== req.user.id) return res.status(403).json({msg: "Not authorized"});
 
         const user = await User.findById(req.user.id);
@@ -790,8 +814,21 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId });
 
+        // FIX: Fetch and return updated offers list so UI refreshes correctly
+        const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
+        const mappedOffers = offers.map(o => ({
+            id: o._id,
+            seller: (o.sellerId.toString() === req.user.id) ? 'ME' : o.sellerName,
+            item: o.item,
+            qty: o.qty,
+            price: o.price,
+            currency: o.currency
+        }));
+
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-        res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory });
+        
+        // Return offers in response
+        res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
 
     } catch (err) {
         console.error(err);
@@ -853,7 +890,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
             price: securedOffer.price, 
             sellerId: securedOffer.sellerId 
         });
-
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
     } catch (err) {
