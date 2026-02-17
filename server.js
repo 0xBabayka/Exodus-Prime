@@ -8,7 +8,6 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
 app.set('trust proxy', 1);
 
@@ -51,13 +50,11 @@ const BatterySchema = new mongoose.Schema({
 
 // Generic Machine Slot (Refinery, Factory, etc.)
 const SlotSchema = new mongoose.Schema({
-    // ИСПРАВЛЕНИЕ: removed 'required: true', added 'default: 0' to prevent validation errors for single slots like fermenter
     id: { type: Number, default: 0 }, 
     active: { type: Boolean, default: false },
     startTime: { type: Number, default: 0 },
     duration: { type: Number, default: 0 },
     mode: { type: String, default: null },
-    // Greenhouse specific fields
     status: { type: String }, 
     crop: { type: String, default: null }
 }, { _id: false });
@@ -102,21 +99,16 @@ const BodySchema = new mongoose.Schema({
 
 // MAIN GAME STATE SCHEMA
 const GameStateSchema = new mongoose.Schema({
-    // Camera & UI State
     camera: { 
         x: { type: Number, default: 0 }, 
         y: { type: Number, default: 0 } 
     },
     zoom: { type: Number, default: 0.8 },
-    
-    // Inventory: Using Map to handle dynamic item names
     inventory: {
         type: Map,
         of: Number,
         default: {}
     },
-
-    // Resources & Stats
     stamina: {
         val: { type: Number, default: 100, min: 0 },
         max: { type: Number, default: 100 }
@@ -127,8 +119,6 @@ const GameStateSchema = new mongoose.Schema({
         default: {}
     },
     lastDailyClaim: { type: Number, default: 0 },
-
-    // Skills
     skills: {
         scavenging: { type: SkillSchema, default: () => ({}) },
         agriculture: { type: SkillSchema, default: () => ({}) },
@@ -137,8 +127,6 @@ const GameStateSchema = new mongoose.Schema({
         planetary_exploration: { type: SkillSchema, default: () => ({}) },
         engineering: { type: SkillSchema, default: () => ({}) }
     },
-
-    // Buildings / Machines
     hangar: {
         probe: { type: Number, default: 1 },
         miner: { type: Number, default: 0 },
@@ -151,8 +139,6 @@ const GameStateSchema = new mongoose.Schema({
         consumptionRate: { type: Number, default: 0 },
         gridStatus: { type: String, default: 'ONLINE' }
     },
-    
-    // Active Operations
     scavenging: {
         active: { type: Boolean, default: false },
         timer: { type: Number, default: 0 },
@@ -180,8 +166,6 @@ const GameStateSchema = new mongoose.Schema({
         selectedSlot: { type: Number, default: null } 
     },
     composter: { slots: [SlotSchema] },
-
-    // Lists
     ships: [ShipSchema],
     bodies: [BodySchema],
     buildQueue: [{
@@ -189,16 +173,10 @@ const GameStateSchema = new mongoose.Schema({
         progress: { type: Number },
         totalDuration: { type: Number }
     }],
-    
-    // Components
     components: { type: Map, of: Number, default: {} },
-    
-    // Client-side environment tracking
     environment: {
         flux: { type: Number, default: 0.15 }
     },
-    
-    // Market local cache
     market: { 
         offers: { type: Array, default: [] } 
     }
@@ -354,12 +332,10 @@ app.post('/api/auth/register', async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
         
-        // Initialize basic game state structure
         user.gameState = {
             inventory: { 
                 Helium3: 0, 
                 Scrap: 0,
-                // Starting Resources
                 "Ice water": 50,
                 "Water": 5,
                 "Soil": 100,
@@ -387,7 +363,7 @@ app.post('/api/auth/register', async (req, res) => {
                 waterSlots: [{id:0},{id:1}], 
                 sabatierSlots: [{id:0},{id:1}], 
                 smelterSlots: [{id:0},{id:1}],
-                fermenterSlot: { id: 0, active: false } // Explicitly set ID 0
+                fermenterSlot: { id: 0, active: false } 
             },
             greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty' })) },
             composter: { slots: [{id:0},{id:1},{id:2}] },
@@ -399,7 +375,7 @@ app.post('/api/auth/register', async (req, res) => {
             printer: { slots: [{id:0},{id:1}] },
             stamina: { val: 100, max: 100 },
             skills: {
-                scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
+                 scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
@@ -429,6 +405,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+ 
         if (!isMatch) {
             logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
@@ -438,7 +415,7 @@ app.post('/api/auth/login', async (req, res) => {
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
-            if (err) throw err;
+             if (err) throw err;
             res.json({ token, gameState: user.gameState });
         });
     } catch (err) {
@@ -452,7 +429,6 @@ app.get('/api/game/load', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
         
-        // Ensure Helium3 exists in older saves
         if(!user.gameState.inventory) user.gameState.inventory = new Map();
         if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
 
@@ -492,7 +468,6 @@ app.post('/api/game/save', auth, async (req, res) => {
         const oldState = user.gameState || {}; 
         let timeSinceLastSave = 0;
         
-        // Accessing Mongoose Map: use .get() for oldState if it's a Map
         let dbHelium3 = 0;
         if (oldState.inventory instanceof Map) {
             dbHelium3 = oldState.inventory.get('Helium3') || 0;
@@ -584,7 +559,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                     let hasConsumedFood = false;
 
                     for (const item of foodItems) {
-                        const oldQty = (oldState.inventory instanceof Map) ? (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
+                        const oldQty = (oldState.inventory instanceof Map) ?
+                            (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
                             hasConsumedFood = true;
@@ -606,11 +582,11 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // 5. Scavenging & Resources Check
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
+            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         
         let dScrap = 0;
         let maxActionsPossible = 10;
-
         if (oldState.inventory && newState.inventory) {
             const dRegolith = (newState.inventory.Regolith || 0) - getOldInv("Regolith");
             const dIce = (newState.inventory["Ice water"] || 0) - getOldInv("Ice water");
@@ -621,7 +597,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -983,16 +958,23 @@ app.get('/api/market', auth, async (req, res) => {
     }
 });
 
-// 6. Buy Scavenging License
+// 6. Buy Scavenging License (Protected with MongoDB Session)
 app.post('/api/market/license', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    
     try {
-        const user = await User.findById(req.user.id);
-        if(!user) return res.status(404).json({msg: "User not found"});
+        const user = await User.findById(req.user.id).session(session);
+        if(!user) {
+            await session.abortTransaction();
+            return res.status(404).json({msg: "User not found"});
+        }
 
         const COST = 200;
         const currentScrap = user.gameState.inventory.get('Scrap') || 0;
 
         if(currentScrap < COST) {
+            await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient Scrap"});
         }
 
@@ -1001,57 +983,79 @@ app.post('/api/market/license', auth, async (req, res) => {
         user.gameState.inventory.set("Scavenging License", currentLic + 1);
         
         user.markModified('gameState');
-        await user.save();
+        await user.save({ session });
+        
+        await session.commitTransaction();
 
+        // Background logging
         logAction('MARKET_BUY_LICENSE', user.id, user.username, req);
         res.json({ msg: "License Acquired", inventory: user.gameState.inventory });
 
-    } 
-    catch (err) {
+    } catch (err) {
+        await session.abortTransaction();
         console.error(err);
         res.status(500).send("Server Error");
+    } finally {
+        session.endSession();
     }
 });
 
-// 7. Post an Offer
+// 7. Post an Offer (Protected with MongoDB Session)
 app.post('/api/market/offer', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
         const { item, qty, price } = req.body;
         
-        // Strict Validation
-        if(!item || !Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price <= 0) {
+        // Strict Validation (NoSQL Injection & Data Integrity protection)
+        const safeQty = Number(qty);
+        const safePrice = Number(price);
+        const safeItem = String(item);
+
+        if(!safeItem || !Number.isInteger(safeQty) || safeQty <= 0 || !Number.isInteger(safePrice) || safePrice <= 0) {
+            await session.abortTransaction();
             return res.status(400).json({msg: "Invalid offer data"});
         }
 
-        if(item === 'Helium3' || item === 'Scavenging License') return res.status(400).json({msg: "Restricted Item"});
+        if(safeItem === 'Helium3' || safeItem === 'Scavenging License') {
+            await session.abortTransaction();
+            return res.status(400).json({msg: "Restricted Item"});
+        }
 
-        const user = await User.findById(req.user.id);
-        if(!user) return res.status(404).json({msg: "User not found"});
+        const user = await User.findById(req.user.id).session(session);
+        if(!user) {
+            await session.abortTransaction();
+            return res.status(404).json({msg: "User not found"});
+        }
 
         // Check Inventory
-        const currentQty = user.gameState.inventory.get(item) || 0;
-        if(currentQty < qty) {
+        const currentQty = user.gameState.inventory.get(safeItem) || 0;
+        if(currentQty < safeQty) {
+            await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient items in inventory"});
         }
 
         // Deduct Item
-        user.gameState.inventory.set(item, currentQty - qty);
-        
+        user.gameState.inventory.set(safeItem, currentQty - safeQty);
         user.markModified('gameState');
-        await user.save();
+        await user.save({ session });
 
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
             sellerName: user.username,
             sellerIp: req.ip, 
-            item,
-            qty,
-            price
+            item: safeItem,
+            qty: safeQty,
+            price: safePrice
         });
-        await newOffer.save();
+        await newOffer.save({ session });
 
-        logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
+        await session.commitTransaction();
+
+        // Logging and fetching new offers list (outside transaction for performance)
+        logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: safeQty, price: safePrice });
         
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -1062,41 +1066,60 @@ app.post('/api/market/offer', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
+        
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: user.gameState.inventory, offers: mappedOffers });
+
     } catch (err) {
+        await session.abortTransaction();
         console.error(err);
         res.status(500).send("Server Error");
+    } finally {
+        session.endSession();
     }
 });
 
-// 8. Cancel an Offer
+// 8. Cancel an Offer (Protected with MongoDB Session)
 app.post('/api/market/cancel', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
         const { offerId } = req.body;
 
+        // NoSQL Injection Protection
         if (!mongoose.Types.ObjectId.isValid(offerId)) {
+            await session.abortTransaction();
             return res.status(400).json({msg: "Invalid Offer ID"});
         }
 
-        const offer = await MarketOffer.findById(offerId);
+        const offer = await MarketOffer.findById(offerId).session(session);
 
-        if(!offer) return res.status(404).json({msg: "Offer not found"});
+        if(!offer) {
+            await session.abortTransaction();
+            return res.status(404).json({msg: "Offer not found"});
+        }
         
         // Ownership Check
-        if(offer.sellerId.toString() !== req.user.id) return res.status(403).json({msg: "Not authorized"});
+        if(offer.sellerId.toString() !== req.user.id) {
+            await session.abortTransaction();
+            return res.status(403).json({msg: "Not authorized"});
+        }
 
-        const user = await User.findById(req.user.id);
+        const user = await User.findById(req.user.id).session(session);
         
         // Return Items
         const current = user.gameState.inventory.get(offer.item) || 0;
         user.gameState.inventory.set(offer.item, current + offer.qty);
         
         user.markModified('gameState');
-        await user.save();
+        await user.save({ session });
 
         // Delete Offer
-        await MarketOffer.deleteOne({ _id: offerId });
+        await MarketOffer.deleteOne({ _id: offerId }, { session });
 
+        await session.commitTransaction();
+
+        // Refresh offers
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1106,79 +1129,105 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
+        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
+
     } catch (err) {
+        await session.abortTransaction();
         console.error(err);
         res.status(500).send("Server Error");
+    } finally {
+        session.endSession();
     }
 });
 
-// 9. Buy an Offer (FIXED RACE CONDITION)
+// 9. Buy an Offer (PROTECTED WITH MONGODB SESSION - NO RACE CONDITIONS)
 app.post('/api/market/buy', auth, async (req, res) => {
+    const { offerId } = req.body;
+    const buyerId = req.user.id;
+
+    // NoSQL Injection Protection
+    if (!mongoose.Types.ObjectId.isValid(offerId)) {
+        return res.status(400).json({msg: "Invalid Offer ID"});
+    }
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
-        const { offerId } = req.body;
-        const buyerId = req.user.id;
+        // 1. Load Buyer with Session
+        const buyer = await User.findById(buyerId).session(session);
+        if(!buyer) {
+            await session.abortTransaction();
+            return res.status(500).json({msg: "User data error"});
+        }
 
-        // 1. Load Buyer First
-        const buyer = await User.findById(buyerId);
-        if(!buyer) return res.status(500).json({msg: "User data error"});
-
-        // 2. Pre-check Offer
-        const peekOffer = await MarketOffer.findById(offerId);
-        if(!peekOffer) return res.status(404).json({msg: "Offer no longer exists"});
+        // 2. Fetch Offer with Session
+        const securedOffer = await MarketOffer.findById(offerId).session(session);
+        if(!securedOffer) {
+            await session.abortTransaction();
+            return res.status(404).json({msg: "Offer no longer exists or was just sold"});
+        }
         
-        if(peekOffer.sellerId.toString() === buyerId) return res.status(400).json({msg: "Cannot buy your own offer"});
+        if(securedOffer.sellerId.toString() === buyerId) {
+            await session.abortTransaction();
+            return res.status(400).json({msg: "Cannot buy your own offer"});
+        }
 
-        if (peekOffer.sellerIp === req.ip) {
-            logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: peekOffer.sellerIp, buyerIp: req.ip });
+        if (securedOffer.sellerIp === req.ip) {
+            await session.abortTransaction();
+            logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: securedOffer.sellerIp, buyerIp: req.ip });
             return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
         }
 
         // 3. Check Funds
         const buyerH3 = buyer.gameState.inventory.get('Helium3') || 0;
-        if(buyerH3 < peekOffer.price) {
+        if(buyerH3 < securedOffer.price) {
+            await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
-        // 4. ATOMIC CLAIM
-        const securedOffer = await MarketOffer.findOneAndDelete({ _id: offerId });
-
-        if (!securedOffer) {
-             return res.status(404).json({msg: "Offer was just sold to another player"});
-        }
-
-        // 5. Execute Transfer
-        
-        // Deduct Money & Add Item to Buyer
+        // 4. Execute Transfer (Buyer)
         buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
         const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
         buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
 
         buyer.markModified('gameState');
-        await buyer.save();
+        await buyer.save({ session });
 
-        // Add Money to Seller ATOMICALLY
-        const seller = await User.findById(securedOffer.sellerId);
+        // 5. Execute Transfer (Seller)
+        const seller = await User.findById(securedOffer.sellerId).session(session);
         if (seller) {
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
             const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
             seller.gameState.inventory.set('Helium3', currentSellerH3 + securedOffer.price);
             seller.markModified('gameState');
-            await seller.save();
+            await seller.save({ session });
         }
 
+        // 6. Delete the Offer
+        await MarketOffer.deleteOne({ _id: offerId }, { session });
+
+        // 7. Commit Transaction
+        await session.commitTransaction();
+
+        // Background logging
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
             qty: securedOffer.qty, 
             price: securedOffer.price, 
             sellerId: securedOffer.sellerId 
         });
+        
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
     } catch (err) {
+        await session.abortTransaction();
         console.error(err);
         res.status(500).send("Server Error");
+    } finally {
+        session.endSession();
     }
 });
 
