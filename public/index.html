@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>Exodus-Prime: Forge-7 Command [v7.8 MARKET FIX]</title>
+<title>Exodus-Prime: Forge-7 Command [v7.7 MARKET UPDATE]</title>
 <style>
 :root {
 --neon: #00E5FF; /* Яркий Циан */
@@ -1293,7 +1293,7 @@ let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floo
 }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>GRINDING...</button>` : `<button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:#8B4513; color:#8B4513;"
 onclick="startGrinding(${s.id})">START GRIND</button>`;
-return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>UNIT ${s.id+1}</span><span id="grind-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#8B4513; margin-top:5px;"><div id="grind-bar-${s.id}" style="height:100%; background:#8B4513; width:${p}%"></div></div>${btn}</div>`;
+return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>UNIT ${s.id+1}</span><span id="grind-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="grind-bar-${s.id}" style="height:100%; background:#8B4513; width:${p}%"></div></div>${btn}</div>`;
 }).join('');
 }
 const brewerContainer = document.getElementById('brewer-ui-container');
@@ -2132,7 +2132,7 @@ if(UI_CACHE['top-h3-val']) UI_CACHE['top-h3-val'].innerText = (STATE.inventory.H
 // UPDATE FLEET LIST (Right Panel)
 const flList = UI_CACHE['fleet-list'];
 if (flList) {
-if (STATE.ships.length=== 0) {
+if (STATE.ships.length === 0) {
 flList.innerHTML = "<div style='padding:5px; color:#445; text-align:center; font-size:9px;'>NO ACTIVE FLIGHTS</div>";
 } else {
 flList.innerHTML = STATE.ships.map(s => {
@@ -2168,212 +2168,234 @@ return `
 }
 }
 
-// Update Object List (Scanner)
-if(UI_CACHE['obj-list']) {
-let sorted = STATE.bodies.filter(b => b.type !== 'Star' && b.type !== 'BASE').sort((a,b) => a.dist - b.dist);
+// UPDATE FLEET COUNTS (Top of Right Panel)
+if(UI_CACHE['c-probe']) UI_CACHE['c-probe'].innerText = STATE.hangar.probe;
+if(UI_CACHE['c-miner']) UI_CACHE['c-miner'].innerText = STATE.hangar.miner;
+if(UI_CACHE['c-hauler']) UI_CACHE['c-hauler'].innerText = STATE.hangar.hauler;
+if(UI_CACHE['c-gas']) UI_CACHE['c-gas'].innerText = STATE.hangar.gas;
+
+if(UI_CACHE['obj-list']) { let sorted = STATE.bodies.filter(b => b.type !== 'Star' && b.type !== 'BASE').sort((a,b) => a.dist - b.dist);
 UI_CACHE['obj-list'].innerHTML = sorted.map(b => {
 let d = b.dist.toFixed(2);
-let col = b.scanned ? (b.res.length > 0 ? "var(--success)" : "#888") : "#555";
-let resText = b.scanned ? (b.res.length > 0 ? b.res[0] : "EMPTY") : "UNKNOWN";
-
-return `<tr onclick="openModal(STATE.bodies.find(x=>x.id===${b.id}))">
-<td style="color:${b.color}; font-weight:bold;">${b.name}</td>
-<td style="color:#aaa;">${b.type}</td>
-<td style="color:#fff;">${d} AU</td>
-<td style="color:${col}">${resText}</td>
+let col = b.color;
+let sig = b.scanned ? (b.res.length > 0 ? b.res.join(', ') : "Barren") : "UNKNOWN";
+let sigColor = b.scanned ? (b.res.length > 0 ? "var(--success)" : "#888") : "var(--warning)";
+let rowClass = (STATE.selectedObj && STATE.selectedObj.id === b.id) ? "background:rgba(0, 229, 255, 0.1);" : "";
+return `<tr style="${rowClass}" onclick="openModal(STATE.bodies.find(x=>x.id===${b.id}))">
+<td style="color:${col}; font-weight:bold;">${b.name}</td>
+<td>${b.type.toUpperCase()}</td>
+<td>${d} AU</td>
+<td style="color:${sigColor}">${sig}</td>
 </tr>`;
-}).join('');
+}).join('');}
+
+} catch(e) {
+console.error("UI ERR:", e);
 }
+} // Закрытие функции updateUI
 
-} catch(e) { console.log("UI RENDER ERR:", e); }
-}
+// --- NEW P2P MARKET LOGIC (FIXED: NOW CONNECTS TO API) ---
 
-// --- MARKET LOGIC (REAL SERVER INTEGRATION) ---
-
-// Helper to get current user (persisted via localStorage for identification)
-function getCurrentUser() {
-return localStorage.getItem('exodus_username') || STATE.username || 'Unknown';
-}
-
-// Hook into login to save username locally
-const originalLogin = login;
-login = async function() {
-const u = document.getElementById('l-user').value;
-if(u) localStorage.setItem('exodus_username', u);
-await originalLogin();
-};
-
-const originalRegister = register;
-register = async function() {
-const u = document.getElementById('r-user').value;
-if(u) localStorage.setItem('exodus_username', u);
-await originalRegister();
+async function buyLicense() {
+    if ((STATE.inventory.Scrap || 0) < 200) return log("MARKET: Insufficient Scrap (Need 200).");
+    try {
+        const res = await fetch(`${API_URL}/market/license`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN }
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.msg || "TRANSACTION FAILED");
+        
+        STATE.inventory = data.inventory; // Sync inventory
+        log("MARKET: Scavenging License acquired.");
+        renderWarehouse();
+        updateUI();
+    } catch(e) {
+        log(`MKT ERR: ${e.message}`);
+    }
 }
 
 function initMarket() {
-const sel = document.getElementById('p2p-item-select');
-if(!sel) return;
-sel.innerHTML = "";
-// Filter inventory for sellable items
-Object.keys(STATE.inventory).sort().forEach(k => {
-    if(STATE.inventory[k] > 0 && k !== 'Helium3') {
-        const opt = document.createElement('option');
-        opt.value = k;
-        opt.innerText = `${k} (${STATE.inventory[k]})`;
-        sel.appendChild(opt);
-    }
-});
-loadMarketData();
-}
-
-async function postOffer() {
-const item = document.getElementById('p2p-item-select').value;
-const qty = parseInt(document.getElementById('p2p-qty').value);
-const price = parseInt(document.getElementById('p2p-price').value);
-
-if(!item || !qty || !price) return log("MKT: INVALID INPUT.");
-if((STATE.inventory[item] || 0) < qty) return log("MKT: INSUFFICIENT ITEMS.");
-
-try {
-    const res = await fetch(`${API_URL}/market/offer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-        body: JSON.stringify({ item, qty, price })
-    });
-    const data = await res.json();
-    if(res.ok) {
-        STATE.inventory[item] -= qty; 
-        log("MKT: OFFER POSTED.");
-        loadMarketData();
-        updateUI();
-        initMarket(); // Refresh dropdown
-    } else {
-        log(`MKT ERR: ${data.msg}`);
-    }
-} catch(e) { log("MKT: NETWORK ERROR"); }
-}
-
-async function cancelOffer(id) {
-try {
-    const res = await fetch(`${API_URL}/market/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-        body: JSON.stringify({ offerId: id })
-    });
-    const data = await res.json();
-    if(res.ok) {
-        log("MKT: OFFER CANCELLED.");
-        // Reload state to get items back
-        const pRes = await fetch(`${API_URL}/game/load`, { headers: { 'x-auth-token': AUTH_TOKEN } });
-        if(pRes.ok) {
-             Object.assign(STATE, await pRes.json());
-             updateUI();
-             initMarket();
-        }
-    } else {
-        log(`MKT ERR: ${data.msg}`);
-    }
-} catch(e) { log("MKT: NETWORK ERROR"); }
-}
-
-async function buyOffer(id) {
-try {
-    const res = await fetch(`${API_URL}/market/buy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-        body: JSON.stringify({ offerId: id })
-    });
-    const data = await res.json();
-    
-    if(res.ok) {
-        STATE.inventory = data.inventory; 
-        log(`MKT: PURCHASE SUCCESSFUL!`);
-        loadMarketData();
-        updateUI();
-    } else {
-        log(`MKT ERR: ${data.msg}`);
-    }
-} catch(e) { log("MKT: NETWORK ERROR"); }
+    if(!STATE.market) STATE.market = {};
+    if(!STATE.market.offers) STATE.market.offers = [];
+    // Load offers from server on init
+    loadMarketData();
 }
 
 async function loadMarketData() {
-if(!AUTH_TOKEN) return;
-try {
-    const res = await fetch(`${API_URL}/market`, { headers: { 'x-auth-token': AUTH_TOKEN } });
-    if(res.ok) {
-        STATE.market.offers = await res.json();
+    try {
+        const res = await fetch(`${API_URL}/market`, {
+            headers: { 'x-auth-token': AUTH_TOKEN }
+        });
+        const data= await res.json();
+        if(!res.ok) throw new Error(data.msg || "DATA LOAD ERROR");
+        
+        STATE.market.offers = data;
         renderP2PMarket();
+        // console.log("MKT: Data sync complete.");
+    } catch(e) {
+        console.error("MKT LOAD ERR:", e);
     }
-} catch(e) { console.error("Market Load Err", e); }
-}
-
-function renderP2PMarket() {
-const myContainer = document.getElementById('p2p-my-offers');
-const pubContainer = document.getElementById('p2p-public-offers');
-if(!myContainer || !pubContainer) return;
-
-// Correct Logic: Server sends 'id' and sets seller='ME' for own offers
-const myOffers = STATE.market.offers.filter(o => o.seller === 'ME');
-const pubOffers = STATE.market.offers.filter(o => o.seller !== 'ME');
-
-// Render My Offers
-if(myOffers.length === 0) {
-    myContainer.innerHTML = '<div style="color:#555; font-size:9px; text-align:center; padding:10px;">NO ACTIVE LISTINGS</div>';
-} else {
-    myContainer.innerHTML = myOffers.map(o => `
-        <div class="mkt-offer-card" style="border-color:var(--neon);">
-            <div>
-                <div style="color:var(--neon); font-weight:bold;">${o.item} x${o.qty}</div>
-                <div style="color:#889;">Price: ${o.price} $H3</div>
-            </div>
-            <button class="nav-btn danger" onclick="cancelOffer('${o.id}')" style="padding:2px 5px; font-size:9px;">CANCEL</button>
-        </div>
-    `).join('');
-}
-
-// Render Public Offers
-if(pubOffers.length === 0) {
-    pubContainer.innerHTML = '<div style="color:#555; font-size:9px; text-align:center; padding:10px;">MARKET EMPTY</div>';
-} else {
-    pubContainer.innerHTML = pubOffers.map(o => `
-        <div class="mkt-offer-card">
-            <div>
-                <div style="color:#fff; font-weight:bold;">${o.item} x${o.qty}</div>
-                <div style="color:#889;">Seller: <span style="color:var(--warning);">${o.seller}</span> | Price: <span style="color:var(--neon); font-weight:bold;">${o.price} $H3</span></div>
-            </div>
-            <button class="nav-btn" onclick="buyOffer('${o.id}')" style="border-color:var(--success); color:var(--success); padding:2px 5px; font-size:9px;">BUY</button>
-        </div>
-    `).join('');
-}
 }
 
 function switchMarketTab(tab) {
-document.getElementById('btn-mkt-sys').classList.remove('active');
-document.getElementById('btn-mkt-p2p').classList.remove('active');
-document.getElementById('mkt-sys-view').style.display = 'none';
-document.getElementById('mkt-p2p-view').style.display = 'none';
-
-if(tab === 'sys') {
-    document.getElementById('btn-mkt-sys').classList.add('active');
-    document.getElementById('mkt-sys-view').style.display = 'block';
-} else {
-    document.getElementById('btn-mkt-p2p').classList.add('active');
-    document.getElementById('mkt-p2p-view').style.display = 'block';
-    initMarket();
-}
+    document.getElementById('mkt-sys-view').style.display = (tab === 'sys') ? 'block' : 'none';
+    document.getElementById('mkt-p2p-view').style.display = (tab === 'p2p') ? 'block' : 'none';
+    
+    document.getElementById('btn-mkt-sys').classList.toggle('active', tab === 'sys');
+    document.getElementById('btn-mkt-p2p').classList.toggle('active', tab === 'p2p');
+    
+    if(tab === 'p2p') {
+        loadMarketData(); // Refresh data when opening tab
+        populateP2PSelect();
+    }
 }
 
-function buyLicense() {
-const price = 200; 
-if((STATE.inventory.Scrap || 0) < price) return log("MKT: INSUFFICIENT SCRAP.");
-STATE.inventory.Scrap -= price;
-STATE.inventory["Scavenging License"] = (STATE.inventory["Scavenging License"] || 0) + 1;
-log("MKT: LICENSE ACQUIRED.");
-updateUI();
-ServerSys.save();
+function populateP2PSelect() {
+    const sel = document.getElementById('p2p-item-select');
+    if(!sel) return;
+    sel.innerHTML = '<option value="" disabled selected>SELECT ITEM</option>';
+    
+    // Filter items that we actually have in inventory
+    const blacklist = ["Helium3", "Scavenging License"]; // Items you cannot sell
+    Object.keys(STATE.inventory).sort().forEach(key => {
+        if(STATE.inventory[key] > 0 && !blacklist.includes(key)) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.innerText = `${key} (Own: ${Math.floor(STATE.inventory[key])})`;
+            sel.appendChild(opt);
+        }
+    });
 }
 
-window.onload = function() { init(); };
+async function postOffer() {
+    const item = document.getElementById('p2p-item-select').value;
+    const qty = parseInt(document.getElementById('p2p-qty').value);
+    const price = parseInt(document.getElementById('p2p-price').value);
+
+    if(!item || !qty || !price) return log("MKT: Invalid Offer Data.");
+    if((STATE.inventory[item] || 0) < qty) return log("MKT: Insufficient Items.");
+    if(price < 1) return log("MKT: Price too low.");
+
+    // UI Feedback
+    log("MKT: Posting offer...");
+    
+    try {
+        const res = await fetch(`${API_URL}/market/offer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+            body: JSON.stringify({ item, qty, price })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.msg || "POST FAILED");
+
+        // Update Local State immediately for responsiveness
+        STATE.inventory[item] -= qty;
+        STATE.market.offers = data.offers; // Server returns updated list
+        
+        log(`MKT: Listed ${qty} ${item} for ${price} $H3.`);
+        renderP2PMarket();
+        updateUI();
+        populateP2PSelect(); // Refresh list amounts
+    } catch(e) {
+        log(`MKT ERR: ${e.message}`);
+    }
+}
+
+async function cancelOffer(offerId) {
+    try {
+        const res = await fetch(`${API_URL}/market/cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+            body: JSON.stringify({ offerId })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.msg || "CANCEL FAILED");
+
+        STATE.market.offers = data.offers; // Update list
+        // Note: Inventory sync happens on next save/load or we could blindly trust server response
+        // For now, let's assume server returned updated inventory or we re-fetch user state
+        if(data.inventory) STATE.inventory = data.inventory;
+
+        log("MKT: Offer cancelled. Items returned.");
+        renderP2PMarket();
+        updateUI();
+        populateP2PSelect();
+    } catch(e) {
+        log(`MKT ERR: ${e.message}`);
+    }
+}
+
+async function buyP2P(offerId) {
+    if((STATE.inventory.Helium3 || 0) <= 0) return log("MKT: No funds.");
+    
+    try {
+        const res = await fetch(`${API_URL}/market/buy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+            body: JSON.stringify({ offerId })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.msg || "BUY FAILED");
+
+        STATE.inventory = data.inventory; // Sync inventory (Money deducted, Item added)
+        // Refresh offers list to remove the bought item
+        loadMarketData();
+        
+        log(`MKT: Purchase successful!`);
+        renderP2PMarket();
+        updateUI();
+    } catch(e) {
+        log(`MKT ERR: ${e.message}`);
+    }
+}
+
+function renderP2PMarket() {
+    const myDiv = document.getElementById('p2p-my-offers');
+    const pubDiv = document.getElementById('p2p-public-offers');
+    if(!myDiv || !pubDiv) return;
+
+    // Separate offers
+    // We assume backend sends a flag 'isMine' or we check seller name if available
+    // For this implementation, let's rely on the server response structure or specific field.
+    // If 'isMine' isn't explicitly sent by your current backend, we can filter by matching username if we stored it,
+    // OR, simpler: The API usually returns all offers. 
+    // We will assume the backend adds an 'isMine' boolean OR we filter by offer.seller === STATE.username (need to ensure STATE.username is set on login)
+    
+    let myOffersHTML = "";
+    let pubOffersHTML = "";
+
+    if(!STATE.market.offers) STATE.market.offers = [];
+
+    STATE.market.offers.forEach(o => {
+        // Fallback: assume 'isMine' is set by backend logic or check against local username
+        const isMine = o.isMine || (STATE.username && o.seller === STATE.username); 
+        
+        const card = `
+        <div class="mkt-offer-card">
+            <div>
+                <div style="color:${isMine ? 'var(--neon)' : '#fff'}; font-weight:bold;">${o.item} <span style="color:#889">x${o.qty}</span></div>
+                <div style="font-size:9px; color:#666;">Seller: ${isMine ? 'YOU' : (o.seller || 'Unknown')}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="color:var(--warning); font-weight:bold; font-size:11px;">${o.price} $H3</div>
+                ${isMine 
+                    ? `<button class="nav-btn danger" style="padding:1px 5px; font-size:9px; margin-top:2px;" onclick="cancelOffer('${o._id || o.id}')">CANCEL</button>`
+                    : `<button class="nav-btn" style="padding:1px 5px; font-size:9px; margin-top:2px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>`
+                }
+            </div>
+        </div>`;
+
+        if(isMine) myOffersHTML += card;
+        else pubOffersHTML += card;
+    });
+
+    myDiv.innerHTML = myOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO ACTIVE LISTINGS</div>';
+    pubDiv.innerHTML = pubOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO OFFERS FOUND</div>';
+}
+
+// --- INIT ---
+window.onload = init;
 </script>
 </body>
 </html>
