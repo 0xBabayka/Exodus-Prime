@@ -6,7 +6,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const ipKeyGenerator = rateLimit.ipKeyGenerator || ((req) => req.headers['x-forwarded-for'] || req.socket.remoteAddress); // ДОБАВЛЕНО ДЛЯ ФИКСА
 
 const app = express();
 
@@ -217,7 +216,6 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
-
 const User = mongoose.model('User', UserSchema);
 
 // 3. Action Log Model
@@ -229,7 +227,6 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
-
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // 4. Market Offer Model
@@ -243,7 +240,6 @@ const MarketOfferSchema = new mongoose.Schema({
     currency: { type: String, default: 'HELIUM3' },
     postedAt: { type: Date, default: Date.now }
 });
-
 const MarketOffer = mongoose.model('MarketOffer', MarketOfferSchema);
 
 // --- HELPER: FIRE AND FORGET LOGGING ---
@@ -274,7 +270,6 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
 });
-
 app.use(globalLimiter);
 
 // 2. Auth Limit
@@ -284,9 +279,9 @@ const authLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     validate: { trustProxy: false },
-    keyGenerator: (req, res) => { // ИСПРАВЛЕНО
+    keyGenerator: (req) => {
         // Теперь это безопасно, т.к. express.json() уже отработал
-        return (req.body && req.body.username) ? req.body.username : ipKeyGenerator(req, res); // ИСПРАВЛЕНО
+        return (req.body && req.body.username) ? req.body.username : req.ip;
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
 });
@@ -299,17 +294,17 @@ const marketLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     validate: { trustProxy: false },
-    keyGenerator: (req, res) => { // ИСПРАВЛЕНО
+    keyGenerator: (req) => {
         const token = req.header('x-auth-token');
         if (token) {
             try {
                 const decoded = jwt.verify(token, JWT_SECRET);
                 return decoded.user.id; 
             } catch (e) {
-                return ipKeyGenerator(req, res); // ИСПРАВЛЕНО
+                return req.ip; 
             }
         }
-        return ipKeyGenerator(req, res); // ИСПРАВЛЕНО
+        return req.ip;
     },
     message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
@@ -1159,6 +1154,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         buyer.markModified('gameState');
         await buyer.save();
+
         // Add Money to Seller ATOMICALLY
         const seller = await User.findById(securedOffer.sellerId);
         if (seller) {
