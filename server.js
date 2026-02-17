@@ -8,14 +8,11 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
 // Позволяет правильно определять IP, даже если он скрыт за балансировщиком
-app.set('trust proxy', 1); 
-
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me';
-
 // --- SECURITY MIDDLEWARE (HELMET) ---
 app.use(helmet({
     contentSecurityPolicy: {
@@ -27,7 +24,6 @@ app.use(helmet({
         },
     },
 }));
-
 // --- DATABASE MODELS ---
 
 // 1. User Model
@@ -80,7 +76,6 @@ const logAction = async (action, userId, username, req, details = {}) => {
         console.error('Logging Error (Background):', err.message);
     }
 };
-
 // --- RATE LIMITING (ЗАЩИТА ОТ ОБЩЕГО IP / VPN) ---
 
 // 1. Глобальный лимит (DDoS защита)
@@ -148,7 +143,6 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 })
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
-
 // --- AUTH MIDDLEWARE ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
@@ -161,7 +155,6 @@ const auth = (req, res, next) => {
         res.status(401).json({ msg: 'Token is not valid' });
     }
 };
-
 // --- ROUTES ---
 
 // 1. Register
@@ -220,7 +213,6 @@ app.post('/api/auth/register', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
-
 // 2. Login
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -249,7 +241,6 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
-
 // 3. Load Game (Protected)
 app.get('/api/game/load', auth, async (req, res) => {
     try {
@@ -268,8 +259,7 @@ app.get('/api/game/load', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
-
-// 4. Save Game (Protected) with Anti-Cheat
+// 4. Save Game (Protected) with Anti-Cheat & CRAFTING VALIDATION
 app.post('/api/game/save', auth, async (req, res) => {
     try {
         const { gameState, clientTime } = req.body;
@@ -395,6 +385,8 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // 5. Scavenging & Resources Check
         let dScrap = 0;
+        let maxActionsPossible = 10; // Init default
+
         if (oldState.inventory && newState.inventory) {
             const dRegolith = (newState.inventory.Regolith || 0) - (oldState.inventory.Regolith || 0);
             const dIce = (newState.inventory["Ice water"] || 0) - (oldState.inventory["Ice water"] || 0);
@@ -405,7 +397,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_ICE_PER_SCAV = 3;
             const MAX_SCRAP_PER_SCAV = 10;
 
-            const maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
+            maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
 
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
@@ -421,7 +413,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                  });
+                   });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -429,7 +421,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -600,7 +592,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Roasted Guarana", maxPerSlot: 20, slots: 2, buffer: 5 },
                 { key: "Ground Guarana", maxPerSlot: 13, slots: 2, buffer: 5 },
                 { key: "Energy Isotonic", maxPerSlot: 5, slots: 2, buffer: 3 }
-            ];
+             ];
             for (const item of kitchenItems) {
                 const oldQ = oldState.inventory[item.key] || 0;
                 const newQ = newState.inventory[item.key] || 0;
@@ -695,6 +687,60 @@ app.post('/api/game/save', auth, async (req, res) => {
                     }
                 }
             }
+
+            // =========================================================
+            // 15. CRAFTING COST VALIDATION (Input/Output Ratios)
+            // =========================================================
+            // This logic ensures that if you gained a product (e.g. Steel),
+            // you actually spent the required raw materials (e.g. Iron Ore).
+            
+            const CRAFT_COST_RULES = [
+                // { out: Output Item, in: Required Input, ratio: Min Input per 1 Output }
+                // Ratios are set generously to account for lucky bonuses/critical crafts.
+                { out: "Steel", in: "Iron Ore", ratio: 1.0 }, // Client avg: ~2.8 ore/steel. Safe: 1.0
+                { out: "Aluminium Plate", in: "Aluminium Ore", ratio: 0.8 }, // Client avg: ~1.4. Safe: 0.8
+                { out: "Titanium Plate", in: "Titanium Ore", ratio: 0.8 }, 
+                { out: "Rocket Fuel", in: "Liquid CH4", ratio: 0.4 }, // Client: 20->40 (0.5). Safe: 0.4
+                { out: "Rocket Fuel", in: "Liquid O2", ratio: 0.4 },
+                { out: "PVC Pipe", in: "PVC", ratio: 0.3 }, 
+                { out: "Structural Part", in: "Steel", ratio: 2.0 }, // Client: 10->2 (5.0). Safe: 2.0
+                { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, // 5->2-3. Safe: 1.0
+                { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } // 3->2-3. Safe: 0.5
+            ];
+
+            for (const rule of CRAFT_COST_RULES) {
+                const oldOutQty = oldState.inventory[rule.out] || 0;
+                const newOutQty = newState.inventory[rule.out] || 0;
+                const dOut = newOutQty - oldOutQty;
+
+                // Only validate if there is a significant gain (ignoring small drops/trades)
+                if (dOut > 5) {
+                    const minInputRequired = dOut * rule.ratio;
+                    
+                    // We need to check if inventory dropped by at least minInputRequired.
+                    // However, user might have mined raw materials simultaneously.
+                    // Equation: NewInput <= OldInput + MaxMiningGain - RequiredConsumption
+                    
+                    // Calculate a generous buffer for concurrent mining of the input resource
+                    // (Mining Rate * Time) + Ship Cargo Buffer
+                    const miningBuffer = (maxActionsPossible * 15) + 200; 
+
+                    const maxTheoreticalInput = (oldState.inventory[rule.in] || 0) + miningBuffer - minInputRequired;
+                    const actualNewInput = newState.inventory[rule.in] || 0;
+
+                    if (actualNewInput > maxTheoreticalInput) {
+                         logAction(`CHEAT_CRAFT_COST_${rule.out.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
+                            outputGained: dOut,
+                            inputResource: rule.in,
+                            actualNewInput: actualNewInput,
+                            maxTheoreticalInput: maxTheoreticalInput,
+                            requiredSpend: minInputRequired,
+                            miningBuffer: miningBuffer
+                         });
+                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                    }
+                }
+            }
         }
 
         // --- SUCCESSFUL SAVE ---
@@ -734,7 +780,6 @@ app.get('/api/market', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
-
 // 6. Buy Scavenging License
 app.post('/api/market/license', auth, async (req, res) => {
     try {
@@ -763,7 +808,6 @@ app.post('/api/market/license', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
-
 // 7. Post an Offer
 app.post('/api/market/offer', auth, async (req, res) => {
     try {
@@ -790,7 +834,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save();
-
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -802,7 +845,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save();
 
         logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
-
         // Return updated list to ensure UI is in sync immediately
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -819,7 +861,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
-
 // 8. Cancel an Offer (UPDATED WITH FIX AND PROTECTION)
 app.post('/api/market/cancel', auth, async (req, res) => {
     try {
@@ -857,9 +898,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-
         // Return offers in response
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
@@ -867,7 +906,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
-
 // 9. Buy an Offer (FIXED RACE CONDITION)
 app.post('/api/market/buy', auth, async (req, res) => {
     try {
@@ -898,7 +936,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         if (!securedOffer) {
              // Race condition caught: Another request bought it milliseconds ago.
-             return res.status(404).json({msg: "Offer was just sold to another player"});
+            return res.status(404).json({msg: "Offer was just sold to another player"});
         }
 
         // 5. Execute Transfer (Now that we definitely own the offer)
@@ -908,21 +946,18 @@ app.post('/api/market/buy', auth, async (req, res) => {
         buyer.gameState.inventory[securedOffer.item] = (buyer.gameState.inventory[securedOffer.item] || 0) + securedOffer.qty;
         buyer.markModified('gameState');
         await buyer.save();
-
         // Add Money to Seller ATOMICALLY
         // Using $inc ensures we don't overwrite seller's state if they are active
         await User.updateOne(
             { _id: securedOffer.sellerId },
             { $inc: { "gameState.inventory.Helium3": securedOffer.price } }
         );
-
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
             qty: securedOffer.qty, 
             price: securedOffer.price, 
             sellerId: securedOffer.sellerId 
         });
-
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
     } catch (err) {
