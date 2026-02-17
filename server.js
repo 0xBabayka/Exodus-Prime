@@ -10,7 +10,6 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
-// Позволяет правильно определять IP, даже если он скрыт за балансировщиком
 app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 5000;
@@ -29,7 +28,6 @@ app.use(helmet({
 }));
 
 // --- HONEYPOT CONFIGURATION (ЛОВУШКА) ---
-// Поля, которые никогда не отправляются честным клиентом, но привлекательны для хакеров
 const HONEYPOT_KEYS = [
     'admin', 'isAdmin', 'is_admin', 
     'god_mode', 'godMode', 
@@ -53,7 +51,8 @@ const BatterySchema = new mongoose.Schema({
 
 // Generic Machine Slot (Refinery, Factory, etc.)
 const SlotSchema = new mongoose.Schema({
-    id: { type: Number, required: true },
+    // ИСПРАВЛЕНИЕ: removed 'required: true', added 'default: 0' to prevent validation errors for single slots like fermenter
+    id: { type: Number, default: 0 }, 
     active: { type: Boolean, default: false },
     startTime: { type: Number, default: 0 },
     duration: { type: Number, default: 0 },
@@ -84,11 +83,10 @@ const ShipSchema = new mongoose.Schema({
     cargoItem: { type: String, default: null },
     cargoAmount: { type: Number, default: 0 },
     mineStart: { type: Number, default: 0 },
-    spec: { type: Object } // Store ship spec snapshot if needed, or rely on client consts
+    spec: { type: Object } 
 }, { _id: false });
 
 // Celestial Body (Map Object)
-// Keeping this relatively loose as map generation is complex, but ensuring basic types
 const BodySchema = new mongoose.Schema({
     id: Number,
     name: String,
@@ -104,14 +102,14 @@ const BodySchema = new mongoose.Schema({
 
 // MAIN GAME STATE SCHEMA
 const GameStateSchema = new mongoose.Schema({
-    // Camera & UI State (Non-critical but saved)
+    // Camera & UI State
     camera: { 
         x: { type: Number, default: 0 }, 
         y: { type: Number, default: 0 } 
     },
     zoom: { type: Number, default: 0.8 },
     
-    // Inventory: Using Map to handle dynamic item names ("Seeds: Potato", etc.) strictly as numbers
+    // Inventory: Using Map to handle dynamic item names
     inventory: {
         type: Map,
         of: Number,
@@ -168,7 +166,7 @@ const GameStateSchema = new mongoose.Schema({
         waterSlots: [SlotSchema],
         sabatierSlots: [SlotSchema],
         smelterSlots: [SlotSchema],
-        fermenterSlot: { type: SlotSchema, default: () => ({}) }
+        fermenterSlot: { type: SlotSchema, default: () => ({ id: 0, active: false }) }
     },
     fuelFactory: { slots: [SlotSchema] },
     chemlab: { slots: [SlotSchema] },
@@ -192,7 +190,7 @@ const GameStateSchema = new mongoose.Schema({
         totalDuration: { type: Number }
     }],
     
-    // Components (Old system artifact, keeping for compatibility)
+    // Components
     components: { type: Map, of: Number, default: {} },
     
     // Client-side environment tracking
@@ -205,19 +203,18 @@ const GameStateSchema = new mongoose.Schema({
         offers: { type: Array, default: [] } 
     }
 }, { _id: false, strict: true });
-// strict: true removes any fields sent by hackers that aren't defined here
 
-// 2. User Model (Updated with Schema)
+// 2. User Model
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    gameState: { type: GameStateSchema, default: () => ({}) }, // Use the strict schema
+    gameState: { type: GameStateSchema, default: () => ({}) },
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema);
 
-// 3. Action Log Model (Logging)
+// 3. Action Log Model
 const ActionLogSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
     username: { type: String },
@@ -259,9 +256,9 @@ const logAction = async (action, userId, username, req, details = {}) => {
     }
 };
 
-// --- RATE LIMITING (ЗАЩИТА ОТ ОБЩЕГО IP / VPN) ---
+// --- RATE LIMITING ---
 
-// 1. Глобальный лимит (DDoS защита)
+// 1. Global Limit
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 2000, 
@@ -271,7 +268,7 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// 2. Лимит на Авторизацию (УМНАЯ ЗАЩИТА)
+// 2. Auth Limit
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 20, 
@@ -285,7 +282,7 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth', authLimiter);
 
-// 3. Лимит на Маркет (ЗАЩИТА ПО ТОКЕНУ)
+// 3. Market Limit
 const marketLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, 
     max: 150, 
@@ -340,11 +337,9 @@ const auth = (req, res, next) => {
 app.post('/api/auth/register', async (req, res) => {
     const { username, password, registration_token_public } = req.body;
 
-    // --- HONEYPOT CHECK (BOT REGISTRATION) ---
-    // Если бот заполнил скрытое поле 'registration_token_public', блокируем его
+    // --- HONEYPOT CHECK ---
     if (registration_token_public) {
         logAction('BOT_REGISTRATION_HONEYPOT', null, username, req, { token: registration_token_public });
-        // Возвращаем фейковый успех, чтобы бот не пытался снова
         return res.status(200).json({ msg: 'Registration queued for review.' });
     }
 
@@ -360,7 +355,6 @@ app.post('/api/auth/register', async (req, res) => {
         user.password = await bcrypt.hash(password, salt);
         
         // Initialize basic game state structure
-        // Validating structure via the new GameStateSchema logic
         user.gameState = {
             inventory: { 
                 Helium3: 0, 
@@ -388,13 +382,12 @@ app.post('/api/auth/register', async (req, res) => {
                     { id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
                 ]
             },
-            // Ensuring arrays are initialized to avoid schema errors on save
             cad: { slots: [{id:0},{id:1}] },
             refinery: { 
                 waterSlots: [{id:0},{id:1}], 
                 sabatierSlots: [{id:0},{id:1}], 
                 smelterSlots: [{id:0},{id:1}],
-                fermenterSlot: {active: false}
+                fermenterSlot: { id: 0, active: false } // Explicitly set ID 0
             },
             greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty' })) },
             composter: { slots: [{id:0},{id:1},{id:2}] },
@@ -459,7 +452,7 @@ app.get('/api/game/load', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
         
-        // Ensure Helium3 exists in older saves (converted to Map access)
+        // Ensure Helium3 exists in older saves
         if(!user.gameState.inventory) user.gameState.inventory = new Map();
         if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
 
@@ -478,13 +471,11 @@ app.post('/api/game/save', auth, async (req, res) => {
     try {
         const { gameState, clientTime } = req.body;
 
-        // --- HONEYPOT CHECK (PAYLOAD INSPECTION) ---
-        // Проверяем наличие запрещенных полей в корне gameState
+        // --- HONEYPOT CHECK ---
         if (gameState) {
             for (const trapKey of HONEYPOT_KEYS) {
                 if (gameState.hasOwnProperty(trapKey) || (gameState.inventory && gameState.inventory[trapKey])) {
                     await logAction('CHEAT_HONEYPOT_TRIGGER', req.user.id, 'UNKNOWN', req, { trap: trapKey });
-                    // Возвращаем ошибку, похожую на обычную валидацию, чтобы не раскрывать механизм ловушки слишком явно
                     return res.status(403).json({ msg: 'Security integrity violation detected.' });
                 }
             }
@@ -500,11 +491,8 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         const oldState = user.gameState || {}; 
         let timeSinceLastSave = 0;
-
-        // --- ВАЖНО: ЗАЩИТА СЕРВЕРНЫХ ДАННЫХ ---
-        // Accessing Mongoose Map: use .get() for oldState if it's a Map, or standard access if plain obj
-        // Since we updated Schema, oldState.inventory is a Map. newState comes from JSON, so it's a plain obj.
         
+        // Accessing Mongoose Map: use .get() for oldState if it's a Map
         let dbHelium3 = 0;
         if (oldState.inventory instanceof Map) {
             dbHelium3 = oldState.inventory.get('Helium3') || 0;
@@ -596,7 +584,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                     let hasConsumedFood = false;
 
                     for (const item of foodItems) {
-                        // Helper to get inventory val whether it's Map or Obj
                         const oldQty = (oldState.inventory instanceof Map) ? (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
@@ -619,12 +606,10 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // 5. Scavenging & Resources Check
-        // Helper function for getting old inventory values cleanly
         const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         
         let dScrap = 0;
         let maxActionsPossible = 10;
-        // Init default
 
         if (oldState.inventory && newState.inventory) {
             const dRegolith = (newState.inventory.Regolith || 0) - getOldInv("Regolith");
@@ -636,6 +621,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -823,7 +809,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 }
             }
 
-            // 11.5. Kitchen Chain Check (Roasting, Grinding, Brewing)
+            // 11.5. Kitchen Chain Check
             const kitchenItems = [
                 { key: "Roasted Guarana", maxPerSlot: 20, slots: 2, buffer: 5 },
                 { key: "Ground Guarana", maxPerSlot: 13, slots: 2, buffer: 5 },
@@ -874,7 +860,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 }
             }
             
-            // 13. Factory Check (Metalworks, Machine Parts, Printer)
+            // 13. Factory Check
             const factoryItems = [
                 { key: "Aluminium Plate", maxPerSlot: 10, slots: 3, buffer: 5 },
                 { key: "Titanium Plate", maxPerSlot: 10, slots: 3, buffer: 5 },
@@ -924,37 +910,24 @@ app.post('/api/game/save', auth, async (req, res) => {
                 }
             }
 
-            // =========================================================
-            // 15. CRAFTING COST VALIDATION (Input/Output Ratios)
-            // =========================================================
-            // This logic ensures that if you gained a product (e.g. Steel),
-            // you actually spent the required raw materials (e.g. Iron Ore).
+            // 15. CRAFTING COST VALIDATION
             const CRAFT_COST_RULES = [
-                // { out: Output Item, in: Required Input, ratio: Min Input per 1 Output }
-                // Ratios are set generously to account for lucky bonuses/critical crafts.
-                { out: "Steel", in: "Iron Ore", ratio: 1.0 }, // Client avg: ~2.8 ore/steel. Safe: 1.0
-                { out: "Aluminium Plate", in: "Aluminium Ore", ratio: 0.8 }, // Client avg: ~1.4. Safe: 0.8
+                { out: "Steel", in: "Iron Ore", ratio: 1.0 }, 
+                { out: "Aluminium Plate", in: "Aluminium Ore", ratio: 0.8 }, 
                 { out: "Titanium Plate", in: "Titanium Ore", ratio: 0.8 }, 
-                { out: "Rocket Fuel", in: "Liquid CH4", ratio: 0.4 }, // Client: 20->40 (0.5). Safe: 0.4
+                { out: "Rocket Fuel", in: "Liquid CH4", ratio: 0.4 }, 
                 { out: "Rocket Fuel", in: "Liquid O2", ratio: 0.4 },
                 { out: "PVC Pipe", in: "PVC", ratio: 0.3 }, 
-                { out: "Structural Part", in: "Steel", ratio: 2.0 }, // Client: 10->2 (5.0). Safe: 2.0
-                { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, // 5->2-3. Safe: 1.0
-                { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } // 3->2-3. Safe: 0.5
+                { out: "Structural Part", in: "Steel", ratio: 2.0 }, 
+                { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, 
+                { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } 
             ];
             for (const rule of CRAFT_COST_RULES) {
                 const oldOutQty = getOldInv(rule.out);
                 const newOutQty = newState.inventory[rule.out] || 0;
                 const dOut = newOutQty - oldOutQty;
-                // Only validate if there is a significant gain (ignoring small drops/trades)
                 if (dOut > 5) {
                     const minInputRequired = dOut * rule.ratio;
-                    // We need to check if inventory dropped by at least minInputRequired.
-                    // However, user might have mined raw materials simultaneously.
-                    // Equation: NewInput <= OldInput + MaxMiningGain - RequiredConsumption
-                    
-                    // Calculate a generous buffer for concurrent mining of the input resource
-                    // (Mining Rate * Time) + Ship Cargo Buffer
                     const miningBuffer = (maxActionsPossible * 15) + 200;
                     const maxTheoreticalInput = getOldInv(rule.in) + miningBuffer - minInputRequired;
                     const actualNewInput = newState.inventory[rule.in] || 0;
@@ -995,7 +968,6 @@ app.post('/api/game/save', auth, async (req, res) => {
 app.get('/api/market', auth, async (req, res) => {
     try {
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
-        // Map to format expected by client
         const mappedOffers = offers.map(o => ({
             id: o._id,
             seller: (o.sellerId.toString() === req.user.id) ? 'ME' : o.sellerName,
@@ -1024,7 +996,6 @@ app.post('/api/market/license', auth, async (req, res) => {
             return res.status(400).json({msg: "Insufficient Scrap"});
         }
 
-        // Execute Transaction
         user.gameState.inventory.set('Scrap', currentScrap - COST);
         const currentLic = user.gameState.inventory.get("Scavenging License") || 0;
         user.gameState.inventory.set("Scavenging License", currentLic + 1);
@@ -1035,7 +1006,8 @@ app.post('/api/market/license', auth, async (req, res) => {
         logAction('MARKET_BUY_LICENSE', user.id, user.username, req);
         res.json({ msg: "License Acquired", inventory: user.gameState.inventory });
 
-    } catch (err) {
+    } 
+    catch (err) {
         console.error(err);
         res.status(500).send("Server Error");
     }
@@ -1046,7 +1018,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
     try {
         const { item, qty, price } = req.body;
         
-        // Strict Validation to prevent decimal cheating or negatives
+        // Strict Validation
         if(!item || !Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price <= 0) {
             return res.status(400).json({msg: "Invalid offer data"});
         }
@@ -1056,7 +1028,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         const user = await User.findById(req.user.id);
         if(!user) return res.status(404).json({msg: "User not found"});
 
-        // Check Inventory (Map access)
+        // Check Inventory
         const currentQty = user.gameState.inventory.get(item) || 0;
         if(currentQty < qty) {
             return res.status(400).json({msg: "Insufficient items in inventory"});
@@ -1080,7 +1052,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save();
 
         logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
-        // Return updated list to ensure UI is in sync immediately
+        
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1097,12 +1069,11 @@ app.post('/api/market/offer', auth, async (req, res) => {
     }
 });
 
-// 8. Cancel an Offer (UPDATED WITH FIX AND PROTECTION)
+// 8. Cancel an Offer
 app.post('/api/market/cancel', auth, async (req, res) => {
     try {
         const { offerId } = req.body;
 
-        // PROTECTION: Check if ID is valid to prevent crashes
         if (!mongoose.Types.ObjectId.isValid(offerId)) {
             return res.status(400).json({msg: "Invalid Offer ID"});
         }
@@ -1111,12 +1082,12 @@ app.post('/api/market/cancel', auth, async (req, res) => {
 
         if(!offer) return res.status(404).json({msg: "Offer not found"});
         
-        // PROTECTION: Strict Ownership Check
+        // Ownership Check
         if(offer.sellerId.toString() !== req.user.id) return res.status(403).json({msg: "Not authorized"});
 
         const user = await User.findById(req.user.id);
         
-        // Return Items (Map set)
+        // Return Items
         const current = user.gameState.inventory.get(offer.item) || 0;
         user.gameState.inventory.set(offer.item, current + offer.qty);
         
@@ -1125,7 +1096,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
 
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId });
-        // FIX: Fetch and return updated offers list so UI refreshes correctly
+
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1136,7 +1107,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             currency: o.currency
         }));
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-        // Return offers in response
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
         console.error(err);
@@ -1150,42 +1120,35 @@ app.post('/api/market/buy', auth, async (req, res) => {
         const { offerId } = req.body;
         const buyerId = req.user.id;
 
-        // 1. Load Buyer First (Check existence)
+        // 1. Load Buyer First
         const buyer = await User.findById(buyerId);
         if(!buyer) return res.status(500).json({msg: "User data error"});
 
-        // 2. Pre-check Offer (Read-only check)
-        // We peek to see if it exists and to validate price BEFORE we try to delete it.
+        // 2. Pre-check Offer
         const peekOffer = await MarketOffer.findById(offerId);
         if(!peekOffer) return res.status(404).json({msg: "Offer no longer exists"});
         
-        // [CHECK] Нельзя покупать свой лот
         if(peekOffer.sellerId.toString() === buyerId) return res.status(400).json({msg: "Cannot buy your own offer"});
 
-        // [UPDATED] Проверка IP (Запрет торговли между аккаунтами на одном IP)
         if (peekOffer.sellerIp === req.ip) {
             logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: peekOffer.sellerIp, buyerIp: req.ip });
             return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
         }
 
-        // 3. Check Funds (Memory Check - Map access)
+        // 3. Check Funds
         const buyerH3 = buyer.gameState.inventory.get('Helium3') || 0;
         if(buyerH3 < peekOffer.price) {
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
-        // 4. ATOMIC CLAIM (The Fix)
-        // We attempt to find AND delete the offer in one atomic database operation.
-        // If two requests hit this simultaneously, only ONE will get the document back.
-        // The other will get null.
+        // 4. ATOMIC CLAIM
         const securedOffer = await MarketOffer.findOneAndDelete({ _id: offerId });
 
         if (!securedOffer) {
-             // Race condition caught: Another request bought it milliseconds ago.
              return res.status(404).json({msg: "Offer was just sold to another player"});
         }
 
-        // 5. Execute Transfer (Now that we definitely own the offer)
+        // 5. Execute Transfer
         
         // Deduct Money & Add Item to Buyer
         buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
@@ -1194,16 +1157,10 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         buyer.markModified('gameState');
         await buyer.save();
+
         // Add Money to Seller ATOMICALLY
-        // Note: Since we are using Map for inventory in schema, simple dot notation update might fail in $inc 
-        // if Mongoose doesn't map it automatically.
-        // However, for deep nested maps, direct find/save is safer 
-        // OR we trust user is active.
-        // For absolute safety on offline sellers:
-        
         const seller = await User.findById(securedOffer.sellerId);
         if (seller) {
-            // Re-instantiate Map if needed (safety check)
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
             const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
             seller.gameState.inventory.set('Helium3', currentSellerH3 + securedOffer.price);
