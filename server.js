@@ -9,9 +9,8 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 
-// --- ИСПРАВЛЕНИЕ ОШИБКИ ERR_ERL_UNEXPECTED_X_FORWARDED_FOR ---
-// Render использует балансировщик нагрузки/прокси.
-// Эта настройка позволяет Express и Rate-Limit правильно определять IP клиента.
+// --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
+// Позволяет правильно определять IP, даже если он скрыт за балансировщиком
 app.set('trust proxy', 1); 
 
 const PORT = process.env.PORT || 5000;
@@ -52,7 +51,7 @@ const ActionLogSchema = new mongoose.Schema({
 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
-// 3. Market Offer Model (NEW: Galactic Market)
+// 3. Market Offer Model
 const MarketOfferSchema = new mongoose.Schema({
     sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     sellerName: { type: String, required: true },
@@ -82,36 +81,58 @@ const logAction = async (action, userId, username, req, details = {}) => {
     }
 };
 
-// --- RATE LIMITING (ИСПРАВЛЕНО: Увеличены лимиты для предотвращения разрывов) ---
+// --- RATE LIMITING (ЗАЩИТА ОТ ОБЩЕГО IP / VPN) ---
 
-// Глобальный лимит: 1000 запросов за 15 минут.
-// (Клиент сохраняется каждые 3 сек = 300 запросов/15 мин. 1000 хватит с запасом).
+// 1. Глобальный лимит (DDoS защита)
+// Оставляем по IP, но делаем лимит широким, чтобы не блокировать общежития/VPN сразу.
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 1000, 
+    max: 2000, // Увеличили до 2000, чтобы выдержать 50 игроков с одного IP
     standardHeaders: true,
     legacyHeaders: false,
-    message: { msg: 'Too many requests from this IP, please try again later' }
+    message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
 });
 app.use(globalLimiter);
 
-// Лимит на авторизацию (защита от брутфорса)
+// 2. Лимит на Авторизацию (УМНАЯ ЗАЩИТА)
+// Вместо блокировки по IP, блокируем по USERNAME.
+// Это позволяет 50 людям с одного IP входить в разные аккаунты,
+// но не дает одному хакеру перебирать пароль к одному аккаунту.
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 50, 
+    max: 20, // 20 попыток входа на ОДИН аккаунт за 15 минут
     standardHeaders: true,
     legacyHeaders: false,
-    message: { msg: 'Too many login attempts, please try again later' }
+    keyGenerator: (req) => {
+        // Если передан username, лимитируем по нему. Иначе по IP.
+        return req.body.username || req.ip;
+    },
+    message: { msg: 'Too many login attempts for this account, please try again later' }
 });
 app.use('/api/auth', authLimiter);
 
-// Лимит на маркет: 100 операций за 1 минуту
+// 3. Лимит на Маркет (ЗАЩИТА ПО ТОКЕНУ)
+// Идентифицируем пользователя по его JWT токену (User ID), а не по IP.
+// VPN больше не помеха.
 const marketLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, 
-    max: 100, 
+    max: 150, // 150 операций в минуту на одного игрока
     standardHeaders: true,
     legacyHeaders: false,
-    message: { msg: 'Market transaction limit reached. Slow down.' }
+    keyGenerator: (req) => {
+        const token = req.header('x-auth-token');
+        if (token) {
+            try {
+                // Пытаемся достать ID юзера из токена для лимита
+                const decoded = jwt.verify(token, JWT_SECRET);
+                return decoded.user.id; 
+            } catch (e) {
+                return req.ip; // Если токен битый, фоллбэк на IP
+            }
+        }
+        return req.ip;
+    },
+    message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
 app.use('/api/market', marketLimiter);
 
@@ -120,9 +141,9 @@ app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
 
-// MongoDB Connection (ИСПРАВЛЕНО: Добавлен maxPoolSize для стабильности)
+// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
-    maxPoolSize: 10, // Ограничиваем пул соединений, чтобы не перегружать базу
+    maxPoolSize: 10,
     serverSelectionTimeoutMS: 5000
 })
     .then(() => console.log('MongoDB Connected'))
@@ -386,6 +407,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             const maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -399,7 +421,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                 });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -407,7 +429,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                 });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -465,7 +487,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                          });
+                        });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -768,7 +790,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save();
-        
+
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -780,7 +802,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save();
 
         logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
-        
+
         // Return updated list to ensure UI is in sync immediately
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -835,9 +857,9 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-
-        logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         
+        logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
+
         // Return offers in response
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
@@ -886,7 +908,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
         buyer.gameState.inventory[securedOffer.item] = (buyer.gameState.inventory[securedOffer.item] || 0) + securedOffer.qty;
         buyer.markModified('gameState');
         await buyer.save();
-        
+
         // Add Money to Seller ATOMICALLY
         // Using $inc ensures we don't overwrite seller's state if they are active
         await User.updateOne(
