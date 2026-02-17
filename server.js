@@ -7,6 +7,14 @@ const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
+// --- НОВЫЕ МОДУЛИ ЗАЩИТЫ ---
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
+
+const ipKeyGenerator = rateLimit.ipKeyGenerator ||
+    ((req) => req.headers['x-forwarded-for'] || req.socket.remoteAddress);
+
 const app = express();
 
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
@@ -14,7 +22,13 @@ app.set('trust proxy', 1);
 
 // --- ВАЖНОЕ ИСПРАВЛЕНИЕ: ПАРСЕРЫ ДОЛЖНЫ БЫТЬ В НАЧАЛЕ ---
 // Они должны идти ДО rateLimit, чтобы req.body был доступен для проверки username
-app.use(express.json({ limit: '500kb' }));
+app.use(express.json({ limit: '50kb' })); // Уменьшил лимит для защиты от DoS
+
+// --- УСИЛЕННАЯ ЗАЩИТА (НОВОЕ) ---
+app.use(mongoSanitize()); // Защита от NoSQL инъекций
+app.use(xss()); // Защита от XSS (Cross-Site Scripting)
+app.use(hpp()); // Защита от загрязнения параметров (HTTP Parameter Pollution)
+
 app.use(cors());
 
 const PORT = process.env.PORT || 5000;
@@ -34,17 +48,15 @@ app.use(helmet({
 
 // --- HONEYPOT CONFIGURATION (ЛОВУШКА) ---
 const HONEYPOT_KEYS = [
-    'admin', 'isAdmin', 'is_admin', 
-    'god_mode', 'godMode', 
+    'admin', 'isAdmin', 'is_admin',
+    'god_mode', 'godMode',
     'cheats', 'cheat_enabled',
     'bypass', 'bypass_validation',
     'dev_tools', 'debug_mode',
     'unlimited_resources'
 ];
 
-// --- DATABASE MODELS & SCHEMAS (VALIDATION ADDED) ---
-
-// 1. Sub-Schemas for Game State Validation
+// --- DATABASE MODELS & SCHEMAS ---
 
 // Battery Structure
 const BatterySchema = new mongoose.Schema({
@@ -56,13 +68,13 @@ const BatterySchema = new mongoose.Schema({
 
 // Generic Machine Slot (Refinery, Factory, etc.)
 const SlotSchema = new mongoose.Schema({
-    id: { type: Number, default: 0 }, 
+    id: { type: Number, default: 0 },
     active: { type: Boolean, default: false },
     startTime: { type: Number, default: 0 },
     duration: { type: Number, default: 0 },
     mode: { type: String, default: null },
     // Greenhouse specific fields
-    status: { type: String }, 
+    status: { type: String },
     crop: { type: String, default: null }
 }, { _id: false });
 
@@ -87,7 +99,7 @@ const ShipSchema = new mongoose.Schema({
     cargoItem: { type: String, default: null },
     cargoAmount: { type: Number, default: 0 },
     mineStart: { type: Number, default: 0 },
-    spec: { type: Object } 
+    spec: { type: Object }
 }, { _id: false });
 
 // Celestial Body (Map Object)
@@ -107,12 +119,12 @@ const BodySchema = new mongoose.Schema({
 // MAIN GAME STATE SCHEMA
 const GameStateSchema = new mongoose.Schema({
     // Camera & UI State
-    camera: { 
-        x: { type: Number, default: 0 }, 
-        y: { type: Number, default: 0 } 
+    camera: {
+        x: { type: Number, default: 0 },
+        y: { type: Number, default: 0 }
     },
     zoom: { type: Number, default: 0.8 },
-    
+
     // Inventory: Using Map to handle dynamic item names
     inventory: {
         type: Map,
@@ -155,7 +167,7 @@ const GameStateSchema = new mongoose.Schema({
         consumptionRate: { type: Number, default: 0 },
         gridStatus: { type: String, default: 'ONLINE' }
     },
-    
+
     // Active Operations
     scavenging: {
         active: { type: Boolean, default: false },
@@ -179,9 +191,9 @@ const GameStateSchema = new mongoose.Schema({
         grinderSlots: [SlotSchema],
         brewerSlots: [SlotSchema]
     },
-    greenhouse: { 
-        slots: [SlotSchema], 
-        selectedSlot: { type: Number, default: null } 
+    greenhouse: {
+        slots: [SlotSchema],
+        selectedSlot: { type: Number, default: null }
     },
     composter: { slots: [SlotSchema] },
 
@@ -193,18 +205,18 @@ const GameStateSchema = new mongoose.Schema({
         progress: { type: Number },
         totalDuration: { type: Number }
     }],
-    
+
     // Components
     components: { type: Map, of: Number, default: {} },
-    
+
     // Client-side environment tracking
     environment: {
         flux: { type: Number, default: 0.15 }
     },
-    
+
     // Market local cache
-    market: { 
-        offers: { type: Array, default: [] } 
+    market: {
+        offers: { type: Array, default: [] }
     }
 }, { _id: false, strict: true });
 
@@ -264,8 +276,8 @@ const logAction = async (action, userId, username, req, details = {}) => {
 
 // 1. Global Limit
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 2000, 
+    windowMs: 15 * 60 * 1000,
+    max: 2000,
     standardHeaders: true,
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
@@ -274,14 +286,14 @@ app.use(globalLimiter);
 
 // 2. Auth Limit
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 20, 
+    windowMs: 15 * 60 * 1000,
+    max: 20,
     standardHeaders: true,
     legacyHeaders: false,
     validate: { trustProxy: false },
-    keyGenerator: (req) => {
+    keyGenerator: (req, res) => {
         // Теперь это безопасно, т.к. express.json() уже отработал
-        return (req.body && req.body.username) ? req.body.username : req.ip;
+        return (req.body && req.body.username) ? req.body.username : ipKeyGenerator(req, res);
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
 });
@@ -289,22 +301,22 @@ app.use('/api/auth', authLimiter);
 
 // 3. Market Limit
 const marketLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, 
-    max: 150, 
+    windowMs: 1 * 60 * 1000,
+    max: 150,
     standardHeaders: true,
     legacyHeaders: false,
     validate: { trustProxy: false },
-    keyGenerator: (req) => {
+    keyGenerator: (req, res) => {
         const token = req.header('x-auth-token');
         if (token) {
             try {
                 const decoded = jwt.verify(token, JWT_SECRET);
-                return decoded.user.id; 
+                return decoded.user.id;
             } catch (e) {
-                return req.ip; 
+                return ipKeyGenerator(req, res);
             }
         }
-        return req.ip;
+        return ipKeyGenerator(req, res);
     },
     message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
@@ -353,11 +365,11 @@ app.post('/api/auth/register', async (req, res) => {
         user = new User({ username, password });
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
-        
+
         // Initialize basic game state structure
         user.gameState = {
-            inventory: { 
-                Helium3: 0, 
+            inventory: {
+                Helium3: 0,
                 Scrap: 0,
                 // Starting Resources
                 "Ice water": 50,
@@ -383,9 +395,9 @@ app.post('/api/auth/register', async (req, res) => {
                 ]
             },
             cad: { slots: [{id:0},{id:1}] },
-            refinery: { 
-                waterSlots: [{id:0},{id:1}], 
-                sabatierSlots: [{id:0},{id:1}], 
+            refinery: {
+                waterSlots: [{id:0},{id:1}],
+                sabatierSlots: [{id:0},{id:1}],
                 smelterSlots: [{id:0},{id:1}],
                 fermenterSlot: { id: 0, active: false } // Explicitly set ID 0
             },
@@ -400,7 +412,7 @@ app.post('/api/auth/register', async (req, res) => {
             stamina: { val: 100, max: 100 },
             skills: {
                 scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
-                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
+                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 },
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
@@ -451,7 +463,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/game/load', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
-        
+
         // Ensure Helium3 exists in older saves
         if(!user.gameState.inventory) user.gameState.inventory = new Map();
         if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
@@ -481,7 +493,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        const newState = gameState; 
+        const newState = gameState;
         const serverNow = Date.now();
 
         const user = await User.findById(req.user.id);
@@ -489,9 +501,9 @@ app.post('/api/game/save', auth, async (req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        const oldState = user.gameState || {}; 
+        const oldState = user.gameState || {};
         let timeSinceLastSave = 0;
-        
+
         // Accessing Mongoose Map: use .get() for oldState if it's a Map
         let dbHelium3 = 0;
         if (oldState.inventory instanceof Map) {
@@ -499,7 +511,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         } else if (oldState.inventory) {
             dbHelium3 = oldState.inventory.Helium3 || 0;
         }
-        
+
         if (!newState.inventory) newState.inventory = {};
         newState.inventory.Helium3 = dbHelium3;
 
@@ -508,7 +520,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         // 1. Time Check
         if (clientTime) {
             const timeDifference = Math.abs(serverNow - clientTime);
-            const maxAllowedDifference = 5 * 60 * 1000; 
+            const maxAllowedDifference = 5 * 60 * 1000;
 
             if (timeDifference > maxAllowedDifference) {
                 logAction('CHEAT_ATTEMPT_TIME', user.id, user.username, req, { clientTime, serverNow });
@@ -519,7 +531,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         // 2. Frequency Check
         if (user.lastSaveTime) {
             timeSinceLastSave = serverNow - new Date(user.lastSaveTime).getTime();
-            if (timeSinceLastSave < 1000) { 
+            if (timeSinceLastSave < 1000) {
                 return res.status(429).json({ msg: 'Saving too frequently. Slow down.' });
             }
         } else {
@@ -530,9 +542,9 @@ app.post('/api/game/save', auth, async (req, res) => {
         if (newState.power && newState.power.batteries) {
             const batteries = newState.power.batteries;
             const BATTERY_CAP = 33.33;
-            const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0; 
-            const MAX_GEN_PER_SEC = 0.5; 
-            
+            const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0;
+            const MAX_GEN_PER_SEC = 0.5;
+
             let totalNewCharge = 0;
             let totalOldCharge = 0;
 
@@ -554,7 +566,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const elapsedSeconds = timeSinceLastSave / 1000;
                 const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0;
                 if (chargeDelta > maxPossibleGain) {
-                      logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
+                    logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
                         delta: chargeDelta,
                         maxAllowed: maxPossibleGain,
                         elapsedTime: elapsedSeconds
@@ -568,9 +580,9 @@ app.post('/api/game/save', auth, async (req, res) => {
         if (newState.stamina) {
             const MAX_STAMINA_LIMIT = 100;
             if (newState.stamina.val > MAX_STAMINA_LIMIT || newState.stamina.max > MAX_STAMINA_LIMIT) {
-                logAction('CHEAT_STAMINA_CAP', user.id, user.username, req, { 
-                    val: newState.stamina.val, 
-                    max: newState.stamina.max 
+                logAction('CHEAT_STAMINA_CAP', user.id, user.username, req, {
+                    val: newState.stamina.val,
+                    max: newState.stamina.max
                 });
                 return res.status(400).json({ msg: 'Game integrity error: Stamina values exceed allowable limits.' });
             }
@@ -584,7 +596,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                     let hasConsumedFood = false;
 
                     for (const item of foodItems) {
-                        const oldQty = (oldState.inventory instanceof Map) ? (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
+                        const oldQty = (oldState.inventory instanceof Map) ?
+                            (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
                             hasConsumedFood = true;
@@ -593,8 +606,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                     }
 
                     if (!hasConsumedFood && staminaDiff > 0.5) {
-                        logAction('CHEAT_STAMINA_NO_CONSUME', user.id, user.username, req, { 
-                            oldStamina: oldVal, 
+                        logAction('CHEAT_STAMINA_NO_CONSUME', user.id, user.username, req, {
+                            oldStamina: oldVal,
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
@@ -606,8 +619,9 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // 5. Scavenging & Resources Check
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
-        
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
+            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+
         let dScrap = 0;
         let maxActionsPossible = 10;
         if (oldState.inventory && newState.inventory) {
@@ -621,28 +635,29 @@ app.post('/api/game/save', auth, async (req, res) => {
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
-                  logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
-                    delta: dScrap, 
+                logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, {
+                    delta: dScrap,
                     maxAllowed: (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20,
-                    timeElapsed: timeSinceLastSave 
+                    timeElapsed: timeSinceLastSave
+
                 });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Scrap increase detected.' });
             }
 
             if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)) {
-                  logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
+                logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, {
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
                 });
-                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
+                return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
             if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)) {
-                  logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
-                    delta: dRegolith, 
+                logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, {
+                    delta: dRegolith,
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
                 });
-                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
+                return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
             // 6. Food & Harvest Check
@@ -655,15 +670,15 @@ app.post('/api/game/save', auth, async (req, res) => {
             const dGuarana = (newState.inventory.Guarana || 0) - getOldInv("Guarana");
 
             let impliedFoodCost = 0;
-            if (dSnack > 0) impliedFoodCost += dSnack * 30; 
+            if (dSnack > 0) impliedFoodCost += dSnack * 30;
             if (dMeal > 0) impliedFoodCost += dMeal * 60;
-            if (dFeast > 0) impliedFoodCost += dFeast * 90; 
+            if (dFeast > 0) impliedFoodCost += dFeast * 90;
 
             const MAX_FOOD_HARVEST_BUFFER = 1200;
             if ((dFood + impliedFoodCost) > MAX_FOOD_HARVEST_BUFFER) {
                 logAction('CHEAT_RESOURCE_FOOD_BALANCE', user.id, user.username, req, {
-                    dFood, 
-                    impliedFoodCost, 
+                    dFood,
+                    impliedFoodCost,
                     netGain: dFood + impliedFoodCost,
                     limit: MAX_FOOD_HARVEST_BUFFER
                 });
@@ -683,7 +698,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
-            
+
             // 7. Seeds Check
             const seedTypes = ['Seeds: Sprouts', 'Seeds: Potato', 'Seeds: Maize', 'Seeds: Amaranth', 'Seeds: Guarana'];
             const MAX_SEEDS_DROP_BUFFER = 50;
@@ -694,7 +709,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const dSeed = newSeedQty - oldSeedQty;
                 if (dSeed > 0) {
                     if (dScrap >= 0 && dSeed > MAX_SEEDS_DROP_BUFFER) {
-                          logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
+                        logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
                             seedType: seedName,
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
@@ -707,11 +722,11 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             // 8. Ores & Smelting Check
             const oreTypes = [
-                { key: "Iron Ore", maxPerSmelt: 15 },       
+                { key: "Iron Ore", maxPerSmelt: 15 },
                 { key: "Aluminium Ore", maxPerSmelt: 15 },
                 { key: "Copper Ore", maxPerSmelt: 15 },
                 { key: "Titanium Ore", maxPerSmelt: 15 },
-                { key: "Raw silicon", maxPerSmelt: 5 },     
+                { key: "Raw silicon", maxPerSmelt: 5 },
                 { key: "Steel", maxPerSmelt: 15 }
             ];
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
@@ -730,7 +745,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     const finalLimit = allowedGain + SAFETY_MARGIN;
 
                     if (dQty > finalLimit) {
-                          logAction(`CHEAT_RESOURCE_${ore.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
+                        logAction(`CHEAT_RESOURCE_${ore.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             resource: ore.key,
                             delta: dQty,
                             limit: finalLimit,
@@ -743,15 +758,15 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             // 9. CAD Gases Check
             const cadGases = [
-                { key: "CO2", maxPerRun: 15 }, 
+                { key: "CO2", maxPerRun: 15 },
                 { key: "Nitrogen", maxPerRun: 2 },
                 { key: "Argon", maxPerRun: 2 },
                 { key: "Neon", maxPerRun: 2 },
                 { key: "Krypton", maxPerRun: 2 },
                 { key: "Xenon", maxPerRun: 2 }
             ];
-            const MAX_CAD_SLOTS = 2; 
-            const CAD_SAFETY_BUFFER = 5; 
+            const MAX_CAD_SLOTS = 2;
+            const CAD_SAFETY_BUFFER = 5;
 
             for (const gas of cadGases) {
                 const oldQty = getOldInv(gas.key);
@@ -775,10 +790,10 @@ app.post('/api/game/save', auth, async (req, res) => {
             if (dWater > 0) {
                 const FILTER_SLOTS = 2;
                 const WATER_PER_SLOT = 25;
-                const WATER_BUFFER = 10; 
+                const WATER_BUFFER = 10;
                 const maxWaterGain = (FILTER_SLOTS * WATER_PER_SLOT) + WATER_BUFFER;
                 if (dWater > maxWaterGain) {
-                      logAction('CHEAT_RESOURCE_WATER_FILTER', user.id, user.username, req, {
+                    logAction('CHEAT_RESOURCE_WATER_FILTER', user.id, user.username, req, {
                         delta: dWater,
                         limit: maxWaterGain
                     });
@@ -793,8 +808,8 @@ app.post('/api/game/save', auth, async (req, res) => {
             const totalFermGain = Math.max(0, dFermGuarana) + Math.max(0, dFermAmaranth);
             if (totalFermGain > 0) {
                 const FERM_SLOTS = 2;
-                const FERM_PER_SLOT = 37; 
-                const FERM_BUFFER = 3; 
+                const FERM_PER_SLOT = 37;
+                const FERM_BUFFER = 3;
                 const maxFermGain = (FERM_SLOTS * FERM_PER_SLOT) + FERM_BUFFER;
                 if (totalFermGain > maxFermGain) {
                     logAction('CHEAT_RESOURCE_FERMENTATION', user.id, user.username, req, {
@@ -839,7 +854,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Electric silicon", maxPerSlot: 3 }
             ];
             const CHEM_SLOTS = 4;
-            const CHEM_BUFFER = 5; 
+            const CHEM_BUFFER = 5;
 
             for (const item of chemItems) {
                 const oldQ = getOldInv(item.key);
@@ -857,7 +872,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     }
                 }
             }
-            
+
             // 13. Factory Check
             const factoryItems = [
                 { key: "Aluminium Plate", maxPerSlot: 10, slots: 3, buffer: 5 },
@@ -910,15 +925,15 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             // 15. CRAFTING COST VALIDATION
             const CRAFT_COST_RULES = [
-                { out: "Steel", in: "Iron Ore", ratio: 1.0 }, 
-                { out: "Aluminium Plate", in: "Aluminium Ore", ratio: 0.8 }, 
-                { out: "Titanium Plate", in: "Titanium Ore", ratio: 0.8 }, 
-                { out: "Rocket Fuel", in: "Liquid CH4", ratio: 0.4 }, 
+                { out: "Steel", in: "Iron Ore", ratio: 1.0 },
+                { out: "Aluminium Plate", in: "Aluminium Ore", ratio: 0.8 },
+                { out: "Titanium Plate", in: "Titanium Ore", ratio: 0.8 },
+                { out: "Rocket Fuel", in: "Liquid CH4", ratio: 0.4 },
                 { out: "Rocket Fuel", in: "Liquid O2", ratio: 0.4 },
-                { out: "PVC Pipe", in: "PVC", ratio: 0.3 }, 
-                { out: "Structural Part", in: "Steel", ratio: 2.0 }, 
-                { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, 
-                { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } 
+                { out: "PVC Pipe", in: "PVC", ratio: 0.3 },
+                { out: "Structural Part", in: "Steel", ratio: 2.0 },
+                { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 },
+                { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 }
             ];
             for (const rule of CRAFT_COST_RULES) {
                 const oldOutQty = getOldInv(rule.out);
@@ -949,11 +964,11 @@ app.post('/api/game/save', auth, async (req, res) => {
         user.lastSaveTime = serverNow;
         user.markModified('gameState');
         await user.save();
-        
+
         logAction('GAME_SAVE', req.user.id, user.username, req, {
             savedAt: serverNow
         });
-        res.json({ msg: 'Game Saved', serverTime: serverNow }); 
+        res.json({ msg: 'Game Saved', serverTime: serverNow });
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
@@ -997,14 +1012,14 @@ app.post('/api/market/license', auth, async (req, res) => {
         user.gameState.inventory.set('Scrap', currentScrap - COST);
         const currentLic = user.gameState.inventory.get("Scavenging License") || 0;
         user.gameState.inventory.set("Scavenging License", currentLic + 1);
-        
+
         user.markModified('gameState');
         await user.save();
 
         logAction('MARKET_BUY_LICENSE', user.id, user.username, req);
         res.json({ msg: "License Acquired", inventory: user.gameState.inventory });
 
-    } 
+    }
     catch (err) {
         console.error(err);
         res.status(500).send("Server Error");
@@ -1015,7 +1030,7 @@ app.post('/api/market/license', auth, async (req, res) => {
 app.post('/api/market/offer', auth, async (req, res) => {
     try {
         const { item, qty, price } = req.body;
-        
+
         // Strict Validation
         if(!item || !Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price <= 0) {
             return res.status(400).json({msg: "Invalid offer data"});
@@ -1034,7 +1049,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         // Deduct Item
         user.gameState.inventory.set(item, currentQty - qty);
-        
+
         user.markModified('gameState');
         await user.save();
 
@@ -1042,7 +1057,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         const newOffer = new MarketOffer({
             sellerId: user.id,
             sellerName: user.username,
-            sellerIp: req.ip, 
+            sellerIp: req.ip,
             item,
             qty,
             price
@@ -1050,7 +1065,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save();
 
         logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
-        
+
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1079,16 +1094,16 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         const offer = await MarketOffer.findById(offerId);
 
         if(!offer) return res.status(404).json({msg: "Offer not found"});
-        
+
         // Ownership Check
         if(offer.sellerId.toString() !== req.user.id) return res.status(403).json({msg: "Not authorized"});
 
         const user = await User.findById(req.user.id);
-        
+
         // Return Items
         const current = user.gameState.inventory.get(offer.item) || 0;
         user.gameState.inventory.set(offer.item, current + offer.qty);
-        
+
         user.markModified('gameState');
         await user.save();
 
@@ -1125,7 +1140,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
         // 2. Pre-check Offer
         const peekOffer = await MarketOffer.findById(offerId);
         if(!peekOffer) return res.status(404).json({msg: "Offer no longer exists"});
-        
+
         if(peekOffer.sellerId.toString() === buyerId) return res.status(400).json({msg: "Cannot buy your own offer"});
 
         if (peekOffer.sellerIp === req.ip) {
@@ -1146,7 +1161,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
         }
 
         // 5. Execute Transfer
-        
+
         // Deduct Money & Add Item to Buyer
         buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
         const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
@@ -1154,7 +1169,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         buyer.markModified('gameState');
         await buyer.save();
-
         // Add Money to Seller ATOMICALLY
         const seller = await User.findById(securedOffer.sellerId);
         if (seller) {
@@ -1165,11 +1179,11 @@ app.post('/api/market/buy', auth, async (req, res) => {
             await seller.save();
         }
 
-        logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
-            item: securedOffer.item, 
-            qty: securedOffer.qty, 
-            price: securedOffer.price, 
-            sellerId: securedOffer.sellerId 
+        logAction('MARKET_BUY', buyer.id, buyer.username, req, {
+            item: securedOffer.item,
+            qty: securedOffer.qty,
+            price: securedOffer.price,
+            sellerId: securedOffer.sellerId
         });
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
@@ -1177,6 +1191,17 @@ app.post('/api/market/buy', auth, async (req, res) => {
         console.error(err);
         res.status(500).send("Server Error");
     }
+});
+
+// --- FIX FOR "Cannot GET /" ---
+app.get('/', (req, res) => {
+    res.status(200).send(`
+        <div style="font-family: monospace; background: #05080a; color: #00E5FF; padding: 20px; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+            <h1 style="border-bottom: 2px solid #00E5FF; padding-bottom: 10px;">EXODUS//PRIME: SERVER NODE</h1>
+            <p>STATUS: <span style="color: #44EE77;">ONLINE</span></p>
+            <p style="color: #889;">SECURE CONNECTION ESTABLISHED.</p>
+        </div>
+    `);
 });
 
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
