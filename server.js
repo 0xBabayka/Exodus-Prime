@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 
 // --- ИСПРАВЛЕНИЕ ОШИБКИ ERR_ERL_UNEXPECTED_X_FORWARDED_FOR ---
-// Render использует балансировщик нагрузки/прокси. 
+// Render использует балансировщик нагрузки/прокси.
 // Эта настройка позволяет Express и Rate-Limit правильно определять IP клиента.
 app.set('trust proxy', 1); 
 
@@ -82,24 +82,35 @@ const logAction = async (action, userId, username, req, details = {}) => {
     }
 };
 
-// --- RATE LIMITING ---
+// --- RATE LIMITING (ИСПРАВЛЕНО: Увеличены лимиты для предотвращения разрывов) ---
+
+// Глобальный лимит: 1000 запросов за 15 минут.
+// (Клиент сохраняется каждые 3 сек = 300 запросов/15 мин. 1000 хватит с запасом).
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 100, 
+    max: 1000, 
+    standardHeaders: true,
+    legacyHeaders: false,
     message: { msg: 'Too many requests from this IP, please try again later' }
 });
 app.use(globalLimiter);
 
+// Лимит на авторизацию (защита от брутфорса)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 20, 
+    max: 50, 
+    standardHeaders: true,
+    legacyHeaders: false,
     message: { msg: 'Too many login attempts, please try again later' }
 });
 app.use('/api/auth', authLimiter);
 
+// Лимит на маркет: 100 операций за 1 минуту
 const marketLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, 
-    max: 30, // Limit market transactions to prevent spam
+    max: 100, 
+    standardHeaders: true,
+    legacyHeaders: false,
     message: { msg: 'Market transaction limit reached. Slow down.' }
 });
 app.use('/api/market', marketLimiter);
@@ -109,8 +120,11 @@ app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime')
+// MongoDB Connection (ИСПРАВЛЕНО: Добавлен maxPoolSize для стабильности)
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
+    maxPoolSize: 10, // Ограничиваем пул соединений, чтобы не перегружать базу
+    serverSelectionTimeoutMS: 5000
+})
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
 
@@ -144,12 +158,11 @@ app.post('/api/auth/register', async (req, res) => {
         user.password = await bcrypt.hash(password, salt);
         
         // Initialize basic game state structure
-        // UPDATED: Syncing with client default state to prevent anti-cheat false positives
         user.gameState = {
             inventory: { 
                 Helium3: 0, 
                 Scrap: 0,
-                // Starting Resources (Matches Client STATE)
+                // Starting Resources
                 "Ice water": 50,
                 "Water": 5,
                 "Soil": 100,
@@ -163,7 +176,6 @@ app.post('/api/auth/register', async (req, res) => {
                 "Pt": 5
             },
             market: { offers: [] },
-            // Starting Power (Matches Client STATE)
             power: {
                 batteries: [
                     { id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
@@ -253,7 +265,6 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // --- ВАЖНО: ЗАЩИТА СЕРВЕРНЫХ ДАННЫХ ---
         // Игнорируем Helium3 от клиента, чтобы предотвратить накрутку через консоль браузера.
-        // Сервер - единственный источник правды для рыночной валюты.
         const dbHelium3 = (oldState.inventory && oldState.inventory.Helium3) ? oldState.inventory.Helium3 : 0;
         
         if (!newState.inventory) newState.inventory = {};
@@ -375,7 +386,6 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             const maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -389,7 +399,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -397,7 +407,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -455,7 +465,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                        });
+                          });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -472,7 +482,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             ];
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
-
             for (const ore of oreTypes) {
                 const oldQty = oldState.inventory[ore.key] || 0;
                 const newQty = newState.inventory[ore.key] || 0;
@@ -759,7 +768,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save();
-
+        
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -771,7 +780,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save();
 
         logAction('MARKET_POST', user.id, user.username, req, { item, qty, price });
-
+        
         // Return updated list to ensure UI is in sync immediately
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -828,7 +837,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         }));
 
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-
+        
         // Return offers in response
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
@@ -877,7 +886,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
         buyer.gameState.inventory[securedOffer.item] = (buyer.gameState.inventory[securedOffer.item] || 0) + securedOffer.qty;
         buyer.markModified('gameState');
         await buyer.save();
-
+        
         // Add Money to Seller ATOMICALLY
         // Using $inc ensures we don't overwrite seller's state if they are active
         await User.updateOne(
