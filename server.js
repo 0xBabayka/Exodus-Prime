@@ -8,11 +8,14 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
+
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
 // Позволяет правильно определять IP, даже если он скрыт за балансировщиком
 app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me';
+
 // --- SECURITY MIDDLEWARE (HELMET) ---
 app.use(helmet({
     contentSecurityPolicy: {
@@ -24,19 +27,197 @@ app.use(helmet({
         },
     },
 }));
-// --- DATABASE MODELS ---
 
-// 1. User Model
+// --- HONEYPOT CONFIGURATION (ЛОВУШКА) ---
+// Поля, которые никогда не отправляются честным клиентом, но привлекательны для хакеров
+const HONEYPOT_KEYS = [
+    'admin', 'isAdmin', 'is_admin', 
+    'god_mode', 'godMode', 
+    'cheats', 'cheat_enabled',
+    'bypass', 'bypass_validation',
+    'dev_tools', 'debug_mode',
+    'unlimited_resources'
+];
+
+// --- DATABASE MODELS & SCHEMAS (VALIDATION ADDED) ---
+
+// 1. Sub-Schemas for Game State Validation
+
+// Battery Structure
+const BatterySchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    charge: { type: Number, default: 0, min: 0 },
+    wear: { type: Number, default: 0, min: 0, max: 100 },
+    loc: { type: String, enum: ['grid', 'inventory', 'warehouse'], default: 'inventory' }
+}, { _id: false });
+
+// Generic Machine Slot (Refinery, Factory, etc.)
+const SlotSchema = new mongoose.Schema({
+    id: { type: Number, required: true },
+    active: { type: Boolean, default: false },
+    startTime: { type: Number, default: 0 },
+    duration: { type: Number, default: 0 },
+    mode: { type: String, default: null },
+    // Greenhouse specific fields
+    status: { type: String }, 
+    crop: { type: String, default: null }
+}, { _id: false });
+
+// Skill Structure
+const SkillSchema = new mongoose.Schema({
+    lvl: { type: Number, default: 1, min: 1 },
+    xp: { type: Number, default: 0, min: 0 },
+    next: { type: Number, default: 100 },
+    locked: { type: Boolean, default: false }
+}, { _id: false });
+
+// Active Ship Structure
+const ShipSchema = new mongoose.Schema({
+    type: { type: String, required: true },
+    targetId: { type: Number },
+    phase: { type: String, enum: ['outbound', 'mining', 'return', 'orbit'], default: 'outbound' },
+    duration: { type: Number, default: 0 },
+    progress: { type: Number, default: 0 },
+    lastTick: { type: Number, default: Date.now },
+    startPos: { x: Number, y: Number },
+    lastPos: { x: Number, y: Number },
+    cargoItem: { type: String, default: null },
+    cargoAmount: { type: Number, default: 0 },
+    mineStart: { type: Number, default: 0 },
+    spec: { type: Object } // Store ship spec snapshot if needed, or rely on client consts
+}, { _id: false });
+
+// Celestial Body (Map Object)
+// Keeping this relatively loose as map generation is complex, but ensuring basic types
+const BodySchema = new mongoose.Schema({
+    id: Number,
+    name: String,
+    dist: Number,
+    speed: Number,
+    color: String,
+    size: Number,
+    type: String,
+    angle: Number,
+    scanned: { type: Boolean, default: false },
+    res: [String]
+}, { _id: false });
+
+// MAIN GAME STATE SCHEMA
+const GameStateSchema = new mongoose.Schema({
+    // Camera & UI State (Non-critical but saved)
+    camera: { 
+        x: { type: Number, default: 0 }, 
+        y: { type: Number, default: 0 } 
+    },
+    zoom: { type: Number, default: 0.8 },
+    
+    // Inventory: Using Map to handle dynamic item names ("Seeds: Potato", etc.) strictly as numbers
+    inventory: {
+        type: Map,
+        of: Number,
+        default: {}
+    },
+
+    // Resources & Stats
+    stamina: {
+        val: { type: Number, default: 100, min: 0 },
+        max: { type: Number, default: 100 }
+    },
+    cooldowns: {
+        type: Map,
+        of: Number,
+        default: {}
+    },
+    lastDailyClaim: { type: Number, default: 0 },
+
+    // Skills
+    skills: {
+        scavenging: { type: SkillSchema, default: () => ({}) },
+        agriculture: { type: SkillSchema, default: () => ({}) },
+        metallurgy: { type: SkillSchema, default: () => ({}) },
+        chemistry: { type: SkillSchema, default: () => ({}) },
+        planetary_exploration: { type: SkillSchema, default: () => ({}) },
+        engineering: { type: SkillSchema, default: () => ({}) }
+    },
+
+    // Buildings / Machines
+    hangar: {
+        probe: { type: Number, default: 1 },
+        miner: { type: Number, default: 0 },
+        hauler: { type: Number, default: 0 },
+        gas: { type: Number, default: 0 }
+    },
+    power: {
+        batteries: [BatterySchema],
+        productionRate: { type: Number, default: 0 },
+        consumptionRate: { type: Number, default: 0 },
+        gridStatus: { type: String, default: 'ONLINE' }
+    },
+    
+    // Active Operations
+    scavenging: {
+        active: { type: Boolean, default: false },
+        timer: { type: Number, default: 0 },
+        duration: { type: Number, default: 5000 }
+    },
+    cad: { slots: [SlotSchema] },
+    metalworks: { slots: [SlotSchema] },
+    machineParts: { slots: [SlotSchema] },
+    printer: { slots: [SlotSchema] },
+    refinery: {
+        waterSlots: [SlotSchema],
+        sabatierSlots: [SlotSchema],
+        smelterSlots: [SlotSchema],
+        fermenterSlot: { type: SlotSchema, default: () => ({}) }
+    },
+    fuelFactory: { slots: [SlotSchema] },
+    chemlab: { slots: [SlotSchema] },
+    kitchen: {
+        roasterSlots: [SlotSchema],
+        grinderSlots: [SlotSchema],
+        brewerSlots: [SlotSchema]
+    },
+    greenhouse: { 
+        slots: [SlotSchema], 
+        selectedSlot: { type: Number, default: null } 
+    },
+    composter: { slots: [SlotSchema] },
+
+    // Lists
+    ships: [ShipSchema],
+    bodies: [BodySchema],
+    buildQueue: [{
+        type: { type: String },
+        progress: { type: Number },
+        totalDuration: { type: Number }
+    }],
+    
+    // Components (Old system artifact, keeping for compatibility)
+    components: { type: Map, of: Number, default: {} },
+    
+    // Client-side environment tracking
+    environment: {
+        flux: { type: Number, default: 0.15 }
+    },
+    
+    // Market local cache
+    market: { 
+        offers: { type: Array, default: [] } 
+    }
+}, { _id: false, strict: true });
+// strict: true removes any fields sent by hackers that aren't defined here
+
+// 2. User Model (Updated with Schema)
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    gameState: { type: Object, default: {} },
+    gameState: { type: GameStateSchema, default: () => ({}) }, // Use the strict schema
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema);
 
-// 2. Action Log Model (Logging)
+// 3. Action Log Model (Logging)
 const ActionLogSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
     username: { type: String },
@@ -47,13 +228,14 @@ const ActionLogSchema = new mongoose.Schema({
 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
-// 3. Market Offer Model
+// 4. Market Offer Model
 const MarketOfferSchema = new mongoose.Schema({
     sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     sellerName: { type: String, required: true },
+    sellerIp: { type: String, required: true },
     item: { type: String, required: true },
     qty: { type: Number, required: true, min: 1 },
-    price: { type: Number, required: true, min: 1 }, // Price in Helium3
+    price: { type: Number, required: true, min: 1 },
     currency: { type: String, default: 'HELIUM3' },
     postedAt: { type: Date, default: Date.now }
 });
@@ -76,13 +258,13 @@ const logAction = async (action, userId, username, req, details = {}) => {
         console.error('Logging Error (Background):', err.message);
     }
 };
+
 // --- RATE LIMITING (ЗАЩИТА ОТ ОБЩЕГО IP / VPN) ---
 
 // 1. Глобальный лимит (DDoS защита)
-// Оставляем по IP, но делаем лимит широким, чтобы не блокировать общежития/VPN сразу.
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 2000, // Увеличили до 2000, чтобы выдержать 50 игроков с одного IP
+    max: 2000, 
     standardHeaders: true,
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
@@ -90,16 +272,13 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // 2. Лимит на Авторизацию (УМНАЯ ЗАЩИТА)
-// Вместо блокировки по IP, блокируем по USERNAME.
-// Это позволяет 50 людям с одного IP входить в разные аккаунты,
-// но не дает одному хакеру перебирать пароль к одному аккаунту.
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 20, // 20 попыток входа на ОДИН аккаунт за 15 минут
+    max: 20, 
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     keyGenerator: (req) => {
-        // Если передан username, лимитируем по нему. Иначе по IP.
         return req.body.username || req.ip;
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
@@ -107,22 +286,20 @@ const authLimiter = rateLimit({
 app.use('/api/auth', authLimiter);
 
 // 3. Лимит на Маркет (ЗАЩИТА ПО ТОКЕНУ)
-// Идентифицируем пользователя по его JWT токену (User ID), а не по IP.
-// VPN больше не помеха.
 const marketLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, 
-    max: 150, // 150 операций в минуту на одного игрока
+    max: 150, 
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     keyGenerator: (req) => {
         const token = req.header('x-auth-token');
         if (token) {
             try {
-                // Пытаемся достать ID юзера из токена для лимита
                 const decoded = jwt.verify(token, JWT_SECRET);
                 return decoded.user.id; 
             } catch (e) {
-                return req.ip; // Если токен битый, фоллбэк на IP
+                return req.ip; 
             }
         }
         return req.ip;
@@ -143,6 +320,7 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 })
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
+
 // --- AUTH MIDDLEWARE ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
@@ -155,11 +333,21 @@ const auth = (req, res, next) => {
         res.status(401).json({ msg: 'Token is not valid' });
     }
 };
+
 // --- ROUTES ---
 
 // 1. Register
 app.post('/api/auth/register', async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, registration_token_public } = req.body;
+
+    // --- HONEYPOT CHECK (BOT REGISTRATION) ---
+    // Если бот заполнил скрытое поле 'registration_token_public', блокируем его
+    if (registration_token_public) {
+        logAction('BOT_REGISTRATION_HONEYPOT', null, username, req, { token: registration_token_public });
+        // Возвращаем фейковый успех, чтобы бот не пытался снова
+        return res.status(200).json({ msg: 'Registration queued for review.' });
+    }
+
     try {
         let user = await User.findOne({ username });
         if (user) {
@@ -172,6 +360,7 @@ app.post('/api/auth/register', async (req, res) => {
         user.password = await bcrypt.hash(password, salt);
         
         // Initialize basic game state structure
+        // Validating structure via the new GameStateSchema logic
         user.gameState = {
             inventory: { 
                 Helium3: 0, 
@@ -198,6 +387,28 @@ app.post('/api/auth/register', async (req, res) => {
                     { id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
                     { id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
                 ]
+            },
+            // Ensuring arrays are initialized to avoid schema errors on save
+            cad: { slots: [{id:0},{id:1}] },
+            refinery: { 
+                waterSlots: [{id:0},{id:1}], 
+                sabatierSlots: [{id:0},{id:1}], 
+                smelterSlots: [{id:0},{id:1}],
+                fermenterSlot: {active: false}
+            },
+            greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty' })) },
+            composter: { slots: [{id:0},{id:1},{id:2}] },
+            kitchen: { roasterSlots: [{id:0},{id:1}], grinderSlots: [{id:0},{id:1}], brewerSlots: [{id:0},{id:1}] },
+            fuelFactory: { slots: [{id:0},{id:1},{id:2},{id:3}] },
+            chemlab: { slots: [{id:0},{id:1},{id:2},{id:3}] },
+            metalworks: { slots: [{id:0},{id:1},{id:2}] },
+            machineParts: { slots: [{id:0},{id:1},{id:2}] },
+            printer: { slots: [{id:0},{id:1}] },
+            stamina: { val: 100, max: 100 },
+            skills: {
+                scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
+                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
+                planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
         await user.save();
@@ -213,6 +424,7 @@ app.post('/api/auth/register', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+
 // 2. Login
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -241,14 +453,15 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+
 // 3. Load Game (Protected)
 app.get('/api/game/load', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id).select('-password');
         
-        // Ensure Helium3 exists in older saves
-        if(!user.gameState.inventory) user.gameState.inventory = {};
-        if(user.gameState.inventory.Helium3 === undefined) user.gameState.inventory.Helium3 = 0;
+        // Ensure Helium3 exists in older saves (converted to Map access)
+        if(!user.gameState.inventory) user.gameState.inventory = new Map();
+        if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
 
         logAction('GAME_LOAD', user.id, user.username, req);
 
@@ -259,10 +472,24 @@ app.get('/api/game/load', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
-// 4. Save Game (Protected) with Anti-Cheat & CRAFTING VALIDATION
+
+// 4. Save Game (Protected) with Anti-Cheat, CRAFTING VALIDATION & HONEYPOT
 app.post('/api/game/save', auth, async (req, res) => {
     try {
         const { gameState, clientTime } = req.body;
+
+        // --- HONEYPOT CHECK (PAYLOAD INSPECTION) ---
+        // Проверяем наличие запрещенных полей в корне gameState
+        if (gameState) {
+            for (const trapKey of HONEYPOT_KEYS) {
+                if (gameState.hasOwnProperty(trapKey) || (gameState.inventory && gameState.inventory[trapKey])) {
+                    await logAction('CHEAT_HONEYPOT_TRIGGER', req.user.id, 'UNKNOWN', req, { trap: trapKey });
+                    // Возвращаем ошибку, похожую на обычную валидацию, чтобы не раскрывать механизм ловушки слишком явно
+                    return res.status(403).json({ msg: 'Security integrity violation detected.' });
+                }
+            }
+        }
+
         const newState = gameState; 
         const serverNow = Date.now();
 
@@ -275,8 +502,15 @@ app.post('/api/game/save', auth, async (req, res) => {
         let timeSinceLastSave = 0;
 
         // --- ВАЖНО: ЗАЩИТА СЕРВЕРНЫХ ДАННЫХ ---
-        // Игнорируем Helium3 от клиента, чтобы предотвратить накрутку через консоль браузера.
-        const dbHelium3 = (oldState.inventory && oldState.inventory.Helium3) ? oldState.inventory.Helium3 : 0;
+        // Accessing Mongoose Map: use .get() for oldState if it's a Map, or standard access if plain obj
+        // Since we updated Schema, oldState.inventory is a Map. newState comes from JSON, so it's a plain obj.
+        
+        let dbHelium3 = 0;
+        if (oldState.inventory instanceof Map) {
+            dbHelium3 = oldState.inventory.get('Helium3') || 0;
+        } else if (oldState.inventory) {
+            dbHelium3 = oldState.inventory.Helium3 || 0;
+        }
         
         if (!newState.inventory) newState.inventory = {};
         newState.inventory.Helium3 = dbHelium3;
@@ -362,7 +596,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                     let hasConsumedFood = false;
 
                     for (const item of foodItems) {
-                        const oldQty = oldState.inventory[item] || 0;
+                        // Helper to get inventory val whether it's Map or Obj
+                        const oldQty = (oldState.inventory instanceof Map) ? (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
                             hasConsumedFood = true;
@@ -384,22 +619,23 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // 5. Scavenging & Resources Check
+        // Helper function for getting old inventory values cleanly
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+        
         let dScrap = 0;
-        let maxActionsPossible = 10; // Init default
+        let maxActionsPossible = 10;
+        // Init default
 
         if (oldState.inventory && newState.inventory) {
-            const dRegolith = (newState.inventory.Regolith || 0) - (oldState.inventory.Regolith || 0);
-            const dIce = (newState.inventory["Ice water"] || 0) - (oldState.inventory["Ice water"] || 0);
-            dScrap = (newState.inventory.Scrap || 0) - (oldState.inventory.Scrap || 0);
-
+            const dRegolith = (newState.inventory.Regolith || 0) - getOldInv("Regolith");
+            const dIce = (newState.inventory["Ice water"] || 0) - getOldInv("Ice water");
+            dScrap = (newState.inventory.Scrap || 0) - getOldInv("Scrap");
             const SCAV_DURATION_MS = 5000;
             const MAX_REG_PER_SCAV = 10;
             const MAX_ICE_PER_SCAV = 3;
             const MAX_SCRAP_PER_SCAV = 10;
-
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -413,7 +649,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                   });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -421,18 +657,18 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                 });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
             // 6. Food & Harvest Check
-            const dSnack = (newState.inventory.Snack || 0) - (oldState.inventory.Snack || 0);
-            const dMeal = (newState.inventory.Meal || 0) - (oldState.inventory.Meal || 0);
-            const dFeast = (newState.inventory.Feast || 0) - (oldState.inventory.Feast || 0);
-            const dIsotonic = (newState.inventory["Energy Isotonic"] || 0) - (oldState.inventory["Energy Isotonic"] || 0);
-            const dFood = (newState.inventory.Food || 0) - (oldState.inventory.Food || 0);
-            const dAmaranth = (newState.inventory.Amaranth || 0) - (oldState.inventory.Amaranth || 0);
-            const dGuarana = (newState.inventory.Guarana || 0) - (oldState.inventory.Guarana || 0);
+            const dSnack = (newState.inventory.Snack || 0) - getOldInv("Snack");
+            const dMeal = (newState.inventory.Meal || 0) - getOldInv("Meal");
+            const dFeast = (newState.inventory.Feast || 0) - getOldInv("Feast");
+            const dIsotonic = (newState.inventory["Energy Isotonic"] || 0) - getOldInv("Energy Isotonic");
+            const dFood = (newState.inventory.Food || 0) - getOldInv("Food");
+            const dAmaranth = (newState.inventory.Amaranth || 0) - getOldInv("Amaranth");
+            const dGuarana = (newState.inventory.Guarana || 0) - getOldInv("Guarana");
 
             let impliedFoodCost = 0;
             if (dSnack > 0) impliedFoodCost += dSnack * 30; 
@@ -469,7 +705,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SEEDS_DROP_BUFFER = 50;
 
             for (const seedName of seedTypes) {
-                const oldSeedQty = oldState.inventory[seedName] || 0;
+                const oldSeedQty = getOldInv(seedName);
                 const newSeedQty = newState.inventory[seedName] || 0;
                 const dSeed = newSeedQty - oldSeedQty;
                 if (dSeed > 0) {
@@ -497,7 +733,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
             for (const ore of oreTypes) {
-                const oldQty = oldState.inventory[ore.key] || 0;
+                const oldQty = getOldInv(ore.key);
                 const newQty = newState.inventory[ore.key] || 0;
                 const dQty = newQty - oldQty;
                 if (dQty > 0) {
@@ -534,7 +770,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const CAD_SAFETY_BUFFER = 5; 
 
             for (const gas of cadGases) {
-                const oldQty = oldState.inventory[gas.key] || 0;
+                const oldQty = getOldInv(gas.key);
                 const newQty = newState.inventory[gas.key] || 0;
                 const dQty = newQty - oldQty;
                 if (dQty > 0) {
@@ -551,7 +787,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             // 10. Water Filter Check
-            const dWater = (newState.inventory.Water || 0) - (oldState.inventory.Water || 0);
+            const dWater = (newState.inventory.Water || 0) - getOldInv("Water");
             if (dWater > 0) {
                 const FILTER_SLOTS = 2;
                 const WATER_PER_SLOT = 25;
@@ -567,8 +803,8 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             // 11. Fermentation Check
-            const dFermGuarana = (newState.inventory["Fermented Guarana"] || 0) - (oldState.inventory["Fermented Guarana"] || 0);
-            const dFermAmaranth = (newState.inventory["Fermented Amaranth"] || 0) - (oldState.inventory["Fermented Amaranth"] || 0);
+            const dFermGuarana = (newState.inventory["Fermented Guarana"] || 0) - getOldInv("Fermented Guarana");
+            const dFermAmaranth = (newState.inventory["Fermented Amaranth"] || 0) - getOldInv("Fermented Amaranth");
 
             const totalFermGain = Math.max(0, dFermGuarana) + Math.max(0, dFermAmaranth);
             if (totalFermGain > 0) {
@@ -592,9 +828,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Roasted Guarana", maxPerSlot: 20, slots: 2, buffer: 5 },
                 { key: "Ground Guarana", maxPerSlot: 13, slots: 2, buffer: 5 },
                 { key: "Energy Isotonic", maxPerSlot: 5, slots: 2, buffer: 3 }
-             ];
+            ];
             for (const item of kitchenItems) {
-                const oldQ = oldState.inventory[item.key] || 0;
+                const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
                 if (delta > 0) {
@@ -622,7 +858,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const CHEM_BUFFER = 5; 
 
             for (const item of chemItems) {
-                const oldQ = oldState.inventory[item.key] || 0;
+                const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
                 if (delta > 0) {
@@ -649,7 +885,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Electronic Parts", maxPerSlot: 3, slots: 2, buffer: 2 }
             ];
             for (const item of factoryItems) {
-                const oldQ = oldState.inventory[item.key] || 0;
+                const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
                 if (delta > 0) {
@@ -672,7 +908,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Rocket Fuel", maxPerSlot: 40, slots: 4, buffer: 4 }
             ];
             for (const item of fuelItems) {
-                const oldQ = oldState.inventory[item.key] || 0;
+                const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
                 if (delta > 0) {
@@ -693,7 +929,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             // =========================================================
             // This logic ensures that if you gained a product (e.g. Steel),
             // you actually spent the required raw materials (e.g. Iron Ore).
-            
             const CRAFT_COST_RULES = [
                 // { out: Output Item, in: Required Input, ratio: Min Input per 1 Output }
                 // Ratios are set generously to account for lucky bonuses/critical crafts.
@@ -707,27 +942,22 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, // 5->2-3. Safe: 1.0
                 { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } // 3->2-3. Safe: 0.5
             ];
-
             for (const rule of CRAFT_COST_RULES) {
-                const oldOutQty = oldState.inventory[rule.out] || 0;
+                const oldOutQty = getOldInv(rule.out);
                 const newOutQty = newState.inventory[rule.out] || 0;
                 const dOut = newOutQty - oldOutQty;
-
                 // Only validate if there is a significant gain (ignoring small drops/trades)
                 if (dOut > 5) {
                     const minInputRequired = dOut * rule.ratio;
-                    
                     // We need to check if inventory dropped by at least minInputRequired.
                     // However, user might have mined raw materials simultaneously.
                     // Equation: NewInput <= OldInput + MaxMiningGain - RequiredConsumption
                     
                     // Calculate a generous buffer for concurrent mining of the input resource
                     // (Mining Rate * Time) + Ship Cargo Buffer
-                    const miningBuffer = (maxActionsPossible * 15) + 200; 
-
-                    const maxTheoreticalInput = (oldState.inventory[rule.in] || 0) + miningBuffer - minInputRequired;
+                    const miningBuffer = (maxActionsPossible * 15) + 200;
+                    const maxTheoreticalInput = getOldInv(rule.in) + miningBuffer - minInputRequired;
                     const actualNewInput = newState.inventory[rule.in] || 0;
-
                     if (actualNewInput > maxTheoreticalInput) {
                          logAction(`CHEAT_CRAFT_COST_${rule.out.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             outputGained: dOut,
@@ -737,7 +967,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             requiredSpend: minInputRequired,
                             miningBuffer: miningBuffer
                          });
-                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                        return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
                 }
             }
@@ -780,6 +1010,7 @@ app.get('/api/market', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
+
 // 6. Buy Scavenging License
 app.post('/api/market/license', auth, async (req, res) => {
     try {
@@ -787,15 +1018,16 @@ app.post('/api/market/license', auth, async (req, res) => {
         if(!user) return res.status(404).json({msg: "User not found"});
 
         const COST = 200;
-        const currentScrap = user.gameState.inventory.Scrap || 0;
+        const currentScrap = user.gameState.inventory.get('Scrap') || 0;
 
         if(currentScrap < COST) {
             return res.status(400).json({msg: "Insufficient Scrap"});
         }
 
         // Execute Transaction
-        user.gameState.inventory.Scrap -= COST;
-        user.gameState.inventory["Scavenging License"] = (user.gameState.inventory["Scavenging License"] || 0) + 1;
+        user.gameState.inventory.set('Scrap', currentScrap - COST);
+        const currentLic = user.gameState.inventory.get("Scavenging License") || 0;
+        user.gameState.inventory.set("Scavenging License", currentLic + 1);
         
         user.markModified('gameState');
         await user.save();
@@ -808,6 +1040,7 @@ app.post('/api/market/license', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
+
 // 7. Post an Offer
 app.post('/api/market/offer', auth, async (req, res) => {
     try {
@@ -823,21 +1056,23 @@ app.post('/api/market/offer', auth, async (req, res) => {
         const user = await User.findById(req.user.id);
         if(!user) return res.status(404).json({msg: "User not found"});
 
-        // Check Inventory
-        const currentQty = user.gameState.inventory[item] || 0;
+        // Check Inventory (Map access)
+        const currentQty = user.gameState.inventory.get(item) || 0;
         if(currentQty < qty) {
             return res.status(400).json({msg: "Insufficient items in inventory"});
         }
 
         // Deduct Item
-        user.gameState.inventory[item] -= qty;
+        user.gameState.inventory.set(item, currentQty - qty);
         
         user.markModified('gameState');
         await user.save();
+
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
             sellerName: user.username,
+            sellerIp: req.ip, 
             item,
             qty,
             price
@@ -861,6 +1096,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
+
 // 8. Cancel an Offer (UPDATED WITH FIX AND PROTECTION)
 app.post('/api/market/cancel', auth, async (req, res) => {
     try {
@@ -880,14 +1116,15 @@ app.post('/api/market/cancel', auth, async (req, res) => {
 
         const user = await User.findById(req.user.id);
         
-        // Return Items
-        user.gameState.inventory[offer.item] = (user.gameState.inventory[offer.item] || 0) + offer.qty;
+        // Return Items (Map set)
+        const current = user.gameState.inventory.get(offer.item) || 0;
+        user.gameState.inventory.set(offer.item, current + offer.qty);
+        
         user.markModified('gameState');
         await user.save();
 
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId });
-
         // FIX: Fetch and return updated offers list so UI refreshes correctly
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -906,6 +1143,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
+
 // 9. Buy an Offer (FIXED RACE CONDITION)
 app.post('/api/market/buy', auth, async (req, res) => {
     try {
@@ -920,10 +1158,18 @@ app.post('/api/market/buy', auth, async (req, res) => {
         // We peek to see if it exists and to validate price BEFORE we try to delete it.
         const peekOffer = await MarketOffer.findById(offerId);
         if(!peekOffer) return res.status(404).json({msg: "Offer no longer exists"});
+        
+        // [CHECK] Нельзя покупать свой лот
         if(peekOffer.sellerId.toString() === buyerId) return res.status(400).json({msg: "Cannot buy your own offer"});
 
-        // 3. Check Funds (Memory Check)
-        const buyerH3 = buyer.gameState.inventory.Helium3 || 0;
+        // [UPDATED] Проверка IP (Запрет торговли между аккаунтами на одном IP)
+        if (peekOffer.sellerIp === req.ip) {
+            logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: peekOffer.sellerIp, buyerIp: req.ip });
+            return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
+        }
+
+        // 3. Check Funds (Memory Check - Map access)
+        const buyerH3 = buyer.gameState.inventory.get('Helium3') || 0;
         if(buyerH3 < peekOffer.price) {
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
@@ -936,22 +1182,35 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         if (!securedOffer) {
              // Race condition caught: Another request bought it milliseconds ago.
-            return res.status(404).json({msg: "Offer was just sold to another player"});
+             return res.status(404).json({msg: "Offer was just sold to another player"});
         }
 
         // 5. Execute Transfer (Now that we definitely own the offer)
         
         // Deduct Money & Add Item to Buyer
-        buyer.gameState.inventory.Helium3 -= securedOffer.price;
-        buyer.gameState.inventory[securedOffer.item] = (buyer.gameState.inventory[securedOffer.item] || 0) + securedOffer.qty;
+        buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
+        const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
+        buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
+
         buyer.markModified('gameState');
         await buyer.save();
         // Add Money to Seller ATOMICALLY
-        // Using $inc ensures we don't overwrite seller's state if they are active
-        await User.updateOne(
-            { _id: securedOffer.sellerId },
-            { $inc: { "gameState.inventory.Helium3": securedOffer.price } }
-        );
+        // Note: Since we are using Map for inventory in schema, simple dot notation update might fail in $inc 
+        // if Mongoose doesn't map it automatically.
+        // However, for deep nested maps, direct find/save is safer 
+        // OR we trust user is active.
+        // For absolute safety on offline sellers:
+        
+        const seller = await User.findById(securedOffer.sellerId);
+        if (seller) {
+            // Re-instantiate Map if needed (safety check)
+            if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
+            const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
+            seller.gameState.inventory.set('Helium3', currentSellerH3 + securedOffer.price);
+            seller.markModified('gameState');
+            await seller.save();
+        }
+
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
             qty: securedOffer.qty, 
