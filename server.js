@@ -167,8 +167,7 @@ app.post('/api/auth/register', async (req, res) => {
                     { id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
                 ]
             }
-        }; 
-        
+        };
         await user.save();
 
         logAction('REGISTER_SUCCESS', user.id, username, req);
@@ -246,6 +245,13 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         const oldState = user.gameState || {}; 
         let timeSinceLastSave = 0;
+
+        // --- ВАЖНО: ЗАЩИТА СЕРВЕРНЫХ ДАННЫХ ---
+        // Игнорируем Helium3 от клиента, чтобы предотвратить накрутку через консоль браузера.
+        // Сервер - единственный источник правды для рыночной валюты.
+        const dbHelium3 = (oldState.inventory && oldState.inventory.Helium3) ? oldState.inventory.Helium3 : 0;
+        if (!newState.inventory) newState.inventory = {};
+        newState.inventory.Helium3 = dbHelium3;
 
         // --- ANTI-CHEAT CHECKS ---
 
@@ -363,6 +369,7 @@ app.post('/api/game/save', auth, async (req, res) => {
 
             const maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -376,7 +383,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                 });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -653,18 +660,11 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // --- SUCCESSFUL SAVE ---
-        // Preserve sensitive server-authoritative data (Helium3 and Market)
-        // We do NOT trust the client's Helium3 or License count if it differs suspiciously, 
-        // but for now, we rely on the specific Market API endpoints to manage H3 transactions.
-        // To be safe, we could re-enforce the H3 balance from DB, but since the save overwrites,
-        // we assume the client logic mirrors the server logic for now.
-        // A full production version would use event sourcing for H3.
-        
         user.gameState = gameState;
         user.lastSaveTime = serverNow;
         user.markModified('gameState');
-        // Important for mixed types
         await user.save();
+        
         logAction('GAME_SAVE', req.user.id, user.username, req, {
             savedAt: serverNow
         });
@@ -675,7 +675,7 @@ app.post('/api/game/save', auth, async (req, res) => {
     }
 });
 
-// --- NEW: MARKET ROUTES ---
+// --- MARKET ROUTES ---
 
 // 5. Get All Market Offers
 app.get('/api/market', auth, async (req, res) => {
@@ -697,7 +697,7 @@ app.get('/api/market', auth, async (req, res) => {
     }
 });
 
-// 6. Buy Scavenging License (Server-side validation)
+// 6. Buy Scavenging License
 app.post('/api/market/license', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
@@ -731,8 +731,10 @@ app.post('/api/market/offer', auth, async (req, res) => {
     try {
         const { item, qty, price } = req.body;
         
-        // Basic Validation
-        if(!item || qty <= 0 || price <= 0) return res.status(400).json({msg: "Invalid offer data"});
+        // Strict Validation to prevent decimal cheating or negatives
+        if(!item || !Number.isInteger(qty) || qty <= 0 || !Number.isInteger(price) || price <= 0) {
+            return res.status(400).json({msg: "Invalid offer data"});
+        }
         if(item === 'Helium3' || item === 'Scavenging License') return res.status(400).json({msg: "Restricted Item"});
 
         const user = await User.findById(req.user.id);
@@ -797,55 +799,61 @@ app.post('/api/market/cancel', auth, async (req, res) => {
     }
 });
 
-// 9. Buy an Offer
+// 9. Buy an Offer (FIXED RACE CONDITION)
 app.post('/api/market/buy', auth, async (req, res) => {
     try {
         const { offerId } = req.body;
         const buyerId = req.user.id;
 
-        // Start Logic (Simple check mechanism, no complex transactions for this snippet level)
-        const offer = await MarketOffer.findById(offerId);
-        if(!offer) return res.status(404).json({msg: "Offer no longer exists"});
-        if(offer.sellerId.toString() === buyerId) return res.status(400).json({msg: "Cannot buy your own offer"});
-
+        // 1. Load Buyer First (Check existence)
         const buyer = await User.findById(buyerId);
-        const seller = await User.findById(offer.sellerId);
+        if(!buyer) return res.status(500).json({msg: "User data error"});
 
-        if(!buyer || !seller) return res.status(500).json({msg: "User data error"});
+        // 2. Pre-check Offer (Read-only check)
+        // We peek to see if it exists and to validate price BEFORE we try to delete it.
+        const peekOffer = await MarketOffer.findById(offerId);
+        if(!peekOffer) return res.status(404).json({msg: "Offer no longer exists"});
+        if(peekOffer.sellerId.toString() === buyerId) return res.status(400).json({msg: "Cannot buy your own offer"});
 
-        // Check Funds
+        // 3. Check Funds (Memory Check)
         const buyerH3 = buyer.gameState.inventory.Helium3 || 0;
-        if(buyerH3 < offer.price) {
+        if(buyerH3 < peekOffer.price) {
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
-        // Execute Transfer
-        // 1. Deduct Money from Buyer
-        buyer.gameState.inventory.Helium3 -= offer.price;
-        // 2. Add Item to Buyer
-        buyer.gameState.inventory[offer.item] = (buyer.gameState.inventory[offer.item] || 0) + offer.qty;
-        // 3. Add Money to Seller
-        // Note: We update seller's DB state directly.
-        // If seller is online, their next sync/save might overwrite this if we aren't careful,
-        // BUT current save logic overwrites the whole object.
-        // For a robust system, we would use an "Inbox" or "PendingTransactions" array in User model,
-        // but for this implementation, we modify inventory directly.
-        if(!seller.gameState.inventory) seller.gameState.inventory = {};
-        seller.gameState.inventory.Helium3 = (seller.gameState.inventory.Helium3 || 0) + offer.price;
+        // 4. ATOMIC CLAIM (The Fix)
+        // We attempt to find AND delete the offer in one atomic database operation.
+        // If two requests hit this simultaneously, only ONE will get the document back.
+        // The other will get null.
+        const securedOffer = await MarketOffer.findOneAndDelete({ _id: offerId });
 
+        if (!securedOffer) {
+             // Race condition caught: Another request bought it milliseconds ago.
+             return res.status(404).json({msg: "Offer was just sold to another player"});
+        }
+
+        // 5. Execute Transfer (Now that we definitely own the offer)
+        
+        // Deduct Money & Add Item to Buyer
+        buyer.gameState.inventory.Helium3 -= securedOffer.price;
+        buyer.gameState.inventory[securedOffer.item] = (buyer.gameState.inventory[securedOffer.item] || 0) + securedOffer.qty;
         buyer.markModified('gameState');
-        seller.markModified('gameState');
-
         await buyer.save();
-        await seller.save();
-        await MarketOffer.deleteOne({ _id: offerId });
+
+        // Add Money to Seller ATOMICALLY
+        // Using $inc ensures we don't overwrite seller's state if they are active
+        await User.updateOne(
+            { _id: securedOffer.sellerId },
+            { $inc: { "gameState.inventory.Helium3": securedOffer.price } }
+        );
 
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
-            item: offer.item, 
-            qty: offer.qty, 
-            price: offer.price, 
-            seller: seller.username 
+            item: securedOffer.item, 
+            qty: securedOffer.qty, 
+            price: securedOffer.price, 
+            sellerId: securedOffer.sellerId 
         });
+
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
     } catch (err) {
