@@ -12,11 +12,6 @@ const app = express();
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
 app.set('trust proxy', 1);
 
-// --- ВАЖНОЕ ИСПРАВЛЕНИЕ: ПАРСЕРЫ ДОЛЖНЫ БЫТЬ В НАЧАЛЕ ---
-// Они должны идти ДО rateLimit, чтобы req.body был доступен для проверки username
-app.use(express.json({ limit: '500kb' }));
-app.use(cors());
-
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me';
 
@@ -56,6 +51,7 @@ const BatterySchema = new mongoose.Schema({
 
 // Generic Machine Slot (Refinery, Factory, etc.)
 const SlotSchema = new mongoose.Schema({
+    // ИСПРАВЛЕНИЕ: removed 'required: true', added 'default: 0' to prevent validation errors for single slots like fermenter
     id: { type: Number, default: 0 }, 
     active: { type: Boolean, default: false },
     startTime: { type: Number, default: 0 },
@@ -280,8 +276,7 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     validate: { trustProxy: false },
     keyGenerator: (req) => {
-        // Теперь это безопасно, т.к. express.json() уже отработал
-        return (req.body && req.body.username) ? req.body.username : req.ip;
+        return req.body.username || req.ip;
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
 });
@@ -309,6 +304,11 @@ const marketLimiter = rateLimit({
     message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
 app.use('/api/market', marketLimiter);
+
+// Middleware
+app.use(express.json({ limit: '500kb' }));
+app.use(cors());
+app.use(express.static('public'));
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
@@ -610,6 +610,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         
         let dScrap = 0;
         let maxActionsPossible = 10;
+
         if (oldState.inventory && newState.inventory) {
             const dRegolith = (newState.inventory.Regolith || 0) - getOldInv("Regolith");
             const dIce = (newState.inventory["Ice water"] || 0) - getOldInv("Ice water");
@@ -620,6 +621,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -1141,6 +1143,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         // 4. ATOMIC CLAIM
         const securedOffer = await MarketOffer.findOneAndDelete({ _id: offerId });
+
         if (!securedOffer) {
              return res.status(404).json({msg: "Offer was just sold to another player"});
         }
