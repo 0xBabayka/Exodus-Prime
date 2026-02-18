@@ -247,7 +247,6 @@ const getDeviceFingerprint = (req) => {
         
         // Combine headers to create a unique string signature
         const signature = `EXODUS_PRIME_FP:${ip}|${ua}|${lang}|${secCh}`;
-        
         // Create SHA-256 hash
         return crypto.createHash('sha256').update(signature).digest('hex');
     } catch (e) {
@@ -761,7 +760,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                 });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -769,7 +768,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                 });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -835,7 +834,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                          });
+                        });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -1072,9 +1071,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                             actualNewInput: actualNewInput,
                             maxTheoreticalInput: maxTheoreticalInput,
                             requiredSpend: minInputRequired,
-                             miningBuffer: miningBuffer
+                            miningBuffer: miningBuffer
                          });
-                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                        return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
                 }
             }
@@ -1269,7 +1268,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         // --- NEW: CAPTURE SELLER DEVICE FINGERPRINT ---
         const sellerFingerprint = getDeviceFingerprint(req);
-
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -1424,19 +1422,27 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
-        // 4. Execute Transfer (Buyer)
+        // 4. Execute Transfer (Buyer pays FULL PRICE)
         buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
         const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
         buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
 
         buyer.markModified('gameState');
         await buyer.save({ session });
-        // 5. Execute Transfer (Seller)
+
+        // 5. Execute Transfer (Seller receives PRICE - 5% FEE)
         const seller = await User.findById(securedOffer.sellerId).session(session);
+        
+        // --- NEW: FEE LOGIC ---
+        const price = securedOffer.price;
+        const fee = Math.floor(price * 0.05); // 5% Fee
+        const sellerRevenue = price - fee;
+        // ----------------------
+
         if (seller) {
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
             const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
-            seller.gameState.inventory.set('Helium3', currentSellerH3 + securedOffer.price);
+            seller.gameState.inventory.set('Helium3', currentSellerH3 + sellerRevenue);
             seller.markModified('gameState');
             await seller.save({ session });
         }
@@ -1445,11 +1451,14 @@ app.post('/api/market/buy', auth, async (req, res) => {
         await MarketOffer.deleteOne({ _id: offerId }, { session });
         // 7. Commit Transaction
         await session.commitTransaction();
-        // Background logging
+        
+        // Background logging (Including Fee Data)
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
             qty: securedOffer.qty, 
-            price: securedOffer.price, 
+            fullPrice: price, 
+            feeDeducted: fee,
+            sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
