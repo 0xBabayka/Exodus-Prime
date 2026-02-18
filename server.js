@@ -380,7 +380,6 @@ const marketLimiter = rateLimit({
     message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
 app.use('/api/market', marketLimiter);
-
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
     maxPoolSize: 10,
@@ -526,9 +525,13 @@ app.post('/api/auth/login', async (req, res) => {
             fp: fingerPrint 
         };
 
+        // Подготовка ответа с явным добавлением lastSaveTime, так как GameStateSchema strict: true
+        const responseState = user.gameState ? user.gameState.toObject() : {};
+        responseState.lastSaveTime = user.lastSaveTime;
+
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
              if (err) throw err;
-             res.json({ token, gameState: user.gameState });
+             res.json({ token, gameState: responseState });
         });
     } catch (err) {
         console.error(err.message);
@@ -544,55 +547,21 @@ app.get('/api/game/load', auth, async (req, res) => {
         if(!user.gameState.inventory) user.gameState.inventory = new Map();
         if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
 
-        // --- OFFLINE CHARGE CALCULATION FIX ---
-        // Рассчитываем заряд батарей на сервере при загрузке, чтобы избежать ошибок на клиенте.
-        const now = Date.now();
-        const lastSave = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : now;
-        const dt = now - lastSave;
-
-        if (dt > 5000) { // Если прошло более 5 секунд с последнего сохранения
-            const PANEL_BASE_OUTPUT = 0.015; // Константа из клиента
-            const AVG_FLUX = 0.425; // Средний поток (flux)
-            const BATTERY_CAP = 33.33; // Емкость батареи
-
-            // Расчет выработки
-            const seconds = dt / 1000;
-            const offlineGen = (PANEL_BASE_OUTPUT * AVG_FLUX) * seconds;
-            const offlineLoad = (user.gameState.power.consumptionRate || 0) * seconds;
-            let netEnergy = offlineGen - offlineLoad;
-
-            // Распределение энергии по батареям в сети (GRID)
-            if (netEnergy > 0 && user.gameState.power && user.gameState.power.batteries) {
-                user.gameState.power.batteries.forEach(bat => {
-                    if (bat.loc === 'grid' && netEnergy > 0) {
-                        const currentCharge = bat.charge || 0;
-                        const wear = bat.wear || 0;
-                        const maxCharge = BATTERY_CAP * (1 - (wear / 100));
-                        const space = maxCharge - currentCharge;
-
-                        if (space > 0) {
-                            const add = Math.min(space, netEnergy);
-                            bat.charge = currentCharge + add;
-                            netEnergy -= add;
-                        }
-                    }
-                });
-                
-                // Обновляем время сохранения на сервере, чтобы избежать дублирования
-                user.lastSaveTime = now;
-                // Явно указываем Mongoose, что gameState изменился
-                user.markModified('gameState'); 
-                await user.save();
-                
-                console.log(`[SYS] Offline calc for ${user.username}: +${(offlineGen - offlineLoad).toFixed(2)}kW over ${(dt/1000).toFixed(1)}s`);
-            }
-        }
-        // --- END OFFLINE FIX ---
-
+        // --- FIX: УДАЛЕН СЕРВЕРНЫЙ РАСЧЕТ ОФЛАЙН ЗАРЯДА ---
+        // Причина: Серверный расчет обновлял user.lastSaveTime, из-за чего клиент
+        // получал dt=0, не запускал restoreOfflineProgress() и не показывал логи в UI.
+        // Теперь мы отправляем клиенту старый lastSaveTime, и клиент сам рассчитывает
+        // прогресс и добавляет запись в SYSTEM LOG.
+        
         logAction('GAME_LOAD', user.id, user.username, req);
-
         res.setHeader('x-server-time', Date.now());
-        res.json(user.gameState);
+
+        // Преобразуем в обычный объект, чтобы добавить поле lastSaveTime,
+        // которое отсутствует в GameStateSchema
+        const responseState = user.gameState.toObject();
+        responseState.lastSaveTime = user.lastSaveTime;
+
+        res.json(responseState);
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
@@ -733,8 +702,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
-                        });
-                        return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
+                         });
+                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
             }
@@ -764,8 +733,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                             lastEaten: lastEaten,
                             serverNow: serverNow,
                             diff: serverNow - lastEaten
-                        });
-                        return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
+                         });
+                         return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
                     }
 
                     if (!newState.cooldowns) newState.cooldowns = {};
@@ -800,7 +769,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                   });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -808,7 +777,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                 });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
