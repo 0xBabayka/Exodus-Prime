@@ -27,7 +27,6 @@ app.use(helmet({
         },
     },
 }));
-
 // --- ИСПРАВЛЕНИЕ: Перенесли парсеры ВЫШЕ лимитеров, чтобы req.body был доступен ---
 // Middleware
 app.use(express.json({ limit: '500kb' }));
@@ -198,7 +197,6 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
-
 const User = mongoose.model('User', UserSchema);
 
 // 3. Action Log Model
@@ -210,7 +208,6 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
-
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // 4. Market Offer Model (UPDATED FOR DEVICE FINGERPRINT)
@@ -225,7 +222,6 @@ const MarketOfferSchema = new mongoose.Schema({
     currency: { type: String, default: 'HELIUM3' },
     postedAt: { type: Date, default: Date.now }
 });
-
 const MarketOffer = mongoose.model('MarketOffer', MarketOfferSchema);
 
 // --- HELPER: FIRE AND FORGET LOGGING ---
@@ -408,13 +404,26 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
 
-// --- AUTH MIDDLEWARE ---
+// --- AUTH MIDDLEWARE (UPDATED WITH FINGERPRINT BINDING) ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
     if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
+
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded.user;
+
+        // --- NEW: FINGERPRINT VALIDATION ---
+        // Генерируем отпечаток текущего запроса
+        const currentFingerprint = getDeviceFingerprint(req);
+        
+        // Если в токене есть отпечаток, проверяем соответствие
+        if (decoded.fp && decoded.fp !== currentFingerprint) {
+            console.log(`[SECURITY] Session Hijack Attempt Blocked! User: ${decoded.user.id}`);
+            return res.status(403).json({ msg: 'Session invalid: Device fingerprint mismatch. Please login again.' });
+        }
+        // ----------------------------------
+
         next();
     } catch (err) {
         res.status(401).json({ msg: 'Token is not valid' });
@@ -488,14 +497,23 @@ app.post('/api/auth/register', async (req, res) => {
             stamina: { val: 100, max: 100 },
             skills: {
                  scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
-                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
+                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
+
         await user.save();
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
-        const payload = { user: { id: user.id } };
+        // --- NEW: FINGERPRINT GENERATION ---
+        const fingerPrint = getDeviceFingerprint(req);
+        
+        const payload = { 
+            user: { id: user.id },
+            fp: fingerPrint // Bind Fingerprint to Token
+        };
+        // ----------------------------------
+
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ token });
@@ -525,9 +543,16 @@ app.post('/api/auth/login', async (req, res) => {
 
         logAction('LOGIN_SUCCESS', user.id, username, req);
 
-        const payload = { user: { id: user.id } };
+        // --- NEW: FINGERPRINT GENERATION ---
+        const fingerPrint = getDeviceFingerprint(req);
+
+        const payload = { 
+            user: { id: user.id },
+            fp: fingerPrint // Bind Fingerprint to Token
+        };
+        // ----------------------------------
+
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
-      
              if (err) throw err;
             res.json({ token, gameState: user.gameState });
         });
@@ -583,10 +608,9 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const oldState = user.gameState || {};
-
         // --- MOVED UP HELPER FOR USE IN COOLDOWN CHECK ---
         const getOldInv = (key) => (oldState.inventory instanceof Map) ?
-             (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
 
         let timeSinceLastSave = 0;
         
@@ -705,7 +729,8 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // --- 4.5 NEW COOLDOWN PROTECTION (UPSCALE) ---
         if (newState.inventory) {
-            const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000; // 2.5 Hours
+            const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000;
+            // 2.5 Hours
             const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
             for (const foodItem of TRACKED_FOODS) {
                 const oldFoodQty = getOldInv(foodItem);
@@ -755,7 +780,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -769,7 +793,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-               });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -777,7 +801,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                 });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -843,7 +867,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                         });
+                        });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -858,10 +882,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Raw silicon", maxPerSmelt: 5 },     
                 { key: "Steel", maxPerSmelt: 15 }
             ];
-            
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
-            
             for (const ore of oreTypes) {
                 const oldQty = getOldInv(ore.key);
                 const newQty = newState.inventory[ore.key] || 0;
@@ -909,7 +931,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
                             resource: gas.key,
                             delta: dQty,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${gas.key} (CAD violation).` });
                     }
@@ -969,7 +991,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_KITCHEN_${item.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Kitchen output for ${item.key}.` });
                     }
@@ -997,7 +1019,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_CHEMLAB_${item.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Chemical Lab output for ${item.key}.` });
                     }
@@ -1024,7 +1046,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_FACTORY_${item.key.toUpperCase().replace(/ /g, '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Factory output for ${item.key}.` });
                     }
@@ -1047,7 +1069,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_FUEL_${item.key.toUpperCase().replace(/ /g, '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Fuel Factory output for ${item.key}.` });
                     }
@@ -1071,7 +1093,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldOutQty = getOldInv(rule.out);
                 const newOutQty = newState.inventory[rule.out] || 0;
                 const dOut = newOutQty - oldOutQty;
-                
                 if (dOut > 5) {
                     const minInputRequired = dOut * rule.ratio;
                     const miningBuffer = (maxActionsPossible * 15) + 200;
@@ -1086,7 +1107,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             requiredSpend: minInputRequired,
                             miningBuffer: miningBuffer
                          });
-                        return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
                 }
             }
@@ -1281,7 +1302,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         // --- NEW: CAPTURE SELLER DEVICE FINGERPRINT ---
         const sellerFingerprint = getDeviceFingerprint(req);
-        
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -1352,12 +1372,10 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save({ session });
-        
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
 
         await session.commitTransaction();
-        
         // Refresh offers
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -1368,7 +1386,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
@@ -1446,10 +1463,8 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         buyer.markModified('gameState');
         await buyer.save({ session });
-        
         // 5. Execute Transfer (Seller receives PRICE - 5% FEE)
         const seller = await User.findById(securedOffer.sellerId).session(session);
-        
         // --- NEW: FEE LOGIC ---
         const price = securedOffer.price;
         const fee = Math.floor(price * 0.05); // 5% Fee
@@ -1466,10 +1481,8 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         // 6. Delete the Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
-        
         // 7. Commit Transaction
         await session.commitTransaction();
-        
         // Background logging (Including Fee Data)
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
