@@ -28,6 +28,12 @@ app.use(helmet({
     },
 }));
 
+// --- ИСПРАВЛЕНИЕ: Перенесли парсеры ВЫШЕ лимитеров, чтобы req.body был доступен ---
+// Middleware
+app.use(express.json({ limit: '500kb' }));
+app.use(cors());
+app.use(express.static('public'));
+
 // --- HONEYPOT CONFIGURATION (ЛОВУШКА) ---
 const HONEYPOT_KEYS = [
     'admin', 'isAdmin', 'is_admin', 
@@ -192,6 +198,7 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
+
 const User = mongoose.model('User', UserSchema);
 
 // 3. Action Log Model
@@ -203,6 +210,7 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
+
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // 4. Market Offer Model (UPDATED FOR DEVICE FINGERPRINT)
@@ -217,6 +225,7 @@ const MarketOfferSchema = new mongoose.Schema({
     currency: { type: String, default: 'HELIUM3' },
     postedAt: { type: Date, default: Date.now }
 });
+
 const MarketOffer = mongoose.model('MarketOffer', MarketOfferSchema);
 
 // --- HELPER: FIRE AND FORGET LOGGING ---
@@ -361,7 +370,8 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
     validate: { trustProxy: false },
     keyGenerator: (req) => {
-        return req.body.username || req.ip;
+        // --- ИСПРАВЛЕНИЕ: Добавлен ?. (optional chaining) для безопасности ---
+        return req.body?.username || req.ip;
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
 });
@@ -389,11 +399,6 @@ const marketLimiter = rateLimit({
     message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
 app.use('/api/market', marketLimiter);
-
-// Middleware
-app.use(express.json({ limit: '500kb' }));
-app.use(cors());
-app.use(express.static('public'));
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
@@ -512,6 +517,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+ 
         if (!isMatch) {
             logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
@@ -521,7 +527,8 @@ app.post('/api/auth/login', async (req, res) => {
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
-            if (err) throw err;
+      
+             if (err) throw err;
             res.json({ token, gameState: user.gameState });
         });
     } catch (err) {
@@ -576,8 +583,10 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const oldState = user.gameState || {};
+
         // --- MOVED UP HELPER FOR USE IN COOLDOWN CHECK ---
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
+             (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
 
         let timeSinceLastSave = 0;
         
@@ -746,7 +755,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-
+            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -760,7 +769,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                  });
+               });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -768,7 +777,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -834,7 +843,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                        });
+                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -849,8 +858,10 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Raw silicon", maxPerSmelt: 5 },     
                 { key: "Steel", maxPerSmelt: 15 }
             ];
+            
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
+            
             for (const ore of oreTypes) {
                 const oldQty = getOldInv(ore.key);
                 const newQty = newState.inventory[ore.key] || 0;
@@ -1055,10 +1066,12 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, 
                 { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } 
             ];
+            
             for (const rule of CRAFT_COST_RULES) {
                 const oldOutQty = getOldInv(rule.out);
                 const newOutQty = newState.inventory[rule.out] || 0;
                 const dOut = newOutQty - oldOutQty;
+                
                 if (dOut > 5) {
                     const minInputRequired = dOut * rule.ratio;
                     const miningBuffer = (maxActionsPossible * 15) + 200;
@@ -1268,6 +1281,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         // --- NEW: CAPTURE SELLER DEVICE FINGERPRINT ---
         const sellerFingerprint = getDeviceFingerprint(req);
+        
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -1338,10 +1352,12 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save({ session });
+        
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
 
         await session.commitTransaction();
+        
         // Refresh offers
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -1352,6 +1368,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
+        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
     } catch (err) {
@@ -1429,7 +1446,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         buyer.markModified('gameState');
         await buyer.save({ session });
-
+        
         // 5. Execute Transfer (Seller receives PRICE - 5% FEE)
         const seller = await User.findById(securedOffer.sellerId).session(session);
         
@@ -1449,6 +1466,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         // 6. Delete the Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
+        
         // 7. Commit Transaction
         await session.commitTransaction();
         
@@ -1461,8 +1479,8 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
+        
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
-
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
