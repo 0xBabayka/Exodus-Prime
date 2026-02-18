@@ -25,7 +25,6 @@ app.use(helmet({
         },
     },
 }));
-
 // --- HONEYPOT CONFIGURATION (ЛОВУШКА) ---
 const HONEYPOT_KEYS = [
     'admin', 'isAdmin', 'is_admin', 
@@ -35,7 +34,6 @@ const HONEYPOT_KEYS = [
     'dev_tools', 'debug_mode',
     'unlimited_resources'
 ];
-
 // --- DATABASE MODELS & SCHEMAS (VALIDATION ADDED) ---
 
 // 1. Sub-Schemas for Game State Validation
@@ -47,7 +45,6 @@ const BatterySchema = new mongoose.Schema({
     wear: { type: Number, default: 0, min: 0, max: 100 },
     loc: { type: String, enum: ['grid', 'inventory', 'warehouse'], default: 'inventory' }
 }, { _id: false });
-
 // Generic Machine Slot (Refinery, Factory, etc.)
 const SlotSchema = new mongoose.Schema({
     id: { type: Number, default: 0 }, 
@@ -58,7 +55,6 @@ const SlotSchema = new mongoose.Schema({
     status: { type: String }, 
     crop: { type: String, default: null }
 }, { _id: false });
-
 // Skill Structure
 const SkillSchema = new mongoose.Schema({
     lvl: { type: Number, default: 1, min: 1 },
@@ -66,7 +62,6 @@ const SkillSchema = new mongoose.Schema({
     next: { type: Number, default: 100 },
     locked: { type: Boolean, default: false }
 }, { _id: false });
-
 // Active Ship Structure
 const ShipSchema = new mongoose.Schema({
     type: { type: String, required: true },
@@ -82,7 +77,6 @@ const ShipSchema = new mongoose.Schema({
     mineStart: { type: Number, default: 0 },
     spec: { type: Object } 
 }, { _id: false });
-
 // Celestial Body (Map Object)
 const BodySchema = new mongoose.Schema({
     id: Number,
@@ -96,7 +90,6 @@ const BodySchema = new mongoose.Schema({
     scanned: { type: Boolean, default: false },
     res: [String]
 }, { _id: false });
-
 // MAIN GAME STATE SCHEMA
 const GameStateSchema = new mongoose.Schema({
     camera: { 
@@ -181,7 +174,6 @@ const GameStateSchema = new mongoose.Schema({
         offers: { type: Array, default: [] } 
     }
 }, { _id: false, strict: true });
-
 // 2. User Model
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
@@ -233,7 +225,6 @@ const logAction = async (action, userId, username, req, details = {}) => {
         console.error('Logging Error (Background):', err.message);
     }
 };
-
 // --- RATE LIMITING ---
 
 // 1. Global Limit
@@ -287,7 +278,6 @@ app.use('/api/market', marketLimiter);
 app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
-
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
     maxPoolSize: 10,
@@ -295,7 +285,6 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 })
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
-
 // --- AUTH MIDDLEWARE ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
@@ -308,7 +297,6 @@ const auth = (req, res, next) => {
         res.status(401).json({ msg: 'Token is not valid' });
     }
 };
-
 // --- ROUTES ---
 
 // 1. Register
@@ -324,7 +312,7 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         let user = await User.findOne({ username });
         if (user) {
-            logAction('REGISTER_FAIL_EXISTS', null, username, req);
+             logAction('REGISTER_FAIL_EXISTS', null, username, req);
             return res.status(400).json({ msg: 'User already exists' });
         }
 
@@ -376,7 +364,7 @@ app.post('/api/auth/register', async (req, res) => {
             stamina: { val: 100, max: 100 },
             skills: {
                  scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
-                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
+                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
@@ -393,7 +381,6 @@ app.post('/api/auth/register', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
-
 // 2. Login
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -423,7 +410,6 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
-
 // 3. Load Game (Protected)
 app.get('/api/game/load', auth, async (req, res) => {
     try {
@@ -441,7 +427,6 @@ app.get('/api/game/load', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
-
 // 4. Save Game (Protected) with Anti-Cheat, CRAFTING VALIDATION & HONEYPOT
 app.post('/api/game/save', auth, async (req, res) => {
     try {
@@ -466,6 +451,11 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const oldState = user.gameState || {}; 
+        
+        // --- MOVED UP HELPER FOR USE IN COOLDOWN CHECK ---
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
+            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
@@ -559,8 +549,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     let hasConsumedFood = false;
 
                     for (const item of foodItems) {
-                        const oldQty = (oldState.inventory instanceof Map) ?
-                            (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
+                        const oldQty = getOldInv(item);
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
                             hasConsumedFood = true;
@@ -581,9 +570,46 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
+        // --- 4.5 NEW COOLDOWN PROTECTION (UPSCALE) ---
+        if (newState.inventory) {
+            const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000; // 2.5 Hours
+            const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
+
+            for (const foodItem of TRACKED_FOODS) {
+                const oldFoodQty = getOldInv(foodItem);
+                const newFoodQty = newState.inventory[foodItem] || 0;
+
+                // User consumed food
+                if (newFoodQty < oldFoodQty) {
+                    let lastEaten = 0;
+                    if (oldState.cooldowns) {
+                        if (oldState.cooldowns instanceof Map) {
+                            lastEaten = oldState.cooldowns.get(foodItem) || 0;
+                        } else {
+                            lastEaten = oldState.cooldowns[foodItem] || 0;
+                        }
+                    }
+
+                    // Strict server-side check
+                    if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
+                        logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
+                            item: foodItem,
+                            lastEaten: lastEaten,
+                            serverNow: serverNow,
+                            diff: serverNow - lastEaten
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
+                    }
+
+                    // Enforce server-side timestamp to prevent client-side clearing
+                    if (!newState.cooldowns) newState.cooldowns = {};
+                    newState.cooldowns[foodItem] = serverNow;
+                }
+            }
+        }
+        // ----------------------------------------------
+
         // 5. Scavenging & Resources Check
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
-            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         
         let dScrap = 0;
         let maxActionsPossible = 10;
@@ -610,7 +636,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -618,7 +644,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -676,7 +702,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                        });
+                          });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -957,7 +983,6 @@ app.get('/api/market', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
-
 // 6. Buy Scavenging License (Protected with MongoDB Session)
 app.post('/api/market/license', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -984,7 +1009,6 @@ app.post('/api/market/license', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save({ session });
-        
         await session.commitTransaction();
 
         // Background logging
@@ -999,7 +1023,6 @@ app.post('/api/market/license', auth, async (req, res) => {
         session.endSession();
     }
 });
-
 // 7. Post an Offer (Protected with MongoDB Session)
 app.post('/api/market/offer', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1053,10 +1076,8 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await newOffer.save({ session });
 
         await session.commitTransaction();
-
         // Logging and fetching new offers list (outside transaction for performance)
         logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: safeQty, price: safePrice });
-        
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1068,7 +1089,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         }));
         
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: user.gameState.inventory, offers: mappedOffers });
-
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1077,7 +1097,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         session.endSession();
     }
 });
-
 // 8. Cancel an Offer (Protected with MongoDB Session)
 app.post('/api/market/cancel', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1113,12 +1132,10 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save({ session });
-
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
 
         await session.commitTransaction();
-
         // Refresh offers
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -1129,10 +1146,8 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
-
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1141,7 +1156,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         session.endSession();
     }
 });
-
 // 9. Buy an Offer (PROTECTED WITH MONGODB SESSION - NO RACE CONDITIONS)
 app.post('/api/market/buy', auth, async (req, res) => {
     const { offerId } = req.body;
@@ -1195,7 +1209,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         buyer.markModified('gameState');
         await buyer.save({ session });
-
         // 5. Execute Transfer (Seller)
         const seller = await User.findById(securedOffer.sellerId).session(session);
         if (seller) {
@@ -1208,10 +1221,8 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         // 6. Delete the Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
-
         // 7. Commit Transaction
         await session.commitTransaction();
-
         // Background logging
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
@@ -1219,7 +1230,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
             price: securedOffer.price, 
             sellerId: securedOffer.sellerId 
         });
-        
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
     } catch (err) {
@@ -1230,5 +1240,4 @@ app.post('/api/market/buy', auth, async (req, res) => {
         session.endSession();
     }
 });
-
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
