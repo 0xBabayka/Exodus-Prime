@@ -259,7 +259,6 @@ const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
  */
 const secureGameState = (state) => {
     if (!state) return {};
-
     // 1. Sanitize Inventory (No negatives, no NaNs)
     if (state.inventory) {
         // If it's a plain object (from JSON body)
@@ -493,7 +492,6 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
-
         if (!isMatch) {
             logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
@@ -503,7 +501,7 @@ app.post('/api/auth/login', async (req, res) => {
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
-             if (err) throw err;
+            if (err) throw err;
             res.json({ token, gameState: user.gameState });
         });
     } catch (err) {
@@ -557,11 +555,9 @@ app.post('/api/game/save', auth, async (req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        const oldState = user.gameState || {}; 
-        
+        const oldState = user.gameState || {};
         // --- MOVED UP HELPER FOR USE IN COOLDOWN CHECK ---
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
-            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
 
         let timeSinceLastSave = 0;
         
@@ -582,8 +578,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             // Check for valid number on clientTime
             const safeClientTime = sanitizeNumber(clientTime, serverNow);
             const timeDifference = Math.abs(serverNow - safeClientTime);
-            const maxAllowedDifference = 5 * 60 * 1000; 
-
+            const maxAllowedDifference = 5 * 60 * 1000;
             if (timeDifference > maxAllowedDifference) {
                 logAction('CHEAT_ATTEMPT_TIME', user.id, user.username, req, { clientTime, serverNow });
                 return res.status(400).json({ msg: 'Time manipulation detected or device clock out of sync. Please sync your clock.' });
@@ -672,7 +667,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
-                         });
+                          });
                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
@@ -701,7 +696,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     // Strict server-side check
                     if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
-                             item: foodItem,
+                            item: foodItem,
                             lastEaten: lastEaten,
                             serverNow: serverNow,
                             diff: serverNow - lastEaten
@@ -744,7 +739,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                  });
+                   });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -810,7 +805,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                         });
+                          });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -874,7 +869,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
                             resource: gas.key,
                             delta: dQty,
-                             limit: limit
+                            limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${gas.key} (CAD violation).` });
                     }
@@ -911,7 +906,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     logAction('CHEAT_RESOURCE_FERMENTATION', user.id, user.username, req, {
                         dFermGuarana,
                         dFermAmaranth,
-                         totalGain: totalFermGain,
+                        totalGain: totalFermGain,
                         limit: maxFermGain
                     });
                     return res.status(400).json({ msg: 'Game integrity error: Abnormal Fermentation output detected.' });
@@ -1154,7 +1149,8 @@ app.post('/api/market/offer', auth, async (req, res) => {
              return res.status(400).json({msg: "Invalid offer data (Must be positive integer)"});
         }
 
-        if(safeItem === 'Helium3' || safeItem === 'Scavenging License') {
+        const BLACKLIST = ['Helium3', 'Scavenging License', 'xp', 'stamina', 'next', 'lvl'];
+        if(BLACKLIST.includes(safeItem)) {
             await session.abortTransaction();
             return res.status(400).json({msg: "Restricted Item"});
         }
@@ -1165,12 +1161,28 @@ app.post('/api/market/offer', auth, async (req, res) => {
             return res.status(404).json({msg: "User not found"});
         }
 
-        // Check Inventory
-        const currentQty = user.gameState.inventory.get(safeItem) || 0;
+        // --- ВАЛИДАЦИЯ ИНВЕНТАРЯ ПРОДАВЦА (ЗАПРОШЕННАЯ ЗАЩИТА) ---
+        // 1. Проверяем, существует ли ключ физически в Map (защита от продажи воздуха)
+        if (!user.gameState.inventory.has(safeItem)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: "Security Error: Item not found in inventory source." });
+        }
+
+        // 2. Получаем текущее количество и ЯВНО приводим к числу
+        const currentQty = parseInt(user.gameState.inventory.get(safeItem), 10);
+
+        // 3. Проверка на NaN (защита от поврежденных данных в базе)
+        if (isNaN(currentQty)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: "Security Error: Corrupted inventory data." });
+        }
+
+        // 4. Проверка остатка (Inventory Check)
         if(currentQty < qty) {
             await session.abortTransaction();
-            return res.status(400).json({msg: "Insufficient items in inventory"});
+            return res.status(400).json({msg: "Insufficient items in inventory (Validation Failed)"});
         }
+        // -------------------------------------------------------------
 
         // Deduct Item
         user.gameState.inventory.set(safeItem, currentQty - qty);
