@@ -6,6 +6,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+// --- NEW: CRYPTO FOR FINGERPRINTING ---
+const crypto = require('crypto');
 
 const app = express();
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
@@ -203,11 +205,12 @@ const ActionLogSchema = new mongoose.Schema({
 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
-// 4. Market Offer Model
+// 4. Market Offer Model (UPDATED FOR DEVICE FINGERPRINT)
 const MarketOfferSchema = new mongoose.Schema({
     sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     sellerName: { type: String, required: true },
     sellerIp: { type: String, required: true },
+    sellerFingerprint: { type: String, required: true }, // --- NEW: Device Fingerprint ---
     item: { type: String, required: true },
     qty: { type: Number, required: true, min: 1 },
     price: { type: Number, required: true, min: 1 },
@@ -232,6 +235,110 @@ const logAction = async (action, userId, username, req, details = {}) => {
     } catch (err) {
         console.error('Logging Error (Background):', err.message);
     }
+};
+
+// --- HELPER: GENERATE DEVICE FINGERPRINT ---
+const getDeviceFingerprint = (req) => {
+    try {
+        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown_ip';
+        const ua = req.headers['user-agent'] || 'unknown_ua';
+        const lang = req.headers['accept-language'] || 'unknown_lang';
+        const secCh = req.headers['sec-ch-ua'] || '';
+        
+        // Combine headers to create a unique string signature
+        const signature = `EXODUS_PRIME_FP:${ip}|${ua}|${lang}|${secCh}`;
+        // Create SHA-256 hash
+        return crypto.createHash('sha256').update(signature).digest('hex');
+    } catch (e) {
+        return 'fp_error_' + Date.now();
+    }
+};
+
+// --- SECURITY HELPER: NEGATIVE VALUE PREVENTION ---
+/**
+ * Sanitizes a number, enforcing boundaries and preventing NaN/Infinity/Null.
+ * @param {any} val - The input value.
+ * @param {number} defaultVal - Fallback if input is invalid (default 0).
+ * @param {number} min - Minimum allowed value (default 0).
+ * @param {number} max - Maximum allowed value (default Infinity).
+ * @returns {number} A safe, valid number.
+ */
+const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
+    // Check for null, undefined, or non-finite values (Infinity, NaN)
+    if (val === null || val === undefined || typeof val !== 'number' || !Number.isFinite(val) || isNaN(val)) {
+        return defaultVal;
+    }
+    // Clamp values
+    if (val < min) return min;
+    if (val > max) return max;
+    return val;
+};
+
+/**
+ * Deep sanitization of the Game State object to prevent injection of malicious types.
+ */
+const secureGameState = (state) => {
+    if (!state) return {};
+    // 1. Sanitize Inventory (No negatives, no NaNs)
+    if (state.inventory) {
+        // If it's a plain object (from JSON body)
+        for (const key in state.inventory) {
+            state.inventory[key] = sanitizeNumber(state.inventory[key], 0, 0);
+        }
+    }
+
+    // 2. Sanitize Stamina (0-100)
+    if (state.stamina) {
+        state.stamina.val = sanitizeNumber(state.stamina.val, 100, 0, 100);
+        state.stamina.max = sanitizeNumber(state.stamina.max, 100, 100, 100); // Fixed max for now
+    }
+
+    // 3. Sanitize Batteries
+    if (state.power && Array.isArray(state.power.batteries)) {
+        state.power.batteries.forEach(bat => {
+            bat.charge = sanitizeNumber(bat.charge, 0, 0, 100); // Assuming 100 max capacity relative calculation elsewhere
+            bat.wear = sanitizeNumber(bat.wear, 0, 0, 100);
+        });
+    }
+
+    // 4. Sanitize Skills
+    if (state.skills) {
+        for (const key in state.skills) {
+            if (state.skills[key]) {
+                state.skills[key].lvl = sanitizeNumber(state.skills[key].lvl, 1, 1);
+                state.skills[key].xp = sanitizeNumber(state.skills[key].xp, 0, 0);
+                state.skills[key].next = sanitizeNumber(state.skills[key].next, 100, 1);
+            }
+        }
+    }
+
+    // 5. Sanitize Hangar
+    if (state.hangar) {
+        for (const key in state.hangar) {
+            state.hangar[key] = sanitizeNumber(state.hangar[key], 0, 0);
+        }
+    }
+
+    // 6. Sanitize Components
+    if (state.components) {
+        for (const key in state.components) {
+            state.components[key] = sanitizeNumber(state.components[key], 0, 0);
+        }
+    }
+
+    // 7. Sanitize Environment
+    if (state.environment) {
+        state.environment.flux = sanitizeNumber(state.environment.flux, 0.15, 0, 1);
+    }
+    
+    // 8. Sanitize Cooldowns
+    if (state.cooldowns) {
+        for (const key in state.cooldowns) {
+             state.cooldowns[key] = sanitizeNumber(state.cooldowns[key], 0, 0);
+        }
+    }
+
+    return state;
 };
 
 // --- RATE LIMITING ---
@@ -376,7 +483,7 @@ app.post('/api/auth/register', async (req, res) => {
             stamina: { val: 100, max: 100 },
             skills: {
                  scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
-                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
+                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
@@ -405,7 +512,6 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
- 
         if (!isMatch) {
             logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
@@ -415,7 +521,7 @@ app.post('/api/auth/login', async (req, res) => {
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
-             if (err) throw err;
+            if (err) throw err;
             res.json({ token, gameState: user.gameState });
         });
     } catch (err) {
@@ -442,10 +548,14 @@ app.get('/api/game/load', auth, async (req, res) => {
     }
 });
 
-// 4. Save Game (Protected) with Anti-Cheat, CRAFTING VALIDATION & HONEYPOT
+// 4. Save Game (Protected) with Anti-Cheat, CRAFTING VALIDATION, HONEYPOT & TYPE PROTECTION
 app.post('/api/game/save', auth, async (req, res) => {
     try {
-        const { gameState, clientTime } = req.body;
+        let { gameState, clientTime } = req.body;
+
+        // --- NEW: NEGATIVE VALUE / NAN PREVENTION ---
+        // Secure the incoming state before any logic processes it
+        gameState = secureGameState(gameState);
 
         // --- HONEYPOT CHECK ---
         if (gameState) {
@@ -465,7 +575,10 @@ app.post('/api/game/save', auth, async (req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        const oldState = user.gameState || {}; 
+        const oldState = user.gameState || {};
+        // --- MOVED UP HELPER FOR USE IN COOLDOWN CHECK ---
+        const getOldInv = (key) => (oldState.inventory instanceof Map) ? (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
@@ -482,9 +595,10 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // 1. Time Check
         if (clientTime) {
-            const timeDifference = Math.abs(serverNow - clientTime);
-            const maxAllowedDifference = 5 * 60 * 1000; 
-
+            // Check for valid number on clientTime
+            const safeClientTime = sanitizeNumber(clientTime, serverNow);
+            const timeDifference = Math.abs(serverNow - safeClientTime);
+            const maxAllowedDifference = 5 * 60 * 1000;
             if (timeDifference > maxAllowedDifference) {
                 logAction('CHEAT_ATTEMPT_TIME', user.id, user.username, req, { clientTime, serverNow });
                 return res.status(400).json({ msg: 'Time manipulation detected or device clock out of sync. Please sync your clock.' });
@@ -559,8 +673,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     let hasConsumedFood = false;
 
                     for (const item of foodItems) {
-                        const oldQty = (oldState.inventory instanceof Map) ?
-                            (oldState.inventory.get(item) || 0) : (oldState.inventory[item] || 0);
+                        const oldQty = getOldInv(item);
                         const newQty = newState.inventory[item] || 0;
                         if (newQty < oldQty) {
                             hasConsumedFood = true;
@@ -581,9 +694,45 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
+        // --- 4.5 NEW COOLDOWN PROTECTION (UPSCALE) ---
+        if (newState.inventory) {
+            const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000; // 2.5 Hours
+            const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
+            for (const foodItem of TRACKED_FOODS) {
+                const oldFoodQty = getOldInv(foodItem);
+                const newFoodQty = newState.inventory[foodItem] || 0;
+
+                // User consumed food
+                if (newFoodQty < oldFoodQty) {
+                    let lastEaten = 0;
+                    if (oldState.cooldowns) {
+                        if (oldState.cooldowns instanceof Map) {
+                            lastEaten = oldState.cooldowns.get(foodItem) || 0;
+                        } else {
+                            lastEaten = oldState.cooldowns[foodItem] || 0;
+                        }
+                    }
+
+                    // Strict server-side check
+                    if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
+                        logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
+                            item: foodItem,
+                            lastEaten: lastEaten,
+                            serverNow: serverNow,
+                            diff: serverNow - lastEaten
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
+                    }
+
+                    // Enforce server-side timestamp to prevent client-side clearing
+                    if (!newState.cooldowns) newState.cooldowns = {};
+                    newState.cooldowns[foodItem] = serverNow;
+                }
+            }
+        }
+        // ----------------------------------------------
+
         // 5. Scavenging & Resources Check
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
-            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         
         let dScrap = 0;
         let maxActionsPossible = 10;
@@ -597,6 +746,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -610,7 +760,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -660,6 +810,14 @@ app.post('/api/game/save', auth, async (req, res) => {
                 logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
+            
+            // --- NEW: DAILY CLAIM PROTECTION (SERVER AUTHORITY) ---
+            const dEnergyBar = (newState.inventory["Energy Bar"] || 0) - getOldInv("Energy Bar");
+            if (dEnergyBar > 0) {
+                logAction('CHEAT_ILLEGAL_ITEM_ENERGY_BAR', user.id, user.username, req, { delta: dEnergyBar });
+                return res.status(400).json({ msg: "Game integrity error: Energy Bars must be claimed via server." });
+            }
+            // ----------------------------------------------------
             
             // 7. Seeds Check
             const seedTypes = ['Seeds: Sprouts', 'Seeds: Potato', 'Seeds: Maize', 'Seeds: Amaranth', 'Seeds: Guarana'];
@@ -937,6 +1095,47 @@ app.post('/api/game/save', auth, async (req, res) => {
     }
 });
 
+// --- NEW ROUTE: DAILY CLAIM (SERVER AUTHORITY) ---
+app.post('/api/game/claim-daily', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const now = Date.now();
+        const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
+        const lastClaim = user.gameState.lastDailyClaim || 0;
+
+        if (now - lastClaim < DAILY_COOLDOWN) {
+            logAction('CHEAT_DAILY_CLAIM_COOLDOWN', user.id, user.username, req, { lastClaim, now });
+            return res.status(400).json({ msg: "Daily reward not ready yet." });
+        }
+
+        // Initialize inventory map if needed
+        if (!user.gameState.inventory) user.gameState.inventory = new Map();
+        
+        // Add Reward (Logic Authority)
+        let currentEnergyBars = 0;
+        if (user.gameState.inventory instanceof Map) {
+            currentEnergyBars = user.gameState.inventory.get("Energy Bar") || 0;
+            user.gameState.inventory.set("Energy Bar", currentEnergyBars + 1);
+        } else {
+             currentEnergyBars = user.gameState.inventory["Energy Bar"] || 0;
+             user.gameState.inventory["Energy Bar"] = currentEnergyBars + 1;
+        }
+
+        // Update timestamp
+        user.gameState.lastDailyClaim = now;
+        user.markModified('gameState');
+        await user.save();
+
+        logAction('DAILY_CLAIM_SUCCESS', user.id, user.username, req);
+        res.json({ msg: "Daily Reward Claimed", inventory: user.gameState.inventory, lastDailyClaim: now });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
 // --- MARKET ROUTES ---
 
 // 5. Get All Market Offers
@@ -984,7 +1183,6 @@ app.post('/api/market/license', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save({ session });
-        
         await session.commitTransaction();
 
         // Background logging
@@ -1000,25 +1198,29 @@ app.post('/api/market/license', auth, async (req, res) => {
     }
 });
 
-// 7. Post an Offer (Protected with MongoDB Session)
+// 7. Post an Offer (Protected with MongoDB Session & Negative/NaN Check)
 app.post('/api/market/offer', auth, async (req, res) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-        const { item, qty, price } = req.body;
+        let { item, qty, price } = req.body;
         
-        // Strict Validation (NoSQL Injection & Data Integrity protection)
-        const safeQty = Number(qty);
-        const safePrice = Number(price);
+        // --- NEW: SANITIZATION FOR MARKET ---
+        // Ensure values are numbers, integers, and positive.
+        // sanitizeNumber(val, default, min)
+        qty = sanitizeNumber(qty, 0, 1);
+        price = sanitizeNumber(price, 0, 1);
         const safeItem = String(item);
 
-        if(!safeItem || !Number.isInteger(safeQty) || safeQty <= 0 || !Number.isInteger(safePrice) || safePrice <= 0) {
-            await session.abortTransaction();
-            return res.status(400).json({msg: "Invalid offer data"});
+        // Explicit Check to reject 0 (sanitized bad inputs)
+        if (!safeItem || qty < 1 || price < 1 || !Number.isInteger(qty) || !Number.isInteger(price)) {
+             await session.abortTransaction();
+             return res.status(400).json({msg: "Invalid offer data (Must be positive integer)"});
         }
 
-        if(safeItem === 'Helium3' || safeItem === 'Scavenging License') {
+        const BLACKLIST = ['Helium3', 'Scavenging License', 'xp', 'stamina', 'next', 'lvl'];
+        if(BLACKLIST.includes(safeItem)) {
             await session.abortTransaction();
             return res.status(400).json({msg: "Restricted Item"});
         }
@@ -1029,34 +1231,58 @@ app.post('/api/market/offer', auth, async (req, res) => {
             return res.status(404).json({msg: "User not found"});
         }
 
-        // Check Inventory
-        const currentQty = user.gameState.inventory.get(safeItem) || 0;
-        if(currentQty < safeQty) {
+        // --- NEW: MAX OFFERS LIMIT (SPAM PROTECTION) ---
+        const activeOffersCount = await MarketOffer.countDocuments({ sellerId: req.user.id }).session(session);
+        if (activeOffersCount >= 15) {
             await session.abortTransaction();
-            return res.status(400).json({msg: "Insufficient items in inventory"});
+            return res.status(400).json({ msg: "Market Limit Reached (Max 15 active offers)" });
+        }
+        // ----------------------------------------------
+
+        // --- ВАЛИДАЦИЯ ИНВЕНТАРЯ ПРОДАВЦА (ЗАПРОШЕННАЯ ЗАЩИТА) ---
+        // 1. Проверяем, существует ли ключ физически в Map (защита от продажи воздуха)
+        if (!user.gameState.inventory.has(safeItem)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: "Security Error: Item not found in inventory source." });
         }
 
+        // 2. Получаем текущее количество и ЯВНО приводим к числу
+        const currentQty = parseInt(user.gameState.inventory.get(safeItem), 10);
+        // 3. Проверка на NaN (защита от поврежденных данных в базе)
+        if (isNaN(currentQty)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: "Security Error: Corrupted inventory data." });
+        }
+
+        // 4. Проверка остатка (Inventory Check)
+        if(currentQty < qty) {
+            await session.abortTransaction();
+            return res.status(400).json({msg: "Insufficient items in inventory (Validation Failed)"});
+        }
+        // -------------------------------------------------------------
+
         // Deduct Item
-        user.gameState.inventory.set(safeItem, currentQty - safeQty);
+        user.gameState.inventory.set(safeItem, currentQty - qty);
         user.markModified('gameState');
         await user.save({ session });
 
+        // --- NEW: CAPTURE SELLER DEVICE FINGERPRINT ---
+        const sellerFingerprint = getDeviceFingerprint(req);
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
             sellerName: user.username,
             sellerIp: req.ip, 
+            sellerFingerprint: sellerFingerprint, // Added fingerprint
             item: safeItem,
-            qty: safeQty,
-            price: safePrice
+            qty: qty,
+            price: price
         });
         await newOffer.save({ session });
 
         await session.commitTransaction();
-
         // Logging and fetching new offers list (outside transaction for performance)
-        logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: safeQty, price: safePrice });
-        
+        logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: qty, price: price });
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1068,7 +1294,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         }));
         
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: user.gameState.inventory, offers: mappedOffers });
-
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1113,12 +1338,10 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         
         user.markModified('gameState');
         await user.save({ session });
-
         // Delete Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
 
         await session.commitTransaction();
-
         // Refresh offers
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
@@ -1129,10 +1352,8 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
-
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1175,11 +1396,24 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(400).json({msg: "Cannot buy your own offer"});
         }
 
+        // --- CHECK IP MATCH (BASIC PROTECTION) ---
         if (securedOffer.sellerIp === req.ip) {
             await session.abortTransaction();
             logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: securedOffer.sellerIp, buyerIp: req.ip });
             return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
         }
+
+        // --- NEW: CHECK DEVICE FINGERPRINT MATCH (ADVANCED PROTECTION) ---
+        const buyerFingerprint = getDeviceFingerprint(req);
+        if (securedOffer.sellerFingerprint === buyerFingerprint) {
+            await session.abortTransaction();
+            logAction('MARKET_FINGERPRINT_BAN', buyerId, buyer.username, req, { 
+                sellerFp: securedOffer.sellerFingerprint, 
+                buyerFp: buyerFingerprint 
+            });
+            return res.status(403).json({ msg: "Anti-Cheat: Device Fingerprint Match. Cannot trade between accounts on the same device." });
+        }
+        // -----------------------------------------------------------------
 
         // 3. Check Funds
         const buyerH3 = buyer.gameState.inventory.get('Helium3') || 0;
@@ -1188,7 +1422,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
-        // 4. Execute Transfer (Buyer)
+        // 4. Execute Transfer (Buyer pays FULL PRICE)
         buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
         const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
         buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
@@ -1196,30 +1430,37 @@ app.post('/api/market/buy', auth, async (req, res) => {
         buyer.markModified('gameState');
         await buyer.save({ session });
 
-        // 5. Execute Transfer (Seller)
+        // 5. Execute Transfer (Seller receives PRICE - 5% FEE)
         const seller = await User.findById(securedOffer.sellerId).session(session);
+        
+        // --- NEW: FEE LOGIC ---
+        const price = securedOffer.price;
+        const fee = Math.floor(price * 0.05); // 5% Fee
+        const sellerRevenue = price - fee;
+        // ----------------------
+
         if (seller) {
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
             const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
-            seller.gameState.inventory.set('Helium3', currentSellerH3 + securedOffer.price);
+            seller.gameState.inventory.set('Helium3', currentSellerH3 + sellerRevenue);
             seller.markModified('gameState');
             await seller.save({ session });
         }
 
         // 6. Delete the Offer
         await MarketOffer.deleteOne({ _id: offerId }, { session });
-
         // 7. Commit Transaction
         await session.commitTransaction();
-
-        // Background logging
+        
+        // Background logging (Including Fee Data)
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
             qty: securedOffer.qty, 
-            price: securedOffer.price, 
+            fullPrice: price, 
+            feeDeducted: fee,
+            sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-        
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
 
     } catch (err) {
