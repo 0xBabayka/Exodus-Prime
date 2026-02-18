@@ -27,10 +27,12 @@ app.use(helmet({
         },
     },
 }));
+
 // --- MIDDLEWARE: PARSERS ---
 app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
+
 // --- MONGO SANITIZE (PROTECTION AGAINST NoSQL INJECTION) ---
 // Очищает ключи, начинающиеся с $, чтобы предотвратить инъекции типа { "$ne": null }
 const mongoSanitize = (req, res, next) => {
@@ -52,6 +54,7 @@ const mongoSanitize = (req, res, next) => {
     next();
 };
 app.use(mongoSanitize);
+
 // --- HONEYPOT CONFIGURATION (ЛОВУШКА ДЛЯ ЧИТЕРОВ) ---
 const HONEYPOT_KEYS = [
     'admin', 'isAdmin', 'is_admin', 
@@ -61,6 +64,7 @@ const HONEYPOT_KEYS = [
     'dev_tools', 'debug_mode',
     'unlimited_resources'
 ];
+
 // --- DATABASE MODELS & SCHEMAS ---
 
 // Battery Structure
@@ -70,6 +74,7 @@ const BatterySchema = new mongoose.Schema({
     wear: { type: Number, default: 0, min: 0, max: 100 },
     loc: { type: String, enum: ['grid', 'inventory', 'warehouse'], default: 'inventory' }
 }, { _id: false });
+
 // Generic Machine Slot
 const SlotSchema = new mongoose.Schema({
     id: { type: Number, default: 0 }, 
@@ -80,6 +85,7 @@ const SlotSchema = new mongoose.Schema({
     status: { type: String }, 
     crop: { type: String, default: null }
 }, { _id: false });
+
 // Skill Structure
 const SkillSchema = new mongoose.Schema({
     lvl: { type: Number, default: 1, min: 1 },
@@ -87,6 +93,7 @@ const SkillSchema = new mongoose.Schema({
     next: { type: Number, default: 100 },
     locked: { type: Boolean, default: false }
 }, { _id: false });
+
 // Active Ship Structure
 const ShipSchema = new mongoose.Schema({
     type: { type: String, required: true },
@@ -102,6 +109,7 @@ const ShipSchema = new mongoose.Schema({
     mineStart: { type: Number, default: 0 },
     spec: { type: Object } 
 }, { _id: false });
+
 // Celestial Body
 const BodySchema = new mongoose.Schema({
     id: Number,
@@ -115,6 +123,7 @@ const BodySchema = new mongoose.Schema({
     scanned: { type: Boolean, default: false },
     res: [String]
 }, { _id: false });
+
 // MAIN GAME STATE SCHEMA
 const GameStateSchema = new mongoose.Schema({
     camera: { 
@@ -199,6 +208,7 @@ const GameStateSchema = new mongoose.Schema({
         offers: { type: Array, default: [] } 
     }
 }, { _id: false, strict: true });
+
 // User Model
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
@@ -207,6 +217,7 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
+
 const User = mongoose.model('User', UserSchema);
 
 // Action Log Model
@@ -218,6 +229,7 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
+
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // Market Offer Model
@@ -233,6 +245,7 @@ const MarketOfferSchema = new mongoose.Schema({
     postedAt: { type: Date, default: Date.now }
 });
 const MarketOffer = mongoose.model('MarketOffer', MarketOfferSchema);
+
 // --- HELPER: LOGGING ---
 const logAction = async (action, userId, username, req, details = {}) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -250,6 +263,7 @@ const logAction = async (action, userId, username, req, details = {}) => {
         console.error('Logging Error (Background):', err.message);
     }
 };
+
 // --- SECURITY FIX: ROBUST FINGERPRINTING ---
 const getDeviceFingerprint = (req, includeIp = false) => {
     try {
@@ -270,6 +284,7 @@ const getDeviceFingerprint = (req, includeIp = false) => {
         return 'fp_error_' + Date.now();
     }
 };
+
 // --- SECURITY HELPER: SANITIZATION ---
 const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
     if (val === null || val === undefined || typeof val !== 'number' || !Number.isFinite(val) || isNaN(val)) {
@@ -279,8 +294,10 @@ const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
     if (val > max) return max;
     return val;
 };
+
 const secureGameState = (state) => {
     if (!state) return {};
+
     if (state.inventory) {
         for (const key in state.inventory) {
             state.inventory[key] = sanitizeNumber(state.inventory[key], 0, 0);
@@ -333,6 +350,7 @@ const secureGameState = (state) => {
 
     return state;
 };
+
 // --- RATE LIMITING ---
 
 const globalLimiter = rateLimit({
@@ -380,6 +398,7 @@ const marketLimiter = rateLimit({
     message: { msg: 'Market transaction limit reached for your account. Slow down.' }
 });
 app.use('/api/market', marketLimiter);
+
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
     maxPoolSize: 10,
@@ -387,6 +406,7 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 })
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
+
 // --- AUTH MIDDLEWARE (FIXED) ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
@@ -409,6 +429,7 @@ const auth = (req, res, next) => {
         res.status(401).json({ msg: 'Token is not valid' });
     }
 };
+
 // --- ROUTES ---
 
 // 1. Register
@@ -483,8 +504,7 @@ app.post('/api/auth/register', async (req, res) => {
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
         // --- FINGERPRINT GENERATION (WITHOUT IP) ---
-        const fingerPrint = getDeviceFingerprint(req, false);
-        // false = ignore IP for token
+        const fingerPrint = getDeviceFingerprint(req, false); // false = ignore IP for token
         const payload = { 
             user: { id: user.id },
             fp: fingerPrint 
@@ -498,6 +518,7 @@ app.post('/api/auth/register', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+
 // 2. Login
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -527,7 +548,13 @@ app.post('/api/auth/login', async (req, res) => {
 
         // Подготовка ответа с явным добавлением lastSaveTime, так как GameStateSchema strict: true
         const responseState = user.gameState ? user.gameState.toObject() : {};
-        responseState.lastSaveTime = user.lastSaveTime;
+        
+        // [ИСПРАВЛЕНИЕ: КРИТИЧЕСКИЙ БАГ С ОФЛАЙН-ЗАРЯДКОЙ]
+        // Mongoose возвращает объект Date. При сериализации в res.json() он превращался
+        // в строку формата ISO-8601 ("2026-02-18T..."). На клиенте вычисление Date.now() - "Строка"
+        // выдавало 'NaN', что полностью ломало математику офлайн-заряда.
+        // Теперь мы возвращаем клиенту чистый Unix Timestamp (в миллисекундах).
+        responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
 
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
              if (err) throw err;
@@ -559,7 +586,10 @@ app.get('/api/game/load', auth, async (req, res) => {
         // Преобразуем в обычный объект, чтобы добавить поле lastSaveTime,
         // которое отсутствует в GameStateSchema
         const responseState = user.gameState.toObject();
-        responseState.lastSaveTime = user.lastSaveTime;
+        
+        // [ИСПРАВЛЕНИЕ: ТО ЖЕ САМОЕ ДЛЯ РЕЛОАДА СТРАНИЦЫ]
+        // Передаем клиенту Unix Timestamp для корректной математики в restoreOfflineProgress()
+        responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
 
         res.json(responseState);
     } catch (err) {
@@ -567,6 +597,7 @@ app.get('/api/game/load', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
+
 // 4. Save Game (Protected)
 app.post('/api/game/save', auth, async (req, res) => {
     try {
@@ -702,8 +733,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
-                         });
-                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
+                        });
+                        return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
             }
@@ -733,8 +764,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                             lastEaten: lastEaten,
                             serverNow: serverNow,
                             diff: serverNow - lastEaten
-                         });
-                         return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
+                        });
+                        return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
                     }
 
                     if (!newState.cooldowns) newState.cooldowns = {};
@@ -1102,7 +1133,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             requiredSpend: minInputRequired,
                             miningBuffer: miningBuffer
                          });
-                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                        return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
                 }
             }
@@ -1160,6 +1191,7 @@ app.post('/api/game/claim-daily', auth, async (req, res) => {
         res.status(500).send("Server Error");
     }
 });
+
 // --- MARKET ROUTES ---
 
 // 5. Get All Market Offers
@@ -1180,6 +1212,7 @@ app.get('/api/market', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
+
 // 6. Buy Scavenging License
 app.post('/api/market/license', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1217,6 +1250,7 @@ app.post('/api/market/license', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 // 7. Post an Offer
 app.post('/api/market/offer', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1273,8 +1307,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await user.save({ session });
 
         // Генерация отпечатка (можно оставить IP для отслеживания продавца, но не для блокировки токена)
-        const sellerFingerprint = getDeviceFingerprint(req, true);
-        // true = include IP for offer tracking
+        const sellerFingerprint = getDeviceFingerprint(req, true); // true = include IP for offer tracking
 
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -1308,6 +1341,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 // 8. Cancel an Offer
 app.post('/api/market/cancel', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1361,6 +1395,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 // 9. Buy an Offer
 app.post('/api/market/buy', auth, async (req, res) => {
     const { offerId } = req.body;
@@ -1401,6 +1436,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
         // --- CHECK DEVICE FINGERPRINT MATCH (WITHOUT IP) ---
         // Используем 'false' чтобы проверить совпадение браузера/устройства
         const buyerFingerprint = getDeviceFingerprint(req, false);
+        
         // Для сравнения нам нужно получить "чистый" отпечаток продавца (без IP), 
         // но в базе у нас сохранен с IP (если старая версия) или без (новая).
         // В данном случае мы полагаемся на то, что если это один и тот же человек, 
@@ -1462,4 +1498,5 @@ app.post('/api/market/buy', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
