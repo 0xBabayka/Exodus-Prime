@@ -349,7 +349,8 @@ const authLimiter = rateLimit({
     max: 20, 
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { trustProxy: false },
+    // FIX: Добавлено 'ip: false', чтобы предотвратить ошибку ERR_ERL_KEY_GEN_IPV6
+    validate: { trustProxy: false, ip: false },
     keyGenerator: (req) => {
         return req.body?.username || req.ip;
     },
@@ -362,7 +363,8 @@ const marketLimiter = rateLimit({
     max: 150, 
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { trustProxy: false },
+    // FIX: Добавлено 'ip: false', чтобы предотвратить ошибку ERR_ERL_KEY_GEN_IPV6
+    validate: { trustProxy: false, ip: false },
     keyGenerator: (req) => {
         const token = req.header('x-auth-token');
         if (token) {
