@@ -6,9 +6,10 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+// --- NEW: CRYPTO FOR FINGERPRINTING ---
+const crypto = require('crypto');
 
 const app = express();
-
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ (ВАЖНО ДЛЯ RENDER/VPN) ---
 app.set('trust proxy', 1);
 
@@ -204,11 +205,12 @@ const ActionLogSchema = new mongoose.Schema({
 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
-// 4. Market Offer Model
+// 4. Market Offer Model (UPDATED FOR DEVICE FINGERPRINT)
 const MarketOfferSchema = new mongoose.Schema({
     sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     sellerName: { type: String, required: true },
     sellerIp: { type: String, required: true },
+    sellerFingerprint: { type: String, required: true }, // --- NEW: Device Fingerprint ---
     item: { type: String, required: true },
     qty: { type: Number, required: true, min: 1 },
     price: { type: Number, required: true, min: 1 },
@@ -232,6 +234,24 @@ const logAction = async (action, userId, username, req, details = {}) => {
         console.log(`[LOG] Action: ${action} | User: ${username || 'Guest'}`);
     } catch (err) {
         console.error('Logging Error (Background):', err.message);
+    }
+};
+
+// --- HELPER: GENERATE DEVICE FINGERPRINT ---
+const getDeviceFingerprint = (req) => {
+    try {
+        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown_ip';
+        const ua = req.headers['user-agent'] || 'unknown_ua';
+        const lang = req.headers['accept-language'] || 'unknown_lang';
+        const secCh = req.headers['sec-ch-ua'] || '';
+        
+        // Combine headers to create a unique string signature
+        const signature = `EXODUS_PRIME_FP:${ip}|${ua}|${lang}|${secCh}`;
+        
+        // Create SHA-256 hash
+        return crypto.createHash('sha256').update(signature).digest('hex');
+    } catch (e) {
+        return 'fp_error_' + Date.now();
     }
 };
 
@@ -727,6 +747,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -740,7 +761,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -748,7 +769,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -814,7 +835,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                        });
+                          });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -1051,9 +1072,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                             actualNewInput: actualNewInput,
                             maxTheoreticalInput: maxTheoreticalInput,
                             requiredSpend: minInputRequired,
-                            miningBuffer: miningBuffer
+                             miningBuffer: miningBuffer
                          });
-                        return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
                 }
             }
@@ -1246,11 +1267,15 @@ app.post('/api/market/offer', auth, async (req, res) => {
         user.markModified('gameState');
         await user.save({ session });
 
+        // --- NEW: CAPTURE SELLER DEVICE FINGERPRINT ---
+        const sellerFingerprint = getDeviceFingerprint(req);
+
         // Create Offer in DB
         const newOffer = new MarketOffer({
             sellerId: user.id,
             sellerName: user.username,
             sellerIp: req.ip, 
+            sellerFingerprint: sellerFingerprint, // Added fingerprint
             item: safeItem,
             qty: qty,
             price: price
@@ -1373,11 +1398,24 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(400).json({msg: "Cannot buy your own offer"});
         }
 
+        // --- CHECK IP MATCH (BASIC PROTECTION) ---
         if (securedOffer.sellerIp === req.ip) {
             await session.abortTransaction();
             logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: securedOffer.sellerIp, buyerIp: req.ip });
             return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
         }
+
+        // --- NEW: CHECK DEVICE FINGERPRINT MATCH (ADVANCED PROTECTION) ---
+        const buyerFingerprint = getDeviceFingerprint(req);
+        if (securedOffer.sellerFingerprint === buyerFingerprint) {
+            await session.abortTransaction();
+            logAction('MARKET_FINGERPRINT_BAN', buyerId, buyer.username, req, { 
+                sellerFp: securedOffer.sellerFingerprint, 
+                buyerFp: buyerFingerprint 
+            });
+            return res.status(403).json({ msg: "Anti-Cheat: Device Fingerprint Match. Cannot trade between accounts on the same device." });
+        }
+        // -----------------------------------------------------------------
 
         // 3. Check Funds
         const buyerH3 = buyer.gameState.inventory.get('Helium3') || 0;
