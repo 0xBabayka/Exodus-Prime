@@ -463,7 +463,7 @@ app.post('/api/auth/register', async (req, res) => {
             stamina: { val: 100, max: 100 },
             skills: {
                  scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
-                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
+                agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
@@ -667,7 +667,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
-                          });
+                        });
                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
@@ -696,7 +696,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     // Strict server-side check
                     if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
-                            item: foodItem,
+                             item: foodItem,
                             lastEaten: lastEaten,
                             serverNow: serverNow,
                             diff: serverNow - lastEaten
@@ -726,6 +726,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -789,6 +790,14 @@ app.post('/api/game/save', auth, async (req, res) => {
                 logAction('CHEAT_RESOURCE_ISOTONIC', user.id, user.username, req, { delta: dIsotonic });
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
+            
+            // --- NEW: DAILY CLAIM PROTECTION (SERVER AUTHORITY) ---
+            const dEnergyBar = (newState.inventory["Energy Bar"] || 0) - getOldInv("Energy Bar");
+            if (dEnergyBar > 0) {
+                logAction('CHEAT_ILLEGAL_ITEM_ENERGY_BAR', user.id, user.username, req, { delta: dEnergyBar });
+                return res.status(400).json({ msg: "Game integrity error: Energy Bars must be claimed via server." });
+            }
+            // ----------------------------------------------------
             
             // 7. Seeds Check
             const seedTypes = ['Seeds: Sprouts', 'Seeds: Potato', 'Seeds: Maize', 'Seeds: Amaranth', 'Seeds: Guarana'];
@@ -869,7 +878,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
                             resource: gas.key,
                             delta: dQty,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${gas.key} (CAD violation).` });
                     }
@@ -929,7 +938,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_KITCHEN_${item.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Kitchen output for ${item.key}.` });
                     }
@@ -957,7 +966,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_CHEMLAB_${item.key.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Chemical Lab output for ${item.key}.` });
                     }
@@ -984,7 +993,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_FACTORY_${item.key.toUpperCase().replace(/ /g, '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Factory output for ${item.key}.` });
                     }
@@ -1007,7 +1016,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_FUEL_${item.key.toUpperCase().replace(/ /g, '_')}`, user.id, user.username, req, {
                             resource: item.key,
                             delta: delta,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal Fuel Factory output for ${item.key}.` });
                     }
@@ -1042,7 +1051,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             actualNewInput: actualNewInput,
                             maxTheoreticalInput: maxTheoreticalInput,
                             requiredSpend: minInputRequired,
-                            miningBuffer: miningBuffer
+                             miningBuffer: miningBuffer
                          });
                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
@@ -1063,6 +1072,49 @@ app.post('/api/game/save', auth, async (req, res) => {
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
+    }
+});
+
+// --- NEW ROUTE: DAILY CLAIM (SERVER AUTHORITY) ---
+app.post('/api/game/claim-daily', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const now = Date.now();
+        const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
+        const lastClaim = user.gameState.lastDailyClaim || 0;
+
+        if (now - lastClaim < DAILY_COOLDOWN) {
+            logAction('CHEAT_DAILY_CLAIM_COOLDOWN', user.id, user.username, req, { lastClaim, now });
+            return res.status(400).json({ msg: "Daily reward not ready yet." });
+        }
+
+        // Initialize inventory map if needed
+        if (!user.gameState.inventory) user.gameState.inventory = new Map();
+        
+        // Add Reward (Logic Authority)
+        let currentEnergyBars = 0;
+        if (user.gameState.inventory instanceof Map) {
+            currentEnergyBars = user.gameState.inventory.get("Energy Bar") || 0;
+            user.gameState.inventory.set("Energy Bar", currentEnergyBars + 1);
+        } else {
+             currentEnergyBars = user.gameState.inventory["Energy Bar"] || 0;
+             user.gameState.inventory["Energy Bar"] = currentEnergyBars + 1;
+        }
+
+        // Update timestamp
+        user.gameState.lastDailyClaim = now;
+        
+        user.markModified('gameState');
+        await user.save();
+
+        logAction('DAILY_CLAIM_SUCCESS', user.id, user.username, req);
+        res.json({ msg: "Daily Reward Claimed", inventory: user.gameState.inventory, lastDailyClaim: now });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
     }
 });
 
@@ -1170,7 +1222,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         // 2. Получаем текущее количество и ЯВНО приводим к числу
         const currentQty = parseInt(user.gameState.inventory.get(safeItem), 10);
-
         // 3. Проверка на NaN (защита от поврежденных данных в базе)
         if (isNaN(currentQty)) {
             await session.abortTransaction();
