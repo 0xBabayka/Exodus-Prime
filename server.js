@@ -25,6 +25,7 @@ app.use(helmet({
         },
     },
 }));
+
 // --- HONEYPOT CONFIGURATION (ЛОВУШКА) ---
 const HONEYPOT_KEYS = [
     'admin', 'isAdmin', 'is_admin', 
@@ -34,6 +35,7 @@ const HONEYPOT_KEYS = [
     'dev_tools', 'debug_mode',
     'unlimited_resources'
 ];
+
 // --- DATABASE MODELS & SCHEMAS (VALIDATION ADDED) ---
 
 // 1. Sub-Schemas for Game State Validation
@@ -45,6 +47,7 @@ const BatterySchema = new mongoose.Schema({
     wear: { type: Number, default: 0, min: 0, max: 100 },
     loc: { type: String, enum: ['grid', 'inventory', 'warehouse'], default: 'inventory' }
 }, { _id: false });
+
 // Generic Machine Slot (Refinery, Factory, etc.)
 const SlotSchema = new mongoose.Schema({
     id: { type: Number, default: 0 }, 
@@ -55,6 +58,7 @@ const SlotSchema = new mongoose.Schema({
     status: { type: String }, 
     crop: { type: String, default: null }
 }, { _id: false });
+
 // Skill Structure
 const SkillSchema = new mongoose.Schema({
     lvl: { type: Number, default: 1, min: 1 },
@@ -62,6 +66,7 @@ const SkillSchema = new mongoose.Schema({
     next: { type: Number, default: 100 },
     locked: { type: Boolean, default: false }
 }, { _id: false });
+
 // Active Ship Structure
 const ShipSchema = new mongoose.Schema({
     type: { type: String, required: true },
@@ -77,6 +82,7 @@ const ShipSchema = new mongoose.Schema({
     mineStart: { type: Number, default: 0 },
     spec: { type: Object } 
 }, { _id: false });
+
 // Celestial Body (Map Object)
 const BodySchema = new mongoose.Schema({
     id: Number,
@@ -90,6 +96,7 @@ const BodySchema = new mongoose.Schema({
     scanned: { type: Boolean, default: false },
     res: [String]
 }, { _id: false });
+
 // MAIN GAME STATE SCHEMA
 const GameStateSchema = new mongoose.Schema({
     camera: { 
@@ -174,6 +181,7 @@ const GameStateSchema = new mongoose.Schema({
         offers: { type: Array, default: [] } 
     }
 }, { _id: false, strict: true });
+
 // 2. User Model
 const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
@@ -225,6 +233,95 @@ const logAction = async (action, userId, username, req, details = {}) => {
         console.error('Logging Error (Background):', err.message);
     }
 };
+
+// --- SECURITY HELPER: NEGATIVE VALUE PREVENTION ---
+/**
+ * Sanitizes a number, enforcing boundaries and preventing NaN/Infinity/Null.
+ * @param {any} val - The input value.
+ * @param {number} defaultVal - Fallback if input is invalid (default 0).
+ * @param {number} min - Minimum allowed value (default 0).
+ * @param {number} max - Maximum allowed value (default Infinity).
+ * @returns {number} A safe, valid number.
+ */
+const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
+    // Check for null, undefined, or non-finite values (Infinity, NaN)
+    if (val === null || val === undefined || typeof val !== 'number' || !Number.isFinite(val) || isNaN(val)) {
+        return defaultVal;
+    }
+    // Clamp values
+    if (val < min) return min;
+    if (val > max) return max;
+    return val;
+};
+
+/**
+ * Deep sanitization of the Game State object to prevent injection of malicious types.
+ */
+const secureGameState = (state) => {
+    if (!state) return {};
+
+    // 1. Sanitize Inventory (No negatives, no NaNs)
+    if (state.inventory) {
+        // If it's a plain object (from JSON body)
+        for (const key in state.inventory) {
+            state.inventory[key] = sanitizeNumber(state.inventory[key], 0, 0);
+        }
+    }
+
+    // 2. Sanitize Stamina (0-100)
+    if (state.stamina) {
+        state.stamina.val = sanitizeNumber(state.stamina.val, 100, 0, 100);
+        state.stamina.max = sanitizeNumber(state.stamina.max, 100, 100, 100); // Fixed max for now
+    }
+
+    // 3. Sanitize Batteries
+    if (state.power && Array.isArray(state.power.batteries)) {
+        state.power.batteries.forEach(bat => {
+            bat.charge = sanitizeNumber(bat.charge, 0, 0, 100); // Assuming 100 max capacity relative calculation elsewhere
+            bat.wear = sanitizeNumber(bat.wear, 0, 0, 100);
+        });
+    }
+
+    // 4. Sanitize Skills
+    if (state.skills) {
+        for (const key in state.skills) {
+            if (state.skills[key]) {
+                state.skills[key].lvl = sanitizeNumber(state.skills[key].lvl, 1, 1);
+                state.skills[key].xp = sanitizeNumber(state.skills[key].xp, 0, 0);
+                state.skills[key].next = sanitizeNumber(state.skills[key].next, 100, 1);
+            }
+        }
+    }
+
+    // 5. Sanitize Hangar
+    if (state.hangar) {
+        for (const key in state.hangar) {
+            state.hangar[key] = sanitizeNumber(state.hangar[key], 0, 0);
+        }
+    }
+
+    // 6. Sanitize Components
+    if (state.components) {
+        for (const key in state.components) {
+            state.components[key] = sanitizeNumber(state.components[key], 0, 0);
+        }
+    }
+
+    // 7. Sanitize Environment
+    if (state.environment) {
+        state.environment.flux = sanitizeNumber(state.environment.flux, 0.15, 0, 1);
+    }
+    
+    // 8. Sanitize Cooldowns
+    if (state.cooldowns) {
+        for (const key in state.cooldowns) {
+             state.cooldowns[key] = sanitizeNumber(state.cooldowns[key], 0, 0);
+        }
+    }
+
+    return state;
+};
+
 // --- RATE LIMITING ---
 
 // 1. Global Limit
@@ -278,6 +375,7 @@ app.use('/api/market', marketLimiter);
 app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
+
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
     maxPoolSize: 10,
@@ -285,6 +383,7 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 })
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
+
 // --- AUTH MIDDLEWARE ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
@@ -297,6 +396,7 @@ const auth = (req, res, next) => {
         res.status(401).json({ msg: 'Token is not valid' });
     }
 };
+
 // --- ROUTES ---
 
 // 1. Register
@@ -312,7 +412,7 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         let user = await User.findOne({ username });
         if (user) {
-             logAction('REGISTER_FAIL_EXISTS', null, username, req);
+            logAction('REGISTER_FAIL_EXISTS', null, username, req);
             return res.status(400).json({ msg: 'User already exists' });
         }
 
@@ -381,6 +481,7 @@ app.post('/api/auth/register', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+
 // 2. Login
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -392,7 +493,7 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
- 
+
         if (!isMatch) {
             logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
@@ -410,6 +511,7 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(500).send('Server error');
     }
 });
+
 // 3. Load Game (Protected)
 app.get('/api/game/load', auth, async (req, res) => {
     try {
@@ -427,10 +529,15 @@ app.get('/api/game/load', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
-// 4. Save Game (Protected) with Anti-Cheat, CRAFTING VALIDATION & HONEYPOT
+
+// 4. Save Game (Protected) with Anti-Cheat, CRAFTING VALIDATION, HONEYPOT & TYPE PROTECTION
 app.post('/api/game/save', auth, async (req, res) => {
     try {
-        const { gameState, clientTime } = req.body;
+        let { gameState, clientTime } = req.body;
+
+        // --- NEW: NEGATIVE VALUE / NAN PREVENTION ---
+        // Secure the incoming state before any logic processes it
+        gameState = secureGameState(gameState);
 
         // --- HONEYPOT CHECK ---
         if (gameState) {
@@ -472,7 +579,9 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // 1. Time Check
         if (clientTime) {
-            const timeDifference = Math.abs(serverNow - clientTime);
+            // Check for valid number on clientTime
+            const safeClientTime = sanitizeNumber(clientTime, serverNow);
+            const timeDifference = Math.abs(serverNow - safeClientTime);
             const maxAllowedDifference = 5 * 60 * 1000; 
 
             if (timeDifference > maxAllowedDifference) {
@@ -563,7 +672,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
-                        });
+                         });
                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
@@ -574,7 +683,6 @@ app.post('/api/game/save', auth, async (req, res) => {
         if (newState.inventory) {
             const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000; // 2.5 Hours
             const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
-
             for (const foodItem of TRACKED_FOODS) {
                 const oldFoodQty = getOldInv(foodItem);
                 const newFoodQty = newState.inventory[foodItem] || 0;
@@ -593,7 +701,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     // Strict server-side check
                     if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
-                            item: foodItem,
+                             item: foodItem,
                             lastEaten: lastEaten,
                             serverNow: serverNow,
                             diff: serverNow - lastEaten
@@ -636,7 +744,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                 });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -644,7 +752,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                 });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -702,7 +810,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                          });
+                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -766,7 +874,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction(`CHEAT_RESOURCE_${gas.key.toUpperCase()}`, user.id, user.username, req, {
                             resource: gas.key,
                             delta: dQty,
-                            limit: limit
+                             limit: limit
                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${gas.key} (CAD violation).` });
                     }
@@ -803,7 +911,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                     logAction('CHEAT_RESOURCE_FERMENTATION', user.id, user.username, req, {
                         dFermGuarana,
                         dFermAmaranth,
-                        totalGain: totalFermGain,
+                         totalGain: totalFermGain,
                         limit: maxFermGain
                     });
                     return res.status(400).json({ msg: 'Game integrity error: Abnormal Fermentation output detected.' });
@@ -983,6 +1091,7 @@ app.get('/api/market', auth, async (req, res) => {
         res.status(500).send('Server Error');
     }
 });
+
 // 6. Buy Scavenging License (Protected with MongoDB Session)
 app.post('/api/market/license', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1023,22 +1132,26 @@ app.post('/api/market/license', auth, async (req, res) => {
         session.endSession();
     }
 });
-// 7. Post an Offer (Protected with MongoDB Session)
+
+// 7. Post an Offer (Protected with MongoDB Session & Negative/NaN Check)
 app.post('/api/market/offer', auth, async (req, res) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-        const { item, qty, price } = req.body;
+        let { item, qty, price } = req.body;
         
-        // Strict Validation (NoSQL Injection & Data Integrity protection)
-        const safeQty = Number(qty);
-        const safePrice = Number(price);
+        // --- NEW: SANITIZATION FOR MARKET ---
+        // Ensure values are numbers, integers, and positive.
+        // sanitizeNumber(val, default, min)
+        qty = sanitizeNumber(qty, 0, 1);
+        price = sanitizeNumber(price, 0, 1);
         const safeItem = String(item);
 
-        if(!safeItem || !Number.isInteger(safeQty) || safeQty <= 0 || !Number.isInteger(safePrice) || safePrice <= 0) {
-            await session.abortTransaction();
-            return res.status(400).json({msg: "Invalid offer data"});
+        // Explicit Check to reject 0 (sanitized bad inputs)
+        if (!safeItem || qty < 1 || price < 1 || !Number.isInteger(qty) || !Number.isInteger(price)) {
+             await session.abortTransaction();
+             return res.status(400).json({msg: "Invalid offer data (Must be positive integer)"});
         }
 
         if(safeItem === 'Helium3' || safeItem === 'Scavenging License') {
@@ -1054,13 +1167,13 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         // Check Inventory
         const currentQty = user.gameState.inventory.get(safeItem) || 0;
-        if(currentQty < safeQty) {
+        if(currentQty < qty) {
             await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient items in inventory"});
         }
 
         // Deduct Item
-        user.gameState.inventory.set(safeItem, currentQty - safeQty);
+        user.gameState.inventory.set(safeItem, currentQty - qty);
         user.markModified('gameState');
         await user.save({ session });
 
@@ -1070,14 +1183,14 @@ app.post('/api/market/offer', auth, async (req, res) => {
             sellerName: user.username,
             sellerIp: req.ip, 
             item: safeItem,
-            qty: safeQty,
-            price: safePrice
+            qty: qty,
+            price: price
         });
         await newOffer.save({ session });
 
         await session.commitTransaction();
         // Logging and fetching new offers list (outside transaction for performance)
-        logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: safeQty, price: safePrice });
+        logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: qty, price: price });
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1097,6 +1210,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 // 8. Cancel an Offer (Protected with MongoDB Session)
 app.post('/api/market/cancel', auth, async (req, res) => {
     const session = await mongoose.startSession();
@@ -1156,6 +1270,7 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 // 9. Buy an Offer (PROTECTED WITH MONGODB SESSION - NO RACE CONDITIONS)
 app.post('/api/market/buy', auth, async (req, res) => {
     const { offerId } = req.body;
@@ -1240,4 +1355,5 @@ app.post('/api/market/buy', auth, async (req, res) => {
         session.endSession();
     }
 });
+
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
