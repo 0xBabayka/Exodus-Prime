@@ -34,7 +34,7 @@ app.use(express.json({ limit: '500kb' }));
 app.use(cors());
 app.use(express.static('public'));
 
-// --- NEW: MONGO SANITIZE (PROTECTION AGAINST NoSQL INJECTION) ---
+// --- MONGO SANITIZE (PROTECTION AGAINST NoSQL INJECTION) ---
 // Очищает ключи, начинающиеся с $, чтобы предотвратить инъекции типа { "$ne": null }
 const mongoSanitize = (req, res, next) => {
     const sanitize = (obj) => {
@@ -264,8 +264,6 @@ const logAction = async (action, userId, username, req, details = {}) => {
 };
 
 // --- SECURITY FIX: ROBUST FINGERPRINTING ---
-// Исправлено: IP адрес теперь опционален для проверки токена.
-// Это решает проблему "Session Hijack" при смене IP (динамический IP, мобильная сеть).
 const getDeviceFingerprint = (req, includeIp = false) => {
     try {
         const ua = req.headers['user-agent'] || 'unknown_ua';
@@ -273,7 +271,6 @@ const getDeviceFingerprint = (req, includeIp = false) => {
         const secCh = req.headers['sec-ch-ua'] || '';
         
         let signature = `EXODUS_PRIME_FP:${ua}|${lang}|${secCh}`;
-
         // Добавляем IP только если это критически важно (например, для торгов),
         // но НЕ для долгоживущего токена входа.
         if (includeIp) {
@@ -299,7 +296,6 @@ const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
 
 const secureGameState = (state) => {
     if (!state) return {};
-    
     if (state.inventory) {
         for (const key in state.inventory) {
             state.inventory[key] = sanitizeNumber(state.inventory[key], 0, 0);
@@ -411,11 +407,9 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
     if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
-
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded.user;
-
         // --- FIX: ИСПОЛЬЗУЕМ "SOFT" ОТПЕЧАТОК (БЕЗ IP) ДЛЯ ПРОВЕРКИ ---
         // Если IP изменится, этот отпечаток останется прежним, и сессия не слетит.
         const currentFingerprint = getDeviceFingerprint(req, false);
@@ -506,12 +500,12 @@ app.post('/api/auth/register', async (req, res) => {
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
         // --- FINGERPRINT GENERATION (WITHOUT IP) ---
-        const fingerPrint = getDeviceFingerprint(req, false); // false = ignore IP for token
+        const fingerPrint = getDeviceFingerprint(req, false);
+        // false = ignore IP for token
         const payload = { 
             user: { id: user.id },
             fp: fingerPrint 
         };
-
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ token });
@@ -779,7 +773,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                 });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -787,7 +781,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
                     maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
-                });
+                  });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
 
@@ -830,11 +824,34 @@ app.post('/api/game/save', auth, async (req, res) => {
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
             
-            // Daily Claim Protection
+            // Daily Claim Protection (FIXED for Client-Side Claim Logic)
             const dEnergyBar = (newState.inventory["Energy Bar"] || 0) - getOldInv("Energy Bar");
+            
             if (dEnergyBar > 0) {
-                logAction('CHEAT_ILLEGAL_ITEM_ENERGY_BAR', user.id, user.username, req, { delta: dEnergyBar });
-                return res.status(400).json({ msg: "Game integrity error: Energy Bars must be claimed via server." });
+                // Разрешаем +1 бар, если прошел кулдаун (24 часа)
+                // Даем буфер 5 минут на рассинхрон часов
+                const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
+                const BUFFER = 5 * 60 * 1000; 
+                const lastClaimTime = user.gameState.lastDailyClaim || 0;
+                const timeDiff = serverNow - lastClaimTime;
+
+                // Если добавился ровно 1 бар И прошло достаточно времени
+                const isValidDailyClaim = (dEnergyBar === 1) && (timeDiff >= (DAILY_COOLDOWN - BUFFER));
+
+                if (!isValidDailyClaim) {
+                    logAction('CHEAT_ILLEGAL_ITEM_ENERGY_BAR', user.id, user.username, req, { 
+                        delta: dEnergyBar,
+                        timeSinceLastClaim: timeDiff,
+                        required: DAILY_COOLDOWN
+                    });
+                    return res.status(400).json({ msg: "Game integrity error: Energy Bars claim invalid (Cooldown or Amount)." });
+                }
+                
+                // Если проверка пройдена, убедимся, что время клейма обновилось в newState
+                // (Клиент должен был отправить новое время, но на всякий случай)
+                 if (!newState.lastDailyClaim || newState.lastDailyClaim < serverNow) {
+                     newState.lastDailyClaim = serverNow;
+                 }
             }
             
             // 7. Seeds Check
@@ -1092,7 +1109,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             requiredSpend: minInputRequired,
                             miningBuffer: miningBuffer
                          });
-                        return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
+                         return res.status(400).json({ msg: `Game integrity error: Crafted ${rule.out} without spending enough ${rule.in}.` });
                     }
                 }
             }
@@ -1199,10 +1216,8 @@ app.post('/api/market/license', auth, async (req, res) => {
         user.markModified('gameState');
         await user.save({ session });
         await session.commitTransaction();
-
         logAction('MARKET_BUY_LICENSE', user.id, user.username, req);
         res.json({ msg: "License Acquired", inventory: user.gameState.inventory });
-
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1268,7 +1283,8 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await user.save({ session });
 
         // Генерация отпечатка (можно оставить IP для отслеживания продавца, но не для блокировки токена)
-        const sellerFingerprint = getDeviceFingerprint(req, true); // true = include IP for offer tracking
+        const sellerFingerprint = getDeviceFingerprint(req, true);
+        // true = include IP for offer tracking
 
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -1332,13 +1348,11 @@ app.post('/api/market/cancel', auth, async (req, res) => {
         
         const current = user.gameState.inventory.get(offer.item) || 0;
         user.gameState.inventory.set(offer.item, current + offer.qty);
-        
         user.markModified('gameState');
         await user.save({ session });
         await MarketOffer.deleteOne({ _id: offerId }, { session });
 
         await session.commitTransaction();
-        
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1398,8 +1412,7 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         // --- CHECK DEVICE FINGERPRINT MATCH (WITHOUT IP) ---
         // Используем 'false' чтобы проверить совпадение браузера/устройства
-        const buyerFingerprint = getDeviceFingerprint(req, false); 
-        
+        const buyerFingerprint = getDeviceFingerprint(req, false);
         // Для сравнения нам нужно получить "чистый" отпечаток продавца (без IP), 
         // но в базе у нас сохранен с IP (если старая версия) или без (новая).
         // В данном случае мы полагаемся на то, что если это один и тот же человек, 
@@ -1434,7 +1447,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
         const price = securedOffer.price;
         const fee = Math.floor(price * 0.05);
         const sellerRevenue = price - fee;
-
         if (seller) {
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
             const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
@@ -1445,7 +1457,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
 
         await MarketOffer.deleteOne({ _id: offerId }, { session });
         await session.commitTransaction();
-
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
             qty: securedOffer.qty, 
@@ -1454,7 +1465,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-        
         res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
     } catch (err) {
         await session.abortTransaction();
