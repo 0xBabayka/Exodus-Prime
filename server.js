@@ -9,7 +9,6 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 
 const app = express();
-
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
@@ -370,6 +369,7 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
 });
+
 app.use(globalLimiter);
 
 const authLimiter = rateLimit({
@@ -419,7 +419,6 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
     if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
-
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded.user;
@@ -506,7 +505,6 @@ app.post('/api/auth/register', async (req, res) => {
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
-
         await user.save();
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
@@ -515,7 +513,6 @@ app.post('/api/auth/register', async (req, res) => {
             user: { id: user.id },
             fp: fingerPrint 
         };
-
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ token });
@@ -551,7 +548,6 @@ app.post('/api/auth/login', async (req, res) => {
             fp: fingerPrint 
         };
 
-        // ИСПРАВЛЕНИЕ: Добавлен { flattenMaps: true }, чтобы Map не терялись при сериализации
         const responseState = user.gameState ? user.gameState.toObject({ flattenMaps: true }) : {};
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
 
@@ -576,7 +572,6 @@ app.get('/api/game/load', auth, async (req, res) => {
         logAction('GAME_LOAD', user.id, user.username, req);
         res.setHeader('x-server-time', Date.now());
 
-        // ИСПРАВЛЕНИЕ: Добавлен { flattenMaps: true }
         const responseState = user.gameState.toObject({ flattenMaps: true });
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
 
@@ -613,13 +608,12 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         const oldState = user.gameState || {};
 
-        // ИСПРАВЛЕНИЕ: Безопасное обращение к oldState.inventory
         const getOldInv = (key) => {
             if (!oldState.inventory) return 0;
             return (typeof oldState.inventory.get === 'function') ? 
                 (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         };
-
+        
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
@@ -655,12 +649,17 @@ app.post('/api/game/save', auth, async (req, res) => {
             timeSinceLastSave = 30000;
         }
 
-        // 3. Power & Battery Check
+        // 3. Power & Battery Check (ФУНДАМЕНТАЛЬНОЕ ИСПРАВЛЕНИЕ FLUX)
         if (newState.power && Array.isArray(newState.power.batteries)) {
             const batteries = newState.power.batteries;
-            const BATTERY_CAP = 33.33;
-            const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0; 
-            const MAX_GEN_PER_SEC = 0.5; 
+            const POWER_CFG = {
+                cycleDuration: 12 * 60 * 60 * 1000,
+                minFlux: 0.15,
+                maxFlux: 1.0,
+                batteryCap: 33.33,
+                panelBaseOutput: 0.015
+            };
+            const MAX_ALLOWED_CHARGE = POWER_CFG.batteryCap + 0.5; 
             
             let totalNewCharge = 0;
             let totalOldCharge = 0;
@@ -670,23 +669,55 @@ app.post('/api/game/save', auth, async (req, res) => {
                     logAction('CHEAT_BATTERY_OVERCHARGE', user.id, user.username, req, {
                         batId: bat.id,
                         charge: bat.charge,
-                        limit: BATTERY_CAP
+                        limit: POWER_CFG.batteryCap
                     });
                     return res.status(400).json({ msg: 'Game integrity error: Battery charge exceeds physical capacity.' });
                 }
                 totalNewCharge += (bat.charge || 0);
             }
 
+            // Точный расчет Flux, как на клиенте
+            let cycle = (serverNow % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration;
+            const expectedStateFlux = (cycle <= 0.5) ? 
+                POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : 
+                POWER_CFG.minFlux;
+
+            // Проверка: не прислал ли клиент "взломанный" flux
+            if (newState.environment && typeof newState.environment.flux === 'number') {
+                 if (Math.abs(newState.environment.flux - expectedStateFlux) > 0.05) {
+                      logAction('CHEAT_FLUX_TAMPERING', user.id, user.username, req, {
+                          clientFlux: newState.environment.flux,
+                          serverFlux: expectedStateFlux
+                      });
+                      return res.status(400).json({ msg: 'Game integrity error: Environment flux out of sync.' });
+                 }
+            }
+
             if (oldState.power && Array.isArray(oldState.power.batteries)) {
                 oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
                 const chargeDelta = totalNewCharge - totalOldCharge;
                 const elapsedSeconds = timeSinceLastSave / 1000;
-                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0;
+                
+                let expectedGen = 0;
+                if (timeSinceLastSave > 5000) {
+                    // Офлайн генерация (avgFlux = 0.425)
+                    const avgFlux = 0.425;
+                    expectedGen = (POWER_CFG.panelBaseOutput * avgFlux) * elapsedSeconds;
+                } else {
+                    // Онлайн генерация по текущему Flux
+                    expectedGen = (POWER_CFG.panelBaseOutput * expectedStateFlux) * elapsedSeconds;
+                }
+
+                // Буфер на сетевую задержку (допустим, 3 секунды генерации на максимальном пике)
+                const NETWORK_BUFFER = POWER_CFG.panelBaseOutput * POWER_CFG.maxFlux * 3.0;
+                const maxPossibleGain = expectedGen + NETWORK_BUFFER;
+
                 if (chargeDelta > maxPossibleGain) {
                       logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
                         delta: chargeDelta,
                         maxAllowed: maxPossibleGain,
-                        elapsedTime: elapsedSeconds
+                        elapsedTime: elapsedSeconds,
+                        flux: expectedStateFlux
                     });
                     return res.status(400).json({ msg: 'Game integrity error: Abnormal power generation detected.' });
                 }
@@ -708,7 +739,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldVal = oldState.stamina ? (parseFloat(oldState.stamina.val) || 0) : 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
-
                 if (staminaDiff > 0) {
                     const foodItems = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Energy Isotonic'];
                     let hasConsumedFood = false;
@@ -735,13 +765,10 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        // 4.5 Cooldown Protection (SECURITY FIXED)
+        // 4.5 Cooldown Protection
         if (newState.inventory) {
             const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000;
-            // Учитываем все пайки и батончики (Изотоник не имеет этого кулдауна в клиенте)
             const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
-            
-            // --- НОВОЕ: Восстанавливаем доверенные кулдауны из БД, предотвращая их сброс клиентом ---
             if (!newState.cooldowns) newState.cooldowns = {};
             if (oldState.cooldowns) {
                 for (const item of TRACKED_FOODS) {
@@ -753,16 +780,12 @@ app.post('/api/game/save', auth, async (req, res) => {
                 }
             }
 
-            // Обрабатываем каждый тип еды абсолютно независимо
             for (const foodItem of TRACKED_FOODS) {
                 const oldFoodQty = getOldInv(foodItem);
                 const newFoodQty = newState.inventory[foodItem] || 0;
 
-                // Если предмет этого типа был съеден
                 if (newFoodQty < oldFoodQty) {
                     const consumedAmount = oldFoodQty - newFoodQty;
-                    
-                    // --- НОВОЕ: Запрет на съедение нескольких одинаковых пайков за один раз для обхода кулдауна ---
                     if (consumedAmount > 1) {
                         logAction('CHEAT_MULTIPLE_CONSUME', user.id, user.username, req, { item: foodItem, amount: consumedAmount });
                         return res.status(400).json({ msg: `Game integrity error: Cannot consume multiple ${foodItem} at once.` });
@@ -770,7 +793,6 @@ app.post('/api/game/save', auth, async (req, res) => {
 
                     const lastEaten = newState.cooldowns[foodItem] || 0;
 
-                    // Проверяем кулдаун именно для этого конкретного пайка
                     if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
                             item: foodItem,
@@ -781,7 +803,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                         return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
                     }
 
-                    // Обновляем таймер кулдауна только для съеденного пайка
                     newState.cooldowns[foodItem] = serverNow;
                 }
             }
@@ -800,7 +821,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-
+            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -873,7 +894,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 
                 const lastClaimTime = oldState.lastDailyClaim || 0;
                 const timeDiff = serverNow - lastClaimTime;
-                
                 const isValidDailyClaim = (dEnergyBar === 1) && (timeDiff >= (DAILY_COOLDOWN - BUFFER));
                 if (!isValidDailyClaim) {
                     logAction('CHEAT_ILLEGAL_ITEM_ENERGY_BAR', user.id, user.username, req, { 
@@ -1197,7 +1217,6 @@ app.post('/api/game/claim-daily', auth, async (req, res) => {
         await user.save();
 
         logAction('DAILY_CLAIM_SUCCESS', user.id, user.username, req);
-        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Daily Reward Claimed", inventory: mapToObject(user.gameState.inventory), lastDailyClaim: now });
     } catch (err) {
         console.error(err.message);
@@ -1260,7 +1279,6 @@ app.post('/api/market/license', auth, async (req, res) => {
         await user.save({ session });
         await session.commitTransaction();
         logAction('MARKET_BUY_LICENSE', user.id, user.username, req);
-        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "License Acquired", inventory: mapToObject(user.gameState.inventory) });
     } catch (err) {
         await session.abortTransaction();
@@ -1356,7 +1374,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
@@ -1417,7 +1434,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             currency: o.currency
         }));
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Offer Cancelled", inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
@@ -1522,7 +1538,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Purchase Successful", inventory: mapToObject(buyer.gameState.inventory) });
     } catch (err) {
         await session.abortTransaction();
