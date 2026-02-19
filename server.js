@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 
 const app = express();
+
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
@@ -34,7 +35,6 @@ app.use(cors());
 app.use(express.static('public'));
 
 // --- MONGO SANITIZE (PROTECTION AGAINST NoSQL INJECTION) ---
-// Очищает ключи, начинающиеся с $, чтобы предотвратить инъекции типа { "$ne": null }
 const mongoSanitize = (req, res, next) => {
     const sanitize = (obj) => {
         if (obj instanceof Object) {
@@ -64,6 +64,20 @@ const HONEYPOT_KEYS = [
     'dev_tools', 'debug_mode',
     'unlimited_resources'
 ];
+
+// --- ХЕЛПЕР ДЛЯ ПРЕОБРАЗОВАНИЯ MAP В ОБЪЕКТ ---
+// Исправляет баг сериализации Map в пустой объект {}
+const mapToObject = (map) => {
+    if (!map) return {};
+    if (typeof map.toJSON === 'function') {
+        const obj = map.toJSON();
+        if (obj && typeof obj === 'object') return obj;
+    }
+    if (map instanceof Map || typeof map.get === 'function') {
+        return Object.fromEntries(map);
+    }
+    return map;
+};
 
 // --- DATABASE MODELS & SCHEMAS ---
 
@@ -272,8 +286,6 @@ const getDeviceFingerprint = (req, includeIp = false) => {
         const secCh = req.headers['sec-ch-ua'] || '';
         
         let signature = `EXODUS_PRIME_FP:${ua}|${lang}|${secCh}`;
-        // Добавляем IP только если это критически важно (например, для торгов),
-        // но НЕ для долгоживущего токена входа.
         if (includeIp) {
             const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown_ip';
             signature += `|${ip}`;
@@ -297,7 +309,6 @@ const sanitizeNumber = (val, defaultVal = 0, min = 0, max = Infinity) => {
 
 const secureGameState = (state) => {
     if (!state) return {};
-
     if (state.inventory) {
         for (const key in state.inventory) {
             state.inventory[key] = sanitizeNumber(state.inventory[key], 0, 0);
@@ -367,7 +378,6 @@ const authLimiter = rateLimit({
     max: 20, 
     standardHeaders: true,
     legacyHeaders: false,
-    // FIX: Добавлено 'ip: false', чтобы предотвратить ошибку ERR_ERL_KEY_GEN_IPV6
     validate: { trustProxy: false, ip: false },
     keyGenerator: (req) => {
         return req.body?.username || req.ip;
@@ -381,7 +391,6 @@ const marketLimiter = rateLimit({
     max: 150, 
     standardHeaders: true,
     legacyHeaders: false,
-    // FIX: Добавлено 'ip: false', чтобы предотвратить ошибку ERR_ERL_KEY_GEN_IPV6
     validate: { trustProxy: false, ip: false },
     keyGenerator: (req) => {
         const token = req.header('x-auth-token');
@@ -407,18 +416,16 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
     .then(() => console.log('MongoDB Connected'))
     .catch(err => console.error('MongoDB Error:', err));
 
-// --- AUTH MIDDLEWARE (FIXED) ---
+// --- AUTH MIDDLEWARE ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
     if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
+
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded.user;
-        // --- FIX: ИСПОЛЬЗУЕМ "SOFT" ОТПЕЧАТОК (БЕЗ IP) ДЛЯ ПРОВЕРКИ ---
-        // Если IP изменится, этот отпечаток останется прежним, и сессия не слетит.
-        const currentFingerprint = getDeviceFingerprint(req, false);
 
-        // Если в токене есть отпечаток, проверяем соответствие
+        const currentFingerprint = getDeviceFingerprint(req, false);
         if (decoded.fp && decoded.fp !== currentFingerprint) {
             console.log(`[SECURITY] Session Hijack Attempt Blocked! User: ${decoded.user.id} | TokenFP: ${decoded.fp} | CurrentFP: ${currentFingerprint}`);
             return res.status(403).json({ msg: 'Session invalid: Device fingerprint mismatch (Browser changed?). Please login again.' });
@@ -500,19 +507,21 @@ app.post('/api/auth/register', async (req, res) => {
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
+
         await user.save();
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
-        // --- FINGERPRINT GENERATION (WITHOUT IP) ---
-        const fingerPrint = getDeviceFingerprint(req, false); // false = ignore IP for token
+        const fingerPrint = getDeviceFingerprint(req, false);
         const payload = { 
             user: { id: user.id },
             fp: fingerPrint 
         };
+
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ token });
         });
+
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server error');
@@ -530,15 +539,13 @@ app.post('/api/auth/login', async (req, res) => {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+ 
         if (!isMatch) {
             logAction('LOGIN_FAIL_PASSWORD', user.id, username, req);
             return res.status(400).json({ msg: 'Invalid Credentials' });
         }
 
         logAction('LOGIN_SUCCESS', user.id, username, req);
-
-        // --- FINGERPRINT GENERATION (WITHOUT IP) ---
-        // Исключаем IP из токена, чтобы сессия жила при смене сети
         const fingerPrint = getDeviceFingerprint(req, false);
 
         const payload = { 
@@ -546,20 +553,15 @@ app.post('/api/auth/login', async (req, res) => {
             fp: fingerPrint 
         };
 
-        // Подготовка ответа с явным добавлением lastSaveTime, так как GameStateSchema strict: true
-        const responseState = user.gameState ? user.gameState.toObject() : {};
-        
-        // [ИСПРАВЛЕНИЕ: КРИТИЧЕСКИЙ БАГ С ОФЛАЙН-ЗАРЯДКОЙ]
-        // Mongoose возвращает объект Date. При сериализации в res.json() он превращался
-        // в строку формата ISO-8601 ("2026-02-18T..."). На клиенте вычисление Date.now() - "Строка"
-        // выдавало 'NaN', что полностью ломало математику офлайн-заряда.
-        // Теперь мы возвращаем клиенту чистый Unix Timestamp (в миллисекундах).
+        // ИСПРАВЛЕНИЕ: Добавлен { flattenMaps: true }, чтобы Map не терялись при сериализации
+        const responseState = user.gameState ? user.gameState.toObject({ flattenMaps: true }) : {};
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
 
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
              if (err) throw err;
              res.json({ token, gameState: responseState });
         });
+
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server error');
@@ -574,21 +576,11 @@ app.get('/api/game/load', auth, async (req, res) => {
         if(!user.gameState.inventory) user.gameState.inventory = new Map();
         if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
 
-        // --- FIX: УДАЛЕН СЕРВЕРНЫЙ РАСЧЕТ ОФЛАЙН ЗАРЯДА ---
-        // Причина: Серверный расчет обновлял user.lastSaveTime, из-за чего клиент
-        // получал dt=0, не запускал restoreOfflineProgress() и не показывал логи в UI.
-        // Теперь мы отправляем клиенту старый lastSaveTime, и клиент сам рассчитывает
-        // прогресс и добавляет запись в SYSTEM LOG.
-        
         logAction('GAME_LOAD', user.id, user.username, req);
         res.setHeader('x-server-time', Date.now());
 
-        // Преобразуем в обычный объект, чтобы добавить поле lastSaveTime,
-        // которое отсутствует в GameStateSchema
-        const responseState = user.gameState.toObject();
-        
-        // [ИСПРАВЛЕНИЕ: ТО ЖЕ САМОЕ ДЛЯ РЕЛОАДА СТРАНИЦЫ]
-        // Передаем клиенту Unix Timestamp для корректной математики в restoreOfflineProgress()
+        // ИСПРАВЛЕНИЕ: Добавлен { flattenMaps: true }
+        const responseState = user.gameState.toObject({ flattenMaps: true });
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
 
         res.json(responseState);
@@ -623,13 +615,19 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const oldState = user.gameState || {};
-        const getOldInv = (key) => (oldState.inventory instanceof Map) ?
-            (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+
+        // ИСПРАВЛЕНИЕ: Безопасное обращение к oldState.inventory
+        const getOldInv = (key) => {
+            if (!oldState.inventory) return 0;
+            return (typeof oldState.inventory.get === 'function') ? 
+                (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
+        };
 
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
-        if (oldState.inventory instanceof Map) {
+        // ИСПРАВЛЕНИЕ: Безопасное обращение к oldState.inventory
+        if (oldState.inventory && typeof oldState.inventory.get === 'function') {
             dbHelium3 = oldState.inventory.get('Helium3') || 0;
         } else if (oldState.inventory) {
             dbHelium3 = oldState.inventory.Helium3 || 0;
@@ -662,7 +660,8 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // 3. Power & Battery Check
-        if (newState.power && newState.power.batteries) {
+        // ИСПРАВЛЕНИЕ: Проверка Array.isArray для защиты от падений
+        if (newState.power && Array.isArray(newState.power.batteries)) {
             const batteries = newState.power.batteries;
             const BATTERY_CAP = 33.33;
             const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0; 
@@ -683,7 +682,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                 totalNewCharge += (bat.charge || 0);
             }
 
-            if (oldState.power && oldState.power.batteries) {
+            // ИСПРАВЛЕНИЕ: Проверка Array.isArray
+            if (oldState.power && Array.isArray(oldState.power.batteries)) {
                 oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
                 const chargeDelta = totalNewCharge - totalOldCharge;
                 const elapsedSeconds = timeSinceLastSave / 1000;
@@ -711,7 +711,8 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             if (oldState.stamina && oldState.inventory && newState.inventory) {
-                const oldVal = parseFloat(oldState.stamina.val) || 0;
+                // ИСПРАВЛЕНИЕ: Защита на случай undefined
+                const oldVal = oldState.stamina ? (parseFloat(oldState.stamina.val) || 0) : 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
                 if (staminaDiff > 0) {
@@ -751,7 +752,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                 if (newFoodQty < oldFoodQty) {
                     let lastEaten = 0;
                     if (oldState.cooldowns) {
-                        if (oldState.cooldowns instanceof Map) {
+                        // ИСПРАВЛЕНИЕ: Безопасное обращение
+                        if (typeof oldState.cooldowns.get === 'function') {
                             lastEaten = oldState.cooldowns.get(foodItem) || 0;
                         } else {
                             lastEaten = oldState.cooldowns[foodItem] || 0;
@@ -787,6 +789,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -851,16 +854,15 @@ app.post('/api/game/save', auth, async (req, res) => {
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Energy Isotonic increase.' });
             }
             
-            // Daily Claim Protection (FIXED for Client-Side Claim Logic)
+            // Daily Claim Protection
             const dEnergyBar = (newState.inventory["Energy Bar"] || 0) - getOldInv("Energy Bar");
             if (dEnergyBar > 0) {
-                // Разрешаем +1 бар, если прошел кулдаун (24 часа)
-                // Даем буфер 5 минут на рассинхрон часов
                 const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
                 const BUFFER = 5 * 60 * 1000; 
-                const lastClaimTime = user.gameState.lastDailyClaim || 0;
+                // ИСПРАВЛЕНИЕ: Берем lastClaimTime из oldState
+                const lastClaimTime = oldState.lastDailyClaim || 0;
                 const timeDiff = serverNow - lastClaimTime;
-                // Если добавился ровно 1 бар И прошло достаточно времени
+                
                 const isValidDailyClaim = (dEnergyBar === 1) && (timeDiff >= (DAILY_COOLDOWN - BUFFER));
                 if (!isValidDailyClaim) {
                     logAction('CHEAT_ILLEGAL_ITEM_ENERGY_BAR', user.id, user.username, req, { 
@@ -871,11 +873,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                     return res.status(400).json({ msg: "Game integrity error: Energy Bars claim invalid (Cooldown or Amount)." });
                 }
                 
-                // Если проверка пройдена, убедимся, что время клейма обновилось в newState
-                // (Клиент должен был отправить новое время, но на всякий случай)
                  if (!newState.lastDailyClaim || newState.lastDailyClaim < serverNow) {
                      newState.lastDailyClaim = serverNow;
-                }
+                 }
             }
             
             // 7. Seeds Check
@@ -910,6 +910,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             ];
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
+            
             for (const ore of oreTypes) {
                 const oldQty = getOldInv(ore.key);
                 const newQty = newState.inventory[ore.key] || 0;
@@ -1172,7 +1173,7 @@ app.post('/api/game/claim-daily', auth, async (req, res) => {
         if (!user.gameState.inventory) user.gameState.inventory = new Map();
         
         let currentEnergyBars = 0;
-        if (user.gameState.inventory instanceof Map) {
+        if (user.gameState.inventory instanceof Map || typeof user.gameState.inventory.get === 'function') {
             currentEnergyBars = user.gameState.inventory.get("Energy Bar") || 0;
             user.gameState.inventory.set("Energy Bar", currentEnergyBars + 1);
         } else {
@@ -1185,7 +1186,8 @@ app.post('/api/game/claim-daily', auth, async (req, res) => {
         await user.save();
 
         logAction('DAILY_CLAIM_SUCCESS', user.id, user.username, req);
-        res.json({ msg: "Daily Reward Claimed", inventory: user.gameState.inventory, lastDailyClaim: now });
+        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
+        res.json({ msg: "Daily Reward Claimed", inventory: mapToObject(user.gameState.inventory), lastDailyClaim: now });
     } catch (err) {
         console.error(err.message);
         res.status(500).send("Server Error");
@@ -1226,22 +1228,29 @@ app.post('/api/market/license', auth, async (req, res) => {
         }
 
         const COST = 200;
-        const currentScrap = user.gameState.inventory.get('Scrap') || 0;
+        const currentScrap = typeof user.gameState.inventory.get === 'function' ? user.gameState.inventory.get('Scrap') : user.gameState.inventory['Scrap'] || 0;
 
         if(currentScrap < COST) {
             await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient Scrap"});
         }
 
-        user.gameState.inventory.set('Scrap', currentScrap - COST);
-        const currentLic = user.gameState.inventory.get("Scavenging License") || 0;
-        user.gameState.inventory.set("Scavenging License", currentLic + 1);
+        if(typeof user.gameState.inventory.set === 'function') {
+            user.gameState.inventory.set('Scrap', currentScrap - COST);
+            const currentLic = user.gameState.inventory.get("Scavenging License") || 0;
+            user.gameState.inventory.set("Scavenging License", currentLic + 1);
+        } else {
+            user.gameState.inventory['Scrap'] = currentScrap - COST;
+            const currentLic = user.gameState.inventory["Scavenging License"] || 0;
+            user.gameState.inventory["Scavenging License"] = currentLic + 1;
+        }
         
         user.markModified('gameState');
         await user.save({ session });
         await session.commitTransaction();
         logAction('MARKET_BUY_LICENSE', user.id, user.username, req);
-        res.json({ msg: "License Acquired", inventory: user.gameState.inventory });
+        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
+        res.json({ msg: "License Acquired", inventory: mapToObject(user.gameState.inventory) });
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1286,12 +1295,13 @@ app.post('/api/market/offer', auth, async (req, res) => {
             return res.status(400).json({ msg: "Market Limit Reached (Max 15 active offers)" });
         }
 
-        if (!user.gameState.inventory.has(safeItem)) {
+        const hasItem = typeof user.gameState.inventory.has === 'function' ? user.gameState.inventory.has(safeItem) : user.gameState.inventory.hasOwnProperty(safeItem);
+        if (!hasItem) {
             await session.abortTransaction();
             return res.status(400).json({ msg: "Security Error: Item not found in inventory source." });
         }
 
-        const currentQty = parseInt(user.gameState.inventory.get(safeItem), 10);
+        const currentQty = parseInt(typeof user.gameState.inventory.get === 'function' ? user.gameState.inventory.get(safeItem) : user.gameState.inventory[safeItem], 10);
         if (isNaN(currentQty)) {
             await session.abortTransaction();
             return res.status(400).json({ msg: "Security Error: Corrupted inventory data." });
@@ -1302,12 +1312,16 @@ app.post('/api/market/offer', auth, async (req, res) => {
             return res.status(400).json({msg: "Insufficient items in inventory (Validation Failed)"});
         }
 
-        user.gameState.inventory.set(safeItem, currentQty - qty);
+        if(typeof user.gameState.inventory.set === 'function') {
+            user.gameState.inventory.set(safeItem, currentQty - qty);
+        } else {
+            user.gameState.inventory[safeItem] = currentQty - qty;
+        }
+
         user.markModified('gameState');
         await user.save({ session });
 
-        // Генерация отпечатка (можно оставить IP для отслеживания продавца, но не для блокировки токена)
-        const sellerFingerprint = getDeviceFingerprint(req, true); // true = include IP for offer tracking
+        const sellerFingerprint = getDeviceFingerprint(req, true);
 
         const newOffer = new MarketOffer({
             sellerId: user.id,
@@ -1322,6 +1336,7 @@ app.post('/api/market/offer', auth, async (req, res) => {
 
         await session.commitTransaction();
         logAction('MARKET_POST', user.id, user.username, req, { item: safeItem, qty: qty, price: price });
+        
         const offers = await MarketOffer.find().sort({ postedAt: -1 }).limit(100);
         const mappedOffers = offers.map(o => ({
             id: o._id,
@@ -1332,7 +1347,8 @@ app.post('/api/market/offer', auth, async (req, res) => {
             currency: o.currency
         }));
         
-        res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: user.gameState.inventory, offers: mappedOffers });
+        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
+        res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1369,8 +1385,14 @@ app.post('/api/market/cancel', auth, async (req, res) => {
 
         const user = await User.findById(req.user.id).session(session);
         
-        const current = user.gameState.inventory.get(offer.item) || 0;
-        user.gameState.inventory.set(offer.item, current + offer.qty);
+        if(typeof user.gameState.inventory.get === 'function') {
+            const current = user.gameState.inventory.get(offer.item) || 0;
+            user.gameState.inventory.set(offer.item, current + offer.qty);
+        } else {
+            const current = user.gameState.inventory[offer.item] || 0;
+            user.gameState.inventory[offer.item] = current + offer.qty;
+        }
+
         user.markModified('gameState');
         await user.save({ session });
         await MarketOffer.deleteOne({ _id: offerId }, { session });
@@ -1385,8 +1407,10 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
+        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-        res.json({ msg: "Offer Cancelled", inventory: user.gameState.inventory, offers: mappedOffers });
+        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
+        res.json({ msg: "Offer Cancelled", inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
@@ -1433,19 +1457,9 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
         }
 
-        // --- CHECK DEVICE FINGERPRINT MATCH (WITHOUT IP) ---
-        // Используем 'false' чтобы проверить совпадение браузера/устройства
+        // --- CHECK DEVICE FINGERPRINT MATCH ---
         const buyerFingerprint = getDeviceFingerprint(req, false);
-        
-        // Для сравнения нам нужно получить "чистый" отпечаток продавца (без IP), 
-        // но в базе у нас сохранен с IP (если старая версия) или без (новая).
-        // В данном случае мы полагаемся на то, что если это один и тот же человек, 
-        // то даже частичное совпадение хэшей маловероятно из-за соли IP.
-        // Поэтому лучше просто сравнить сохраненный.
-        
         if (securedOffer.sellerFingerprint === buyerFingerprint) {
-            // Это сработает только если оба (покупатель и продавец) зашли с новой версией Fingerprint (без IP)
-            // Но это надежная защита.
             await session.abortTransaction();
             logAction('MARKET_FINGERPRINT_BAN', buyerId, buyer.username, req, { 
                 sellerFp: securedOffer.sellerFingerprint, 
@@ -1454,15 +1468,21 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(403).json({ msg: "Anti-Cheat: Device Fingerprint Match. Cannot trade between accounts on the same device." });
         }
 
-        const buyerH3 = buyer.gameState.inventory.get('Helium3') || 0;
+        const buyerH3 = typeof buyer.gameState.inventory.get === 'function' ? buyer.gameState.inventory.get('Helium3') : buyer.gameState.inventory['Helium3'] || 0;
         if(buyerH3 < securedOffer.price) {
             await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
-        buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
-        const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
-        buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
+        if(typeof buyer.gameState.inventory.set === 'function') {
+            buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
+            const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
+            buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
+        } else {
+            buyer.gameState.inventory['Helium3'] = buyerH3 - securedOffer.price;
+            const buyerItemQty = buyer.gameState.inventory[securedOffer.item] || 0;
+            buyer.gameState.inventory[securedOffer.item] = buyerItemQty + securedOffer.qty;
+        }
 
         buyer.markModified('gameState');
         await buyer.save({ session });
@@ -1473,8 +1493,13 @@ app.post('/api/market/buy', auth, async (req, res) => {
         const sellerRevenue = price - fee;
         if (seller) {
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
-            const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
-            seller.gameState.inventory.set('Helium3', currentSellerH3 + sellerRevenue);
+            if(typeof seller.gameState.inventory.set === 'function') {
+                const currentSellerH3 = seller.gameState.inventory.get('Helium3') || 0;
+                seller.gameState.inventory.set('Helium3', currentSellerH3 + sellerRevenue);
+            } else {
+                const currentSellerH3 = seller.gameState.inventory['Helium3'] || 0;
+                seller.gameState.inventory['Helium3'] = currentSellerH3 + sellerRevenue;
+            }
             seller.markModified('gameState');
             await seller.save({ session });
         }
@@ -1489,7 +1514,9 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-        res.json({ msg: "Purchase Successful", inventory: buyer.gameState.inventory });
+        
+        // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
+        res.json({ msg: "Purchase Successful", inventory: mapToObject(buyer.gameState.inventory) });
     } catch (err) {
         await session.abortTransaction();
         console.error(err);
