@@ -363,7 +363,6 @@ const secureGameState = (state) => {
 };
 
 // --- RATE LIMITING ---
-
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 2000, 
@@ -424,8 +423,8 @@ const auth = (req, res, next) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded.user;
-
         const currentFingerprint = getDeviceFingerprint(req, false);
+        
         if (decoded.fp && decoded.fp !== currentFingerprint) {
             console.log(`[SECURITY] Session Hijack Attempt Blocked! User: ${decoded.user.id} | TokenFP: ${decoded.fp} | CurrentFP: ${currentFingerprint}`);
             return res.status(403).json({ msg: 'Session invalid: Device fingerprint mismatch (Browser changed?). Please login again.' });
@@ -521,7 +520,6 @@ app.post('/api/auth/register', async (req, res) => {
             if (err) throw err;
             res.json({ token });
         });
-
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server error');
@@ -561,7 +559,6 @@ app.post('/api/auth/login', async (req, res) => {
              if (err) throw err;
              res.json({ token, gameState: responseState });
         });
-
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server error');
@@ -626,7 +623,6 @@ app.post('/api/game/save', auth, async (req, res) => {
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
-        // ИСПРАВЛЕНИЕ: Безопасное обращение к oldState.inventory
         if (oldState.inventory && typeof oldState.inventory.get === 'function') {
             dbHelium3 = oldState.inventory.get('Helium3') || 0;
         } else if (oldState.inventory) {
@@ -660,7 +656,6 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         // 3. Power & Battery Check
-        // ИСПРАВЛЕНИЕ: Проверка Array.isArray для защиты от падений
         if (newState.power && Array.isArray(newState.power.batteries)) {
             const batteries = newState.power.batteries;
             const BATTERY_CAP = 33.33;
@@ -682,7 +677,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 totalNewCharge += (bat.charge || 0);
             }
 
-            // ИСПРАВЛЕНИЕ: Проверка Array.isArray
             if (oldState.power && Array.isArray(oldState.power.batteries)) {
                 oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
                 const chargeDelta = totalNewCharge - totalOldCharge;
@@ -711,10 +705,10 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             if (oldState.stamina && oldState.inventory && newState.inventory) {
-                // ИСПРАВЛЕНИЕ: Защита на случай undefined
                 const oldVal = oldState.stamina ? (parseFloat(oldState.stamina.val) || 0) : 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
+
                 if (staminaDiff > 0) {
                     const foodItems = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Energy Isotonic'];
                     let hasConsumedFood = false;
@@ -741,25 +735,42 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         }
 
-        // 4.5 Cooldown Protection
+        // 4.5 Cooldown Protection (SECURITY FIXED)
         if (newState.inventory) {
             const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000;
+            // Учитываем все пайки и батончики (Изотоник не имеет этого кулдауна в клиенте)
             const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
+            
+            // --- НОВОЕ: Восстанавливаем доверенные кулдауны из БД, предотвращая их сброс клиентом ---
+            if (!newState.cooldowns) newState.cooldowns = {};
+            if (oldState.cooldowns) {
+                for (const item of TRACKED_FOODS) {
+                    if (typeof oldState.cooldowns.get === 'function') {
+                        newState.cooldowns[item] = oldState.cooldowns.get(item) || 0;
+                    } else {
+                        newState.cooldowns[item] = oldState.cooldowns[item] || 0;
+                    }
+                }
+            }
+
+            // Обрабатываем каждый тип еды абсолютно независимо
             for (const foodItem of TRACKED_FOODS) {
                 const oldFoodQty = getOldInv(foodItem);
                 const newFoodQty = newState.inventory[foodItem] || 0;
 
+                // Если предмет этого типа был съеден
                 if (newFoodQty < oldFoodQty) {
-                    let lastEaten = 0;
-                    if (oldState.cooldowns) {
-                        // ИСПРАВЛЕНИЕ: Безопасное обращение
-                        if (typeof oldState.cooldowns.get === 'function') {
-                            lastEaten = oldState.cooldowns.get(foodItem) || 0;
-                        } else {
-                            lastEaten = oldState.cooldowns[foodItem] || 0;
-                        }
+                    const consumedAmount = oldFoodQty - newFoodQty;
+                    
+                    // --- НОВОЕ: Запрет на съедение нескольких одинаковых пайков за один раз для обхода кулдауна ---
+                    if (consumedAmount > 1) {
+                        logAction('CHEAT_MULTIPLE_CONSUME', user.id, user.username, req, { item: foodItem, amount: consumedAmount });
+                        return res.status(400).json({ msg: `Game integrity error: Cannot consume multiple ${foodItem} at once.` });
                     }
 
+                    const lastEaten = newState.cooldowns[foodItem] || 0;
+
+                    // Проверяем кулдаун именно для этого конкретного пайка
                     if ((serverNow - lastEaten) < EATING_COOLDOWN_MS) {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
                             item: foodItem,
@@ -770,7 +781,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
                     }
 
-                    if (!newState.cooldowns) newState.cooldowns = {};
+                    // Обновляем таймер кулдауна только для съеденного пайка
                     newState.cooldowns[foodItem] = serverNow;
                 }
             }
@@ -789,7 +800,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-            
+
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -859,7 +870,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             if (dEnergyBar > 0) {
                 const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
                 const BUFFER = 5 * 60 * 1000; 
-                // ИСПРАВЛЕНИЕ: Берем lastClaimTime из oldState
+                
                 const lastClaimTime = oldState.lastDailyClaim || 0;
                 const timeDiff = serverNow - lastClaimTime;
                 
@@ -1322,7 +1333,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
         await user.save({ session });
 
         const sellerFingerprint = getDeviceFingerprint(req, true);
-
         const newOffer = new MarketOffer({
             sellerId: user.id,
             sellerName: user.username,
@@ -1346,7 +1356,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
@@ -1407,7 +1416,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
         // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Offer Cancelled", inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
@@ -1514,7 +1522,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-        
         // ИСПРАВЛЕНИЕ: Безопасная сериализация Map
         res.json({ msg: "Purchase Successful", inventory: mapToObject(buyer.gameState.inventory) });
     } catch (err) {
