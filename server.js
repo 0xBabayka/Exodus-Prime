@@ -9,7 +9,6 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 
 const app = express();
-
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
@@ -370,6 +369,7 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
 });
+
 app.use(globalLimiter);
 
 const authLimiter = rateLimit({
@@ -383,6 +383,7 @@ const authLimiter = rateLimit({
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
 });
+
 app.use('/api/auth', authLimiter);
 
 const marketLimiter = rateLimit({
@@ -419,7 +420,6 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prim
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
     if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
-
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.user = decoded.user;
@@ -506,7 +506,6 @@ app.post('/api/auth/register', async (req, res) => {
                 planetary_exploration: { lvl: 1 }, engineering: { lvl: 1 }
             }
         };
-
         await user.save();
         logAction('REGISTER_SUCCESS', user.id, username, req);
 
@@ -515,7 +514,6 @@ app.post('/api/auth/register', async (req, res) => {
             user: { id: user.id },
             fp: fingerPrint 
         };
-
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
             if (err) throw err;
             res.json({ token });
@@ -574,11 +572,22 @@ app.get('/api/game/load', auth, async (req, res) => {
         if(!user.gameState.inventory.has('Helium3')) user.gameState.inventory.set('Helium3', 0);
 
         logAction('GAME_LOAD', user.id, user.username, req);
-        res.setHeader('x-server-time', Date.now());
+        const serverNow = Date.now();
+        res.setHeader('x-server-time', serverNow);
+
+        // --- СИНХРОНИЗАЦИЯ FLUX (СЕРВЕРНАЯ СТОРОНА) ---
+        const POWER_CYCLE_DURATION = 12 * 60 * 60 * 1000;
+        let cycle = (serverNow % POWER_CYCLE_DURATION) / POWER_CYCLE_DURATION;
+        let currentFlux = (cycle <= 0.5) ? 0.15 + (0.85 * Math.sin(cycle * 2 * Math.PI)) : 0.15;
 
         // ИСПРАВЛЕНИЕ: Добавлен { flattenMaps: true }
         const responseState = user.gameState.toObject({ flattenMaps: true });
-        responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
+        
+        // Синхронизируем загруженный стейт с реальным временем сервера
+        if (!responseState.environment) responseState.environment = {};
+        responseState.environment.flux = currentFlux;
+        
+        responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : serverNow;
 
         res.json(responseState);
     } catch (err) {
@@ -593,6 +602,16 @@ app.post('/api/game/save', auth, async (req, res) => {
         let { gameState, clientTime } = req.body;
 
         gameState = secureGameState(gameState);
+        const serverNow = Date.now();
+
+        // --- СИНХРОНИЗАЦИЯ FLUX ПРИ СОХРАНЕНИИ ---
+        const POWER_CYCLE_DURATION = 12 * 60 * 60 * 1000;
+        const PANEL_BASE_OUTPUT = 0.015;
+        let cycle = (serverNow % POWER_CYCLE_DURATION) / POWER_CYCLE_DURATION;
+        let currentFlux = (cycle <= 0.5) ? 0.15 + (0.85 * Math.sin(cycle * 2 * Math.PI)) : 0.15;
+
+        if (!gameState.environment) gameState.environment = {};
+        gameState.environment.flux = currentFlux; // Жесткая привязка к серверному циклу!
 
         if (gameState) {
             for (const trapKey of HONEYPOT_KEYS) {
@@ -604,7 +623,6 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const newState = gameState; 
-        const serverNow = Date.now();
 
         const user = await User.findById(req.user.id);
         if (!user) {
@@ -619,7 +637,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             return (typeof oldState.inventory.get === 'function') ? 
                 (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         };
-
+        
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
@@ -657,15 +675,15 @@ app.post('/api/game/save', auth, async (req, res) => {
 
         // 3. Power & Battery Check
         if (newState.power && Array.isArray(newState.power.batteries)) {
-            const batteries = newState.power.batteries;
             const BATTERY_CAP = 33.33;
             const MAX_ALLOWED_CHARGE = BATTERY_CAP + 2.0; 
-            const MAX_GEN_PER_SEC = 0.5; 
+            // ИСПРАВЛЕНИЕ: Точная валидация на основе максимальной выдачи панелей (а не плоского 0.5)
+            const MAX_GEN_PER_SEC = PANEL_BASE_OUTPUT; 
             
             let totalNewCharge = 0;
             let totalOldCharge = 0;
 
-            for (let bat of batteries) {
+            for (let bat of newState.power.batteries) {
                 if (bat.charge > MAX_ALLOWED_CHARGE) {
                     logAction('CHEAT_BATTERY_OVERCHARGE', user.id, user.username, req, {
                         batId: bat.id,
@@ -681,7 +699,10 @@ app.post('/api/game/save', auth, async (req, res) => {
                 oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
                 const chargeDelta = totalNewCharge - totalOldCharge;
                 const elapsedSeconds = timeSinceLastSave / 1000;
-                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 10.0;
+                
+                // Расчет на основе реальной генерации панелей + допуск на оффлайн неточности
+                const maxPossibleGain = (elapsedSeconds * MAX_GEN_PER_SEC) + 5.0;
+                
                 if (chargeDelta > maxPossibleGain) {
                       logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
                         delta: chargeDelta,
@@ -708,7 +729,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldVal = oldState.stamina ? (parseFloat(oldState.stamina.val) || 0) : 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
-
+                
                 if (staminaDiff > 0) {
                     const foodItems = ['Snack', 'Meal', 'Feast', 'Energy Bar', 'Energy Isotonic'];
                     let hasConsumedFood = false;
@@ -728,7 +749,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             newStamina: newVal,
                             diff: staminaDiff,
                             details: "Stamina increased without inventory consumption"
-                        });
+                         });
                         return res.status(400).json({ msg: 'Game integrity error: Stamina increased without food consumption.' });
                     }
                 }
@@ -740,7 +761,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             const EATING_COOLDOWN_MS = 2.5 * 60 * 60 * 1000;
             // Учитываем все пайки и батончики (Изотоник не имеет этого кулдауна в клиенте)
             const TRACKED_FOODS = ['Snack', 'Meal', 'Feast', 'Energy Bar'];
-            
             // --- НОВОЕ: Восстанавливаем доверенные кулдауны из БД, предотвращая их сброс клиентом ---
             if (!newState.cooldowns) newState.cooldowns = {};
             if (oldState.cooldowns) {
@@ -761,7 +781,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 // Если предмет этого типа был съеден
                 if (newFoodQty < oldFoodQty) {
                     const consumedAmount = oldFoodQty - newFoodQty;
-                    
                     // --- НОВОЕ: Запрет на съедение нескольких одинаковых пайков за один раз для обхода кулдауна ---
                     if (consumedAmount > 1) {
                         logAction('CHEAT_MULTIPLE_CONSUME', user.id, user.username, req, { item: foodItem, amount: consumedAmount });
@@ -794,13 +813,14 @@ app.post('/api/game/save', auth, async (req, res) => {
             const dRegolith = (newState.inventory.Regolith || 0) - getOldInv("Regolith");
             const dIce = (newState.inventory["Ice water"] || 0) - getOldInv("Ice water");
             dScrap = (newState.inventory.Scrap || 0) - getOldInv("Scrap");
+            
             const SCAV_DURATION_MS = 5000;
             const MAX_REG_PER_SCAV = 10;
             const MAX_ICE_PER_SCAV = 3;
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-
+            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -897,6 +917,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldSeedQty = getOldInv(seedName);
                 const newSeedQty = newState.inventory[seedName] || 0;
                 const dSeed = newSeedQty - oldSeedQty;
+                
                 if (dSeed > 0) {
                     if (dScrap >= 0 && dSeed > MAX_SEEDS_DROP_BUFFER) {
                           logAction('CHEAT_RESOURCE_SEEDS', user.id, user.username, req, {
@@ -904,7 +925,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                             delta: dSeed,
                             limit: MAX_SEEDS_DROP_BUFFER,
                             dScrap: dScrap
-                        });
+                         });
                         return res.status(400).json({ msg: `Game integrity error: Abnormal increase in ${seedName} detected without purchase.` });
                     }
                 }
@@ -926,6 +947,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldQty = getOldInv(ore.key);
                 const newQty = newState.inventory[ore.key] || 0;
                 const dQty = newQty - oldQty;
+                
                 if (dQty > 0) {
                     let allowedGain = ore.maxPerSmelt * 2;
                     if (hasMiner) {
@@ -956,6 +978,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Krypton", maxPerRun: 2 },
                 { key: "Xenon", maxPerRun: 2 }
             ];
+            
             const MAX_CAD_SLOTS = 2; 
             const CAD_SAFETY_BUFFER = 5; 
 
@@ -963,6 +986,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldQty = getOldInv(gas.key);
                 const newQty = newState.inventory[gas.key] || 0;
                 const dQty = newQty - oldQty;
+                
                 if (dQty > 0) {
                     const limit = (gas.maxPerRun * MAX_CAD_SLOTS) + CAD_SAFETY_BUFFER;
                     if (dQty > limit) {
@@ -1019,10 +1043,12 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Ground Guarana", maxPerSlot: 13, slots: 2, buffer: 5 },
                 { key: "Energy Isotonic", maxPerSlot: 5, slots: 2, buffer: 3 }
             ];
+            
             for (const item of kitchenItems) {
                 const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
+                
                 if (delta > 0) {
                     const limit = (item.maxPerSlot * item.slots) + item.buffer;
                     if (delta > limit) {
@@ -1044,6 +1070,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Empty Battery", maxPerSlot: 3 },
                 { key: "Electric silicon", maxPerSlot: 3 }
             ];
+            
             const CHEM_SLOTS = 4;
             const CHEM_BUFFER = 5; 
 
@@ -1051,6 +1078,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
+                
                 if (delta > 0) {
                     const limit = (item.maxPerSlot * CHEM_SLOTS) + CHEM_BUFFER;
                     if (delta > limit) {
@@ -1074,10 +1102,12 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "PVC Pipe", maxPerSlot: 5, slots: 2, buffer: 3 },
                 { key: "Electronic Parts", maxPerSlot: 3, slots: 2, buffer: 2 }
             ];
+            
             for (const item of factoryItems) {
                 const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
+                
                 if (delta > 0) {
                     const limit = (item.maxPerSlot * item.slots) + item.buffer;
                     if (delta > limit) {
@@ -1097,10 +1127,12 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { key: "Liquid O2", maxPerSlot: 20, slots: 4, buffer: 2 },
                 { key: "Rocket Fuel", maxPerSlot: 40, slots: 4, buffer: 4 }
             ];
+            
             for (const item of fuelItems) {
                 const oldQ = getOldInv(item.key);
                 const newQ = newState.inventory[item.key] || 0;
                 const delta = newQ - oldQ;
+                
                 if (delta > 0) {
                     const limit = (item.maxPerSlot * item.slots) + item.buffer;
                     if (delta > limit) {
@@ -1131,11 +1163,13 @@ app.post('/api/game/save', auth, async (req, res) => {
                 const oldOutQty = getOldInv(rule.out);
                 const newOutQty = newState.inventory[rule.out] || 0;
                 const dOut = newOutQty - oldOutQty;
+                
                 if (dOut > 5) {
                     const minInputRequired = dOut * rule.ratio;
                     const miningBuffer = (maxActionsPossible * 15) + 200;
                     const maxTheoreticalInput = getOldInv(rule.in) + miningBuffer - minInputRequired;
                     const actualNewInput = newState.inventory[rule.in] || 0;
+                    
                     if (actualNewInput > maxTheoreticalInput) {
                          logAction(`CHEAT_CRAFT_COST_${rule.out.toUpperCase().replace(' ', '_')}`, user.id, user.username, req, {
                             outputGained: dOut,
@@ -1159,6 +1193,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         logAction('GAME_SAVE', req.user.id, user.username, req, {
             savedAt: serverNow
         });
+        
         res.json({ msg: 'Game Saved', serverTime: serverNow }); 
     } catch (err) {
         console.error(err.message);
