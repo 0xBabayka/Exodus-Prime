@@ -760,21 +760,21 @@ const API_URL = 'https://exodus-prime.onrender.com/api'; // Укажи здес�
 let SERVER_TIME_OFFSET = 0; // разница между серверным и локальным временем (мс)
 
 function now() {
-  return Date.now() + SERVER_TIME_OFFSET;
+return Date.now() + SERVER_TIME_OFFSET;
 }
 
 async function syncServerTime() {
-  try {
-    const t0 = Date.now();
-    const res = await fetch(`${API_URL}/time`); // эндпоинт возвращает { serverTime: 1234567890 }
-    const t1 = Date.now();
-    const { serverTime } = await res.json();
-    const latency = (t1 - t0) / 2; // половина ping = задержка в одну сторону
-    SERVER_TIME_OFFSET = (serverTime + latency) - Date.now();
-    console.log(`SYS: Server time synced. Offset: ${SERVER_TIME_OFFSET}ms`);
-  } catch(e) {
-    console.warn("SYS: Time sync failed, using local time.", e);
-  }
+try {
+const t0 = Date.now();
+const res = await fetch(`${API_URL}/time`); // эндпоинт возвращает { serverTime: 1234567890 }
+const t1 = Date.now();
+const { serverTime } = await res.json();
+const latency = (t1 - t0) / 2; // половина ping = задержка в одну сторону
+SERVER_TIME_OFFSET = (serverTime + latency) - Date.now();
+console.log(`SYS: Server time synced. Offset: ${SERVER_TIME_OFFSET}ms`);
+} catch(e) {
+console.warn("SYS: Time sync failed, using local time.", e);
+}
 }
 let AUTH_TOKEN = localStorage.getItem('exodus_token');
 
@@ -812,7 +812,7 @@ if(data.gameState && Object.keys(data.gameState).length > 0) {
 Object.assign(STATE, data.gameState);
 log("SYS: CLOUD SYNC COMPLETE.");
 ensureBaseStructure();
-restoreOfflineProgress(STATE.lastSaveTime || Date.now());
+restoreOfflineProgress(STATE.lastSaveTime || now());
 } else {
 // New game
 createSystem();
@@ -875,7 +875,7 @@ const ServerSys = {
 save: async function() {
 if(!AUTH_TOKEN) return;
 try {
-STATE.lastSaveTime = Date.now();
+STATE.lastSaveTime = now();
 await fetch(`${API_URL}/game/save`, {
 method: 'POST',
 headers: {
@@ -1131,7 +1131,7 @@ return res.json();
 if(data && Object.keys(data).length > 0) {
 Object.assign(STATE, data);
 ensureBaseStructure();
-restoreOfflineProgress(STATE.lastSaveTime || Date.now());
+restoreOfflineProgress(STATE.lastSaveTime || now());
 } else {
 createSystem(); // New game logic for existing user but empty state
 ensureBaseStructure();
@@ -1179,8 +1179,8 @@ if (!STATE.kitchen) STATE.kitchen = { roasterSlots: [{id:0,active:false},{id:1,a
 }
 
 function restoreOfflineProgress(lastTime) {
-  const current = now();
-  const dt = current - lastTime;
+const current = now();
+const dt = current - lastTime;
 if(dt > 5000) {
 let avgFlux = 0.425;
 const offlineGen = (POWER_CFG.panelBaseOutput * avgFlux) * (dt / 1000);
@@ -1256,7 +1256,7 @@ if ((STATE.inventory["Fermented Guarana"]||0) < ROASTING_CFG.cost["Fermented Gua
 useStamina(ROASTING_CFG.cost.stamina);
 drainBuffer(ROASTING_CFG.cost.power);
 STATE.inventory["Fermented Guarana"] -= ROASTING_CFG.cost["Fermented Guarana"];
-s.active = true; s.startTime = Date.now(); s.duration = ROASTING_CFG.duration;
+s.active = true; s.startTime = now(); s.duration = ROASTING_CFG.duration;
 log(`KITCHEN: Roaster ${id+1} started.`);
 renderKitchen(); updateUI();
 }
@@ -1278,7 +1278,7 @@ if ((STATE.inventory["Roasted Guarana"]||0) < GRINDER_CFG.cost["Roasted Guarana"
 useStamina(GRINDER_CFG.cost.stamina);
 drainBuffer(GRINDER_CFG.cost.power);
 STATE.inventory["Roasted Guarana"] -= GRINDER_CFG.cost["Roasted Guarana"];
-s.active = true; s.startTime = Date.now(); s.duration = GRINDER_CFG.duration;
+s.active = true; s.startTime = now(); s.duration = GRINDER_CFG.duration;
 log(`KITCHEN: Grinder ${id+1} started.`);
 renderKitchen(); updateUI();
 }
@@ -1302,7 +1302,7 @@ useStamina(BREWING_CFG.cost.stamina);
 drainBuffer(BREWING_CFG.cost.power);
 STATE.inventory["Ground Guarana"] -= BREWING_CFG.cost["Ground Guarana"];
 STATE.inventory.Water -= BREWING_CFG.cost.water;
-s.active = true; s.startTime = Date.now(); s.duration = BREWING_CFG.duration;
+s.active = true; s.startTime = now(); s.duration = BREWING_CFG.duration;
 log(`KITCHEN: Brewer ${id+1} started.`);
 renderKitchen(); updateUI();
 }
@@ -1320,7 +1320,7 @@ if(roasterContainer) {
 roasterContainer.innerHTML = STATE.kitchen.roasterSlots.map(s => {
 let t = "IDLE", p = 0;
 if (s.active) {
-let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let el = now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
 let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
 }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>ROASTING...</button>` : `<button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:#cc0000; color:#cc0000;"
@@ -1333,7 +1333,7 @@ if(grinderContainer) {
 grinderContainer.innerHTML = STATE.kitchen.grinderSlots.map(s => {
 let t = "IDLE", p = 0;
 if (s.active) {
-let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let el = now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
 let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
 }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>GRINDING...</button>` : `<button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:#8B4513; color:#8B4513;"
@@ -1346,7 +1346,7 @@ if(brewerContainer) {
 brewerContainer.innerHTML = STATE.kitchen.brewerSlots.map(s => {
 let t = "IDLE", p = 0;
 if (s.active) {
-let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+let el = now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
 let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`;
 }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--neon); color:var(--neon);"
@@ -1368,7 +1368,7 @@ useStamina(c.cost.stamina); drainBuffer(c.cost.energy);
 STATE.inventory.Water-=c.cost.water;
 STATE.inventory.Soil-=c.cost.soil; STATE.inventory["Seeds: "+type]-=c.cost.seed;
 const slot = STATE.greenhouse.slots[s];
-slot.status='growing'; slot.crop=type; slot.startTime=Date.now(); slot.duration=c.time;
+slot.status='growing'; slot.crop=type; slot.startTime=now(); slot.duration=c.time;
 log(`AGRI: Planted ${type}.`); closeCropSelect(); renderGreenhouse(); updateUI();
 }
 
@@ -1403,7 +1403,7 @@ g.innerHTML = STATE.greenhouse.slots.map(s => {
 if(s.status==='empty') return `<div class="gh-slot empty" onclick="openCropSelect(${s.id})"><div style="font-size:30px; color:#444;">+</div></div>`;
 const isReady = s.status === 'ready';
 let icon = '🌱'; if(isReady) { if(s.crop==='Sprouts')icon='🥦'; else if(s.crop==='Amaranth')icon='🌾'; else if(s.crop==='Guarana')icon='🔴'; else if(s.crop==='Potato')icon='🥔'; else if(s.crop==='Maize')icon='🌽'; }
-let timerHtml = ''; if (!isReady) { let el = Date.now() - s.startTime; let rem = Math.max(0, s.duration - el);
+let timerHtml = ''; if (!isReady) { let el = now() - s.startTime; let rem = Math.max(0, s.duration - el);
 let tStr = `${Math.floor(rem/3600000)}h ${Math.floor((rem%3600000)/60000)}m`; timerHtml = `<div id="gh-time-${s.id}" style="font-size:9px; color:#889; margin-top:2px;">${tStr}</div>`; }
 return `<div class="gh-slot ${s.status}" ${isReady ? `onclick="harvestCrop(${s.id})"` : ''}><div class="gh-icon">${icon}</div><div style="font-size:10px; color:${isReady?'var(--agri)':'#aaa'}">${s.crop}</div>${timerHtml}<div class="gh-progress-bg" style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="gh-prog-${s.id}" style="height:100%; background:var(--agri); width:${isReady ? '100%' : '0%'}"></div></div>${isReady?'<div style="font-size:9px; color:var(--agri);">HARVEST</div>':''}</div>`;
 }).join('');
@@ -1427,7 +1427,7 @@ drainBuffer(COMPOST_CFG.cost.energy);
 STATE.inventory.Regolith -= COMPOST_CFG.cost.regolith;
 STATE.inventory["Biological Waste"] -= COMPOST_CFG.cost.waste;
 STATE.inventory.Water -= COMPOST_CFG.cost.water;
-s.active = true; s.startTime = Date.now(); s.duration = COMPOST_CFG.duration;
+s.active = true; s.startTime = now(); s.duration = COMPOST_CFG.duration;
 log(`BIO: Composter ${id+1} started.`);
 renderComposter(); updateUI();
 }
@@ -1445,7 +1445,7 @@ function renderComposter() {
 const c = document.getElementById('composter-ui'); if(!c) return;
 c.innerHTML = STATE.composter.slots.map(s => {
 let t = "IDLE", p = 0;
-if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+if(s.active) { let el = now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
 let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btnClass = s.active ? "ref-btn btn-filtering" : "ref-btn";
 return `<div style="background:rgba(255,255,255,0.02); padding:5px; border:1px solid rgba(255,255,255,0.1);"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>UNIT ${s.id+1}</span><span id="cp-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="cp-bar-${s.id}" style="height:100%; background:var(--agri); width:${p}%"></div></div><button class="${btnClass}" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--agri); color:var(--agri);"
@@ -1465,7 +1465,7 @@ if(mode === 'split') { if((STATE.inventory.Water||0) < cfg.cost.water) return lo
 useStamina(cfg.cost.stamina);
 if(mode === 'split') { STATE.inventory.Water -= cfg.cost.water; } else if(mode === 'methane') { STATE.inventory.H2 -= cfg.cost.h2; STATE.inventory.CO2 -= cfg.cost.co2; }
 drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`SABATIER: Reactor ${id+1} started [${mode.toUpperCase()}].`); renderSabatier(); updateUI();
 }
 function completeSabatier(s) {
@@ -1484,7 +1484,7 @@ function renderSabatier() {
 const c = document.getElementById('sabatier-ui'); if(!c) return;
 c.innerHTML = STATE.refinery.sabatierSlots.map(s => {
 let t = "IDLE", p = 0;
-if(s.active) { let el = Date.now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
+if(s.active) { let el = now() - s.startTime; p = Math.min(100, (el / s.duration) * 100);
 let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let controls = !s.active ? `<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--miner);" onclick="startSabatier(${s.id}, 'split')">SPLIT WATER</button><button class="ref-btn" style="flex:1; font-size:8px; border-color:var(--warning);"
 onclick="startSabatier(${s.id}, 'methane')">METHANE</button></div>` : `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>${(s.mode||'').toUpperCase()}...</button>`;
@@ -1499,7 +1499,7 @@ let p = STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge
 if(p < CAD_CFG.powerCost) return log("ERR: LOW POWER.");
 if(!useStamina(CAD_CFG.staminaCost)) return;
 drainBuffer(CAD_CFG.powerCost);
-s.active = true; s.startTime = Date.now(); s.duration = CAD_CFG.duration;
+s.active = true; s.startTime = now(); s.duration = CAD_CFG.duration;
 log(`ATMOS: C.A.D. Cell ${id+1} started.`); renderCad(); updateUI();
 }
 function completeCad(s) {
@@ -1517,7 +1517,7 @@ log(msg); renderCad(); updateUI();
 function renderCad() {
 const c = document.getElementById('cad-container'); if(!c) return;
 c.innerHTML = STATE.cad.slots.map(s => {
-let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if (s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btnClass = s.active ? "ref-btn btn-filtering" : "ref-btn";
 return `<div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.1);"><div style="color:var(--neon); font-weight:bold;">C.A.D. CELL ${s.id+1}</div><div style="font-size:10px; color:#889; margin:5px 0;">Cost: 25kW <span style="color:var(--stamina)">[-5 Stam]</span></div><div style="font-size:9px; color:#666; margin-bottom:5px;">Cycle: 12h.
@@ -1533,7 +1533,7 @@ if(p<FILTER_CFG.cost.power) return log("ERR: LOW POWER.");
 if((STATE.inventory["Ice water"]||0)<FILTER_CFG.cost.ice) return log("ERR: NO ICE.");
 if(!useStamina(FILTER_CFG.cost.stamina)) return;
 drainBuffer(FILTER_CFG.cost.power); STATE.inventory["Ice water"]-=FILTER_CFG.cost.ice;
-s.active=true; s.startTime=Date.now(); s.duration=FILTER_CFG.duration; log(`REF: Cell ${id+1} filtering.`); renderWaterFilter(); updateUI();
+s.active=true; s.startTime=now(); s.duration=FILTER_CFG.duration; log(`REF: Cell ${id+1} filtering.`); renderWaterFilter(); updateUI();
 }
 function completeWaterFilter(s) {
 s.active=false; STATE.inventory.Water=(STATE.inventory.Water||0)+FILTER_CFG.output.water;
@@ -1549,7 +1549,7 @@ if(p < cfg.cost.power) return log("ERR: LOW POWER.");
 if(mode === 'amaranth') { if((STATE.inventory.Amaranth||0) < cfg.cost.amaranth) return log("ERR: NO AMARANTH."); STATE.inventory.Amaranth -= cfg.cost.amaranth;
 } else if(mode === 'guarana') { if((STATE.inventory.Guarana||0) < cfg.cost.guarana) return log("ERR: NO GUARANA."); STATE.inventory.Guarana -= cfg.cost.guarana; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`REF: Fermentation (${mode}) started.`); renderWaterFilter(); updateUI();
 }
 function completeFermentation() {
@@ -1562,13 +1562,13 @@ s.mode = null; renderWaterFilter(); updateUI();
 function renderWaterFilter() {
 const c=document.getElementById('water-filter-ui'); if(!c)return;
 let html = STATE.refinery.waterSlots.map(s => {
-let t="IDLE", p=0; if(s.active) { let el=Date.now()-s.startTime; p=Math.min(100,(el/s.duration)*100); let r=Math.max(0,s.duration-el); t=`${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m ${Math.floor((r%60000)/1000)}s`; }
+let t="IDLE", p=0; if(s.active) { let el=now()-s.startTime; p=Math.min(100,(el/s.duration)*100); let r=Math.max(0,s.duration-el); t=`${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m ${Math.floor((r%60000)/1000)}s`; }
 let btnClass = s.active ? "ref-btn btn-filtering" : "ref-btn";
 return `<div class="wf-slot"><div style="display:flex; justify-content:space-between; font-size:9px; color:#aaa;"><span>CELL ${s.id+1}</span><span id="wf-time-${s.id}" style="color:${s.active?'var(--neon)':'#555'}">${t}</span></div><div class="wf-progress-bg" style="width:100%; height:4px; background:#111; margin-top:5px;"><div id="wf-bar-${s.id}" style="height:100%; background:var(--neon); width:${p}%"></div></div><button id="wf-btn-${s.id}" class="${btnClass}" style="width:100%; margin-top:5px; font-size:9px;"
 onclick="startWaterFilter(${s.id})" ${s.active?'disabled':''}>${s.active?'FILTERING...':'START'}</button></div>`;
 }).join('');
 const f = STATE.refinery.fermenterSlot; let fTime = "IDLE"; let fProg = 0;
-if(f.active) { let el = Date.now() - f.startTime; fProg = Math.min(100, (el / f.duration) * 100);
+if(f.active) { let el = now() - f.startTime; fProg = Math.min(100, (el / f.duration) * 100);
 let r = Math.max(0, f.duration - el); fTime = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let fControls = f.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:#d400ff; color:#d400ff;"
 disabled>FERMENTING ${(f.mode||'').toUpperCase()}...</button>` : `<div style="display:flex; gap:2px; margin-top:5px;"><button class="ref-btn" style="flex:1; font-size:9px; border-color:#d400ff; color:#d400ff;" onclick="startFermentation('amaranth')">AMARANTH</button><button class="ref-btn" style="flex:1; font-size:9px; border-color:#cc0000; color:#cc0000;" onclick="startFermentation('guarana')">GUARANA</button></div>`;
@@ -1598,7 +1598,7 @@ STATE.inventory["Iron Ore"] -= cfg.cost["Iron Ore"]; } else if (mode === 'alumin
 } else if (mode === 'copper') { STATE.inventory.Regolith -= cfg.cost.regolith; } else if (mode === 'titanium') { STATE.inventory.Regolith -= cfg.cost.regolith;
 } else if (mode === 'silicon') { STATE.inventory.Regolith -= cfg.cost.regolith; STATE.inventory.CO2 -= cfg.cost.co2; }
 drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`SMELTER: Crucible ${id+1} activated [${mode.toUpperCase()}].`); renderSmelter(); updateUI();
 }
 function completeSmelter(s) {
@@ -1633,7 +1633,7 @@ s.mode = null; log(msg); renderSmelter(); updateUI();
 function renderSmelter() {
 const c = document.getElementById('smelter-ui'); if(!c) return;
 c.innerHTML = STATE.refinery.smelterSlots.map(s => {
-let t = "IDLE", p = 0; if(s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if(s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let controls = !s.active ? `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--mars);"
 onclick="startSmelter(${s.id}, 'iron')">SMELT IRON</button><button class="ref-btn" style="font-size:8px; border-color:#ccc; color:#ccc;" onclick="startSmelter(${s.id}, 'aluminium')">SMELT AL</button><button class="ref-btn" style="font-size:8px; border-color:var(--copper); color:var(--copper);"
@@ -1653,7 +1653,7 @@ if (mode === 'alum_plate') { if ((STATE.inventory["Aluminium Ore"]||0) < cfg.cos
 STATE.inventory["Aluminium Ore"] -= cfg.cost["Aluminium Ore"]; } else if (mode === 'titanium_plate') { if ((STATE.inventory["Titanium Ore"]||0) < cfg.cost["Titanium Ore"]) return log("ERR: MISSING TITANIUM ORE.");
 STATE.inventory["Titanium Ore"] -= cfg.cost["Titanium Ore"]; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`FACTORY: Metalworks ${id+1} started [${mode.toUpperCase()}].`); renderMetalworks(); updateUI();
 }
 function completeMetalworks(s) {
@@ -1672,7 +1672,7 @@ s.mode = null; log(msg + "."); renderMetalworks(); updateUI();
 function renderMetalworks() {
 const c = document.getElementById('metalworks-ui'); if(!c) return;
 c.innerHTML = STATE.metalworks.slots.map(s => {
-let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if (s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;"
 disabled>PROCESSING...</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:9px; border-color:#e0e0e0; color:#e0e0e0;" onclick="startMetalworks(${s.id}, 'alum_plate')">ALUM PLATE</button><button class="ref-btn" style="font-size:9px; border-color:var(--titanium); color:var(--titanium);"
@@ -1693,7 +1693,7 @@ if ((STATE.inventory.Steel||0) < cfg.cost.Steel) return log("ERR: MISSING STEEL.
 if ((STATE.inventory["Titanium Plate"]||0) < cfg.cost["Titanium Plate"]) return log("ERR: MISSING TI. PLATE."); STATE.inventory["Aluminium Plate"] -= cfg.cost["Aluminium Plate"];
 STATE.inventory["Titanium Plate"] -= cfg.cost["Titanium Plate"]; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`FACTORY: Machine Shop ${id+1} started [${mode.toUpperCase()}].`); renderMachineParts(); updateUI();
 }
 function completeMachineParts(s) {
@@ -1712,7 +1712,7 @@ s.mode = null; log(msg + "."); renderMachineParts(); updateUI();
 function renderMachineParts() {
 const c = document.getElementById('machineparts-content'); if(!c) return;
 c.innerHTML = STATE.machineParts.slots.map(s => {
-let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if (s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>${s.mode === 'moving_parts' ?
 'MOVING...' : 'MACHINING...'}</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:#e0e0e0; color:#e0e0e0;"
@@ -1738,7 +1738,7 @@ if ((STATE.inventory["Electric silicon"]||0) < cfg.cost["Electric silicon"]) ret
 if ((STATE.inventory.Regolith||0) < cfg.cost.Regolith) return log("ERR: MISSING REGOLITH.");
 STATE.inventory["Copper Ore"] -= cfg.cost["Copper Ore"]; STATE.inventory.PVC -= cfg.cost.PVC; STATE.inventory["Electric silicon"] -= cfg.cost["Electric silicon"]; STATE.inventory.Regolith -= cfg.cost.Regolith; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`PRINTER: Job ${id+1} started [${mode.toUpperCase()}].`); renderPrinter(); updateUI();
 }
 function completePrinter(s) {
@@ -1756,7 +1756,7 @@ s.mode = null; log(msg + "."); renderPrinter(); updateUI();
 function renderPrinter() {
 const c = document.getElementById('printer-ui'); if(!c) return;
 c.innerHTML = STATE.printer.slots.map(s => {
-let t = "IDLE", p = 0; if (s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if (s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;" disabled>PRINTING...</button>` : `<button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--neon); color:var(--neon);"
 onclick="startPrinter(${s.id}, 'structural_part')">PRINT STRUCTURAL (10St, 3Ti, 5Al)</button><button class="ref-btn" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--white); color:var(--white);"
@@ -1779,7 +1779,7 @@ useStamina(cfg.cost.stamina);
 if (mode === 'methane') { STATE.inventory.Methane -= cfg.cost.methane; } else if (mode === 'oxygen') { STATE.inventory.O2 -= cfg.cost.o2;
 } else if (mode === 'synthesis') { STATE.inventory["Liquid CH4"] -= cfg.cost.liquidMethane; STATE.inventory["Liquid O2"] -= cfg.cost.liquidO2; }
 drainBuffer(cfg.cost.power);
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`FUEL: Slot ${id+1} Process (${mode.toUpperCase()}) started.`); renderFuelFactory(); updateUI();
 }
 function completeFuelProcess(s) {
@@ -1794,7 +1794,7 @@ s.mode = null; renderFuelFactory(); updateUI();
 function renderFuelFactory() {
 const c = document.getElementById('fuel-factory-ui'); if(!c) return;
 c.innerHTML = STATE.fuelFactory.slots.map(s => {
-let t = "IDLE", p = 0; if(s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if(s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px; border-color:var(--fuel); color:var(--fuel);" disabled>${s.mode === 'synthesis' ?
 'SYNTHESIS' : 'LIQUEFYING ' + (s.mode||'').toUpperCase()}...</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--fuel); color:var(--fuel);"
@@ -1824,7 +1824,7 @@ if (mode === 'pvc') { STATE.inventory.Methane -= cfg.cost.methane; STATE.invento
 } else if (mode === 'pla') { STATE.inventory["Fermented Amaranth"] -= cfg.cost["Fermented Amaranth"]; STATE.inventory.CO2 -= cfg.cost.co2;
 } else if (mode === 'empty_battery') { STATE.inventory.Perchlorate -= cfg.cost.perchlorate; STATE.inventory.Water -= cfg.cost.water; STATE.inventory["Iron Ore"] -= cfg.cost["Iron Ore"];
 STATE.inventory.PVC -= cfg.cost.PVC; } else if (mode === 'electric_silicon') { STATE.inventory["Raw silicon"] -= cfg.cost["Raw silicon"]; }
-s.active = true; s.mode = mode; s.startTime = Date.now(); s.duration = cfg.duration;
+s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
 log(`CHEM: Reaction ${id+1} started [${mode.toUpperCase()}].`); renderChemLab(); updateUI();
 }
 function completeChem(s) {
@@ -1850,7 +1850,7 @@ s.mode = null; log(msg + "."); renderChemLab(); updateUI();
 function renderChemLab() {
 const c = document.getElementById('chemlab-ui'); if(!c) return;
 c.innerHTML = STATE.chemlab.slots.map(s => {
-let t = "IDLE", p = 0; if(s.active) { let el = Date.now() - s.startTime;
+let t = "IDLE", p = 0; if(s.active) { let el = now() - s.startTime;
 p = Math.min(100, (el / s.duration) * 100); let r = Math.max(0, s.duration - el); t = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; }
 let btn = s.active ? `<button class="ref-btn btn-filtering" style="width:100%; margin-top:5px; font-size:9px;"
 disabled>SYNTHESIZING ${(s.mode||'').toUpperCase()}...</button>` : `<div style="display:grid; grid-template-columns: 1fr 1fr; gap:2px; margin-top:5px;"><button class="ref-btn" style="font-size:8px; border-color:var(--white); color:var(--white);" onclick="startChem(${s.id}, 'pvc')">PVC</button><button class="ref-btn" style="font-size:8px; border-color:var(--white); color:var(--white);"
@@ -1899,14 +1899,14 @@ function useStamina(v) { if(STATE.stamina.val>=v) { STATE.stamina.val-=v; update
 
 function consume(i) {
 if(!STATE.cooldowns) STATE.cooldowns = {};
-if (i !== 'Energy Isotonic') { const last = STATE.cooldowns[i] || 0; if(Date.now()-last < EATING_COOLDOWN_MS) return log(`BIO: Digesting ${i}...`); }
+if (i !== 'Energy Isotonic') { const last = STATE.cooldowns[i] || 0; if(now()-last < EATING_COOLDOWN_MS) return log(`BIO: Digesting ${i}...`); }
 if(!STATE.inventory[i] || STATE.inventory[i]<1) return;
 if(STATE.stamina.val>=STATE.stamina.max) return log("INFO: Full.");
 let r=RATION_RECIPES[i], g=0, w=0;
 if(i==='Energy Bar') { g = Math.floor(Math.random() * (14 - 8 + 1)) + 8;
 w = Math.floor(Math.random() * (4 - 2 + 1)) + 2; } else { g=Math.floor(Math.random()*(r.maxStam-r.minStam+1))+r.minStam; w=r.waste; }
 STATE.inventory[i]--; STATE.stamina.val=Math.min(STATE.stamina.max, STATE.stamina.val+g); STATE.inventory["Biological Waste"]+=w;
-if (i !== 'Energy Isotonic') { STATE.cooldowns[i] = Date.now(); }
+if (i !== 'Energy Isotonic') { STATE.cooldowns[i] = now(); }
 log(`BIO: Consumed ${i}. +${g} STM.`); updateUI();
 }
 
@@ -1925,8 +1925,8 @@ for(let i=0; i<20; i++) { STATE.bodies.push({ id: 200+i, name: `X-${200+i}`, dis
 }
 
 function loop(ts) {
-const dt = (ts - STATE.lastFrameTime) / 1000; STATE.lastFrameTime = ts; const now = Date.now();
-let cycle = (now % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration; STATE.environment.flux = (cycle <= 0.5) ?
+const dt = (ts - STATE.lastFrameTime) / 1000; STATE.lastFrameTime = ts; const currentTime = now();
+let cycle = (currentTime % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration; STATE.environment.flux = (cycle <= 0.5) ?
 0.15 + (0.85 * Math.sin(cycle*2*Math.PI)) : 0.15;
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid');
 if (gBats.length === 0) { STATE.power.productionRate=0; STATE.power.consumptionRate=0; STATE.power.gridStatus="BLACKOUT"; } else {
@@ -1940,24 +1940,24 @@ let b=gBats[i]; if(b.charge>0){ let t=Math.min(b.charge, dr); b.charge-=t; dr-=t
 gBats.forEach(b => { if(b.charge < (POWER_CFG.batteryCap*(1-(b.wear/100))*0.05)) b.wear = Math.min(100, b.wear + (0.0002*dt)); });
 }
 processBuildQueue(dt);
-STATE.cad.slots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeCad(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cad-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cad-time-${s.id}`); if (tEl) { let r = s.duration - (now - s.startTime); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.refinery.waterSlots.forEach(s => { if(s.active && (now-s.startTime)>=s.duration) { completeWaterFilter(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b=document.getElementById(`wf-bar-${s.id}`); if(b) b.style.width=Math.min(100,((now-s.startTime)/s.duration)*100)+"%"; let tEl = document.getElementById(`wf-time-${s.id}`); if(tEl) { let r=Math.max(0, s.duration-(now-s.startTime)); tEl.innerText=`${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m ${Math.floor((r%60000)/1000)}s`; } } } });
-const f = STATE.refinery.fermenterSlot; if(f.active && (now - f.startTime) >= f.duration) { completeFermentation();
+STATE.cad.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeCad(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cad-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cad-time-${s.id}`); if (tEl) { let r = s.duration - (currentTime - s.startTime); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.refinery.waterSlots.forEach(s => { if(s.active && (currentTime-s.startTime)>=s.duration) { completeWaterFilter(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b=document.getElementById(`wf-bar-${s.id}`); if(b) b.style.width=Math.min(100,((currentTime-s.startTime)/s.duration)*100)+"%"; let tEl = document.getElementById(`wf-time-${s.id}`); if(tEl) { let r=Math.max(0, s.duration-(currentTime-s.startTime)); tEl.innerText=`${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m ${Math.floor((r%60000)/1000)}s`; } } } });
+const f = STATE.refinery.fermenterSlot; if(f.active && (currentTime - f.startTime) >= f.duration) { completeFermentation();
 } else if(f.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`ferment-bar`);
-if (b) b.style.width = Math.min(100, ((now - f.startTime) / f.duration) * 100) + "%"; let tEl = document.getElementById(`ferment-time`);
-if (tEl) { let r = Math.max(0, f.duration - (now - f.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } }
-STATE.refinery.sabatierSlots.forEach(s => { if(s.active && (now - s.startTime) >= s.duration) { completeSabatier(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`sab-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`sab-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.refinery.smelterSlots.forEach(s => { if(s.active && (now - s.startTime) >= s.duration) { completeSmelter(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`sm-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`sm-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.metalworks.slots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeMetalworks(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`mw-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`mw-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.machineParts.slots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeMachineParts(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`mp-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`mp-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.printer.slots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completePrinter(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`pr-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`pr-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.fuelFactory.slots.forEach(s => { if(s.active && (now - s.startTime) >= s.duration) { completeFuelProcess(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`fuel-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`fuel-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.chemlab.slots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeChem(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`chem-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`chem-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.kitchen.roasterSlots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeRoasting(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`roast-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`roast-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.kitchen.grinderSlots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeGrinding(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`grind-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`grind-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.kitchen.brewerSlots.forEach(s => { if (s.active && (now - s.startTime) >= s.duration) { completeBrewing(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`brew-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`brew-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.composter.slots.forEach(s => { if(s.active && (now - s.startTime) >= s.duration) { completeCompost(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cp-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((now - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cp-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (now - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
-STATE.greenhouse.slots.forEach(s => { if(s.status==='growing'){ let el = now - s.startTime; let p = (el/s.duration)*100; let b = document.getElementById(`gh-prog-${s.id}`); if(b) b.style.width=Math.min(100,p)+"%"; let t = document.getElementById(`gh-time-${s.id}`); if(t) { let rem = Math.max(0, s.duration - el); t.innerText = `${Math.floor(rem/3600000)}h ${Math.floor((rem%3600000)/60000)}m ${Math.floor((rem%60000)/1000)}s`; } if(p>=100){ s.status='ready'; renderGreenhouse(); } } });
+if (b) b.style.width = Math.min(100, ((currentTime - f.startTime) / f.duration) * 100) + "%"; let tEl = document.getElementById(`ferment-time`);
+if (tEl) { let r = Math.max(0, f.duration - (currentTime - f.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } }
+STATE.refinery.sabatierSlots.forEach(s => { if(s.active && (currentTime - s.startTime) >= s.duration) { completeSabatier(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`sab-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`sab-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.refinery.smelterSlots.forEach(s => { if(s.active && (currentTime - s.startTime) >= s.duration) { completeSmelter(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`sm-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`sm-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.metalworks.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeMetalworks(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`mw-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`mw-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.machineParts.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeMachineParts(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`mp-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`mp-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.printer.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completePrinter(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`pr-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`pr-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.fuelFactory.slots.forEach(s => { if(s.active && (currentTime - s.startTime) >= s.duration) { completeFuelProcess(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`fuel-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`fuel-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.chemlab.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeChem(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`chem-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`chem-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.kitchen.roasterSlots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeRoasting(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`roast-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`roast-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.kitchen.grinderSlots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeGrinding(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`grind-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`grind-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.kitchen.brewerSlots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeBrewing(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`brew-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`brew-time-${s.id}`); if (tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.composter.slots.forEach(s => { if(s.active && (currentTime - s.startTime) >= s.duration) { completeCompost(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cp-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cp-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
+STATE.greenhouse.slots.forEach(s => { if(s.status==='growing'){ let el = currentTime - s.startTime; let p = (el/s.duration)*100; let b = document.getElementById(`gh-prog-${s.id}`); if(b) b.style.width=Math.min(100,p)+"%"; let t = document.getElementById(`gh-time-${s.id}`); if(t) { let rem = Math.max(0, s.duration - el); t.innerText = `${Math.floor(rem/3600000)}h ${Math.floor((rem%3600000)/60000)}m ${Math.floor((rem%60000)/1000)}s`; } if(p>=100){ s.status='ready'; renderGreenhouse(); } } });
 if(STATE.scavenging.active) { STATE.scavenging.timer+=dt*1000; UI_CACHE['scav-progress'].style.width=(STATE.scavenging.timer/STATE.scavenging.duration)*100+"%"; if(STATE.scavenging.timer>=STATE.scavenging.duration) completeScavenge(); }
 
 // Render Map
@@ -1966,7 +1966,7 @@ CTX.strokeStyle = "rgba(0, 229, 255, 0.05)"; CTX.lineWidth = 1;
 const gs = 50 * STATE.zoom; const ox = STATE.camera.x % gs; const oy = STATE.camera.y % gs;
 CTX.beginPath(); for (let x=ox; x<CANVAS.width; x+=gs){CTX.moveTo(x,0);CTX.lineTo(x,CANVAS.height);} for (let y=oy; y<CANVAS.height; y+=gs){CTX.moveTo(0,y);CTX.lineTo(CANVAS.width,y);} CTX.stroke();
 const cx = (CANVAS.width/2) + STATE.camera.x; const cy = (CANVAS.height/2) + STATE.camera.y;
-const time = now * ORBIT_CALC_FACTOR; const z = STATE.zoom * AU_SCALE;
+const time = currentTime * ORBIT_CALC_FACTOR; const z = STATE.zoom * AU_SCALE;
 const base = STATE.bodies.find(b => b.type === "BASE");
 STATE.bodies.forEach(b => {
 const p = getOrbitalPos(b, time, z); let drawRadius = b.size; if(b.type === "Star") { CTX.shadowBlur = 40; CTX.shadowColor = b.color;
@@ -1980,17 +1980,17 @@ if (STATE.zoom > 0.5 || b.type==="Planet" || b.type==="BASE") { CTX.fillStyle=(b
 for (let i = STATE.ships.length - 1; i >= 0; i--) {
 const s = STATE.ships[i]; const t = STATE.bodies.find(b => b.id === s.targetId); const tp_au = t ?
 getOrbitalPos(t, time, 1.0) : {x:0,y:0}; const tp_px = {x: tp_au.x * z, y: tp_au.y * z};
-if (!t && s.phase !== 'return') { s.phase = 'return'; s.startTime = now; s.startPos = s.lastPos || getOrbitalPos(base, time, 1.0);
+if (!t && s.phase !== 'return') { s.phase = 'return'; s.startTime = currentTime; s.startPos = s.lastPos || getOrbitalPos(base, time, 1.0);
 }
-if (s.phase === 'outbound') { s.progress += ((now - s.lastTick)/1000)/s.duration; s.lastTick=now;
-if(s.progress>=1) { if(s.type==='probe'){ scanBody(t); s.phase = 'return'; s.progress = 0; s.lastTick = now; s.startPos = {x: tp_au.x, y: tp_au.y};
-s.cargoAmount = 0; s.cargoItem = null; log(`CMD: Probe reached ${t.name}. Scanning complete. Returning.`); } else { s.phase='mining'; s.mineStart=now; }
+if (s.phase === 'outbound') { s.progress += ((currentTime - s.lastTick)/1000)/s.duration; s.lastTick=currentTime;
+if(s.progress>=1) { if(s.type==='probe'){ scanBody(t); s.phase = 'return'; s.progress = 0; s.lastTick = currentTime; s.startPos = {x: tp_au.x, y: tp_au.y};
+s.cargoAmount = 0; s.cargoItem = null; log(`CMD: Probe reached ${t.name}. Scanning complete. Returning.`); } else { s.phase='mining'; s.mineStart=currentTime; }
 } else { const pos_au = interpolate(s.startPos, tp_au, s.progress); s.lastPos = pos_au;
 const pos_px = {x: pos_au.x * z, y: pos_au.y * z}; drawShip(cx, cy, pos_px, tp_px, s); }
-} else if (s.phase === 'mining') { const mp = (now - s.mineStart)/5000; CTX.strokeStyle = s.spec.color; CTX.beginPath();
-CTX.arc(cx+tp_px.x, cy+tp_px.y, 8+Math.sin(mp*15)*4, 0, 6.28); CTX.stroke(); if(mp>=1) { s.phase='return'; s.progress=0; s.lastTick=now; s.startPos={x:tp_au.x, y:tp_au.y}; const res=(t.res&&t.res.length)?t.res[0]:"Rock"; s.cargoAmount=(s.spec.bonus&&s.spec.bonus.includes(res))?s.spec.cargo*1.5:s.spec.cargo; s.cargoItem=res; }
+} else if (s.phase === 'mining') { const mp = (currentTime - s.mineStart)/5000; CTX.strokeStyle = s.spec.color; CTX.beginPath();
+CTX.arc(cx+tp_px.x, cy+tp_px.y, 8+Math.sin(mp*15)*4, 0, 6.28); CTX.stroke(); if(mp>=1) { s.phase='return'; s.progress=0; s.lastTick=currentTime; s.startPos={x:tp_au.x, y:tp_au.y}; const res=(t.res&&t.res.length)?t.res[0]:"Rock"; s.cargoAmount=(s.spec.bonus&&s.spec.bonus.includes(res))?s.spec.cargo*1.5:s.spec.cargo; s.cargoItem=res; }
 } else if (s.phase === 'return') { const mp_au = getOrbitalPos(base, time, 1.0);
-const mp_px = {x: mp_au.x * z, y: mp_au.y * z}; s.progress += ((now - s.lastTick)/1000)/s.duration; s.lastTick=now;
+const mp_px = {x: mp_au.x * z, y: mp_au.y * z}; s.progress += ((currentTime - s.lastTick)/1000)/s.duration; s.lastTick=currentTime;
 if(s.progress>=1) { if (s.cargoItem) { STATE.inventory[s.cargoItem]=(STATE.inventory[s.cargoItem]||0)+s.cargoAmount; log(`LOG: ${s.type} returned with ${Math.floor(s.cargoAmount)} ${s.cargoItem}`); } else { log(`LOG: ${s.type} returned to Base.`);
 } STATE.hangar[s.type]++; STATE.ships.splice(i,1); updateUI();
 } else { const pos_au = interpolate(s.startPos, mp_au, s.progress); const pos_px = {x: pos_au.x * z, y: pos_au.y * z};
@@ -2007,7 +2007,7 @@ function drawShip(cx, cy, p, tp, s) { CTX.beginPath(); CTX.setLineDash([2, 4]); 
 const a = Math.atan2(tp.y-p.y, tp.x-p.x); CTX.save(); CTX.translate(cx+p.x, cy+p.y); CTX.rotate(a); CTX.fillStyle=s.spec.color; CTX.beginPath(); CTX.moveTo(5,0); CTX.lineTo(-4,3); CTX.lineTo(-4,-3); CTX.fill(); CTX.restore(); }
 function handleClick(e) { if(STATE.power.gridStatus === 'BLACKOUT') return; const r = CANVAS.getBoundingClientRect(); const z = STATE.zoom * AU_SCALE;
 const mx = e.clientX - r.left - STATE.camera.x - (CANVAS.width/2); const my = e.clientY - r.top - STATE.camera.y - (CANVAS.height/2);
-let c = null; const time = Date.now() * ORBIT_CALC_FACTOR;
+let c = null; const time = now() * ORBIT_CALC_FACTOR;
 STATE.bodies.forEach(b => { const p = getOrbitalPos(b, time, z); if (Math.hypot(p.x-mx, p.y-my) < Math.max(b.size + 10, 20)) c = b; });
 if (c) openModal(c); }
 
@@ -2097,7 +2097,7 @@ function craftComponent(k, s) { if(STATE.power.gridStatus==='BLACKOUT') return l
 for(let r in c.cost) { if (STATE.inventory[r]!==undefined) STATE.inventory[r]-=c.cost[r]; else STATE.components[r]-=c.cost[r]; } if (k === 'battery') { createBattery('inventory'); log(`FACTORY: Battery created.`);
 } else { STATE.components[k]++; log(`FACTORY: ${c.name} created.`); } renderFactory(); updateUI(); }
 function launch(t, c, s) { if(STATE.power.gridStatus==='BLACKOUT') return; if(!useStamina(s)) return; STATE.inventory["Rocket Fuel"]-=c; STATE.hangar[t]--; const b = STATE.bodies.find(x=>x.type==="BASE"); const d = Math.abs(STATE.selectedObj.dist-b.dist)+0.2;
-STATE.ships.push({ type:t, spec:SPECS[t], targetId:STATE.selectedObj.id, phase:'outbound', duration:d/(BASE_SPEED*SPECS[t].speed), progress:0, lastTick:Date.now(), startPos:getOrbitalPos(b,Date.now()*ORBIT_CALC_FACTOR,1.0), cargoItem:null, cargoAmount:0 }); log(`CMD: ${t} launched.`); closeModal(null, true); updateUI(); }
+STATE.ships.push({ type:t, spec:SPECS[t], targetId:STATE.selectedObj.id, phase:'outbound', duration:d/(BASE_SPEED*SPECS[t].speed), progress:0, lastTick:now(), startPos:getOrbitalPos(b,now()*ORBIT_CALC_FACTOR,1.0), cargoItem:null, cargoAmount:0 }); log(`CMD: ${t} launched.`); closeModal(null, true); updateUI(); }
 function startBuild(t, s) { if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER."); if(!useStamina(s)) return; const sp = SPECS[t]; let ok=true;
 if (t==='probe') { if((STATE.inventory["Iron Ore"]||0)<sp.cost["Iron Ore"] || STATE.inventory.Si<sp.cost.Si) ok=false; } else { for(let p in sp.cost) if(STATE.components[p]<sp.cost[p]) ok=false;
 } if(!ok) return log("ERR: MISSING PARTS."); if (t==='probe') { STATE.inventory["Iron Ore"]-=sp.cost["Iron Ore"]; STATE.inventory.Si-=sp.cost.Si;
@@ -2111,8 +2111,8 @@ function drainBuffer(a) { let td=a; const tick=(a/POWER_CFG.batteryCap)*POWER_CF
 function switchTab(t) { document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); document.getElementById(`tab-btn-${t}`).classList.add('active'); ['factory', 'refinery','greenhouse','kitchen', 'chemlab', 'fuel', 'printer'].forEach(x=>document.getElementById(`tab-${x}`).style.display=(x===t)?'block':'none'); if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); } if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad();
 } if(t==='factory') { renderMetalworks(); renderMachineParts(); } if(t==='fuel') { renderFuelFactory(); } if(t==='chemlab') { renderChemLab(); } if(t==='kitchen') { renderKitchen();
 } if(t==='printer') { renderPrinter(); } }
-function claimDailyReward() { const now = Date.now(); if (now - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
-STATE.lastDailyClaim = now; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1; log("REWARD: +1 Energy Bar acquired."); updateUI(); ServerSys.save(); }
+function claimDailyReward() { const currentTime = now(); if (currentTime - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
+STATE.lastDailyClaim = currentTime; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1; log("REWARD: +1 Energy Bar acquired."); updateUI(); ServerSys.save(); }
 
 // NEW: Open Daily Missions
 function openDailyMissions() {
@@ -2130,14 +2130,14 @@ document.getElementById('btn-msn-daily').classList.toggle('active', tab === 'dai
 }
 
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }
-function log(m) { const c=UI_CACHE['console']; if(c) c.innerHTML = `<div><span style="color:#556">[${new Date().toLocaleTimeString().split(' ')[0]}]</span> ${m}</div>` + c.innerHTML; }
+function log(m) { const c=UI_CACHE['console']; if(c) c.innerHTML = `<div><span style="color:#556">[${new Date(now()).toLocaleTimeString().split(' ')[0]}]</span> ${m}</div>` + c.innerHTML; }
 
 function updateUI() {
 try {
 if(UI_CACHE['sys-time']) UI_CACHE['sys-time'].innerText = new Date(now()).toISOString().split('T')[1].split('.')[0];
 const fl = Math.floor(STATE.environment.flux * 100); if(UI_CACHE['top-flux-val']) UI_CACHE['top-flux-val'].innerText = `${fl}%`;
 const st = UI_CACHE['stamina-val']; if(st) { st.innerText = `${Math.floor(STATE.stamina.val)}/${STATE.stamina.max}`; st.style.color = (STATE.stamina.val<20)?"var(--danger)":"var(--stamina)"; }
-const btnDaily = UI_CACHE['btn-daily']; if(btnDaily) { const diff = Date.now() - STATE.lastDailyClaim; if (diff >= DAILY_COOLDOWN) { btnDaily.disabled = false;
+const btnDaily = UI_CACHE['btn-daily']; if(btnDaily) { const diff = now() - STATE.lastDailyClaim; if (diff >= DAILY_COOLDOWN) { btnDaily.disabled = false;
 btnDaily.innerText = "🎁 CLAIM"; btnDaily.style.opacity = "1"; btnDaily.style.borderColor = "var(--warning)"; btnDaily.style.color = "var(--warning)"; btnDaily.style.boxShadow = "none";
 } else { btnDaily.disabled = true; const rem = DAILY_COOLDOWN - diff; const h = Math.floor(rem / 3600000);
 const m = Math.floor((rem % 3600000) / 60000); btnDaily.innerText = `${h}h ${m}m`; btnDaily.style.opacity = "0.8"; btnDaily.style.borderColor = "var(--danger)";
@@ -2169,7 +2169,7 @@ hasActive = true; } if(STATE.buildQueue.length > 0) { h += `<div style="padding:
 hasActive = true; } if(!hasActive) h += '<div style="padding:2px; color:#555; font-size:9px; font-style:italic;">SYSTEMS IDLE</div>'; aps.innerHTML = h; }
 const consumables = ['Snack', 'Meal', 'Feast', 'Energy Isotonic', 'Energy Bar'];
 consumables.forEach(k => { if (STATE.inventory[k] === undefined) STATE.inventory[k] = 0; }); const invEl = UI_CACHE['inventory'];
-if(invEl) { invEl.innerHTML = Object.entries(STATE.inventory).filter(([k, v]) => consumables.includes(k)).map(([k,v]) => { let act="", col="var(--kitchen)"; if (v > 0) { if (k === 'Energy Isotonic') { act=`<button class="consume-btn" style="border-color:var(--neon); color:var(--neon);" onclick="consume('${k}')">DRINK</button>`; } else { const last = STATE.cooldowns[k] || 0; const diff = Date.now() - last; if(diff < EATING_COOLDOWN_MS) { let rem = EATING_COOLDOWN_MS - diff; let m = Math.floor(rem/60000); let s = Math.floor((rem%60000)/1000); act=`<span style="font-size:9px; color:#FF3333; font-weight:bold;">[WAIT ${m}m ${s}s]</span>`; } else { act=`<button class="consume-btn" onclick="consume('${k}')">EAT</button>`; } } } else { act=`<span style="font-size:8px; color:#555">EMPTY</span>`; } return `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.01); padding:2px 4px; border-left:2px solid ${col}; margin-bottom:1px;"><div><span style="color:${col}">${k}</span></div><div style="display:flex;
+if(invEl) { invEl.innerHTML = Object.entries(STATE.inventory).filter(([k, v]) => consumables.includes(k)).map(([k,v]) => { let act="", col="var(--kitchen)"; if (v > 0) { if (k === 'Energy Isotonic') { act=`<button class="consume-btn" style="border-color:var(--neon); color:var(--neon);" onclick="consume('${k}')">DRINK</button>`; } else { const last = STATE.cooldowns[k] || 0; const diff = now() - last; if(diff < EATING_COOLDOWN_MS) { let rem = EATING_COOLDOWN_MS - diff; let m = Math.floor(rem/60000); let s = Math.floor((rem%60000)/1000); act=`<span style="font-size:9px; color:#FF3333; font-weight:bold;">[WAIT ${m}m ${s}s]</span>`; } else { act=`<button class="consume-btn" onclick="consume('${k}')">EAT</button>`; } } } else { act=`<span style="font-size:8px; color:#555">EMPTY</span>`; } return `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.01); padding:2px 4px; border-left:2px solid ${col}; margin-bottom:1px;"><div><span style="color:${col}">${k}</span></div><div style="display:flex;
 align-items:center;"> <span style="color:#eee; margin-right:5px;">${Math.floor(v)}</span>${act}</div></div>`; }).join('') || '<div style="color:#444">EMPTY</div>'; }
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid'); let gh = "";
 if (gBats.length === 0) gh = "<div style='color:var(--danger); font-size:9px; font-weight:bold; animation:blink 1s infinite;'>[!] NO POWER</div>";
@@ -2200,7 +2200,7 @@ let pClass = "st-active";
 if(s.phase === 'mining') {
 pClass = "st-mining";
 // Mine duration is hardcoded 5000ms in loop()
-let mined = Date.now() - s.mineStart;
+let mined = now() - s.mineStart;
 let rem = Math.max(0, 5000 - mined);
 statusStr = `MINING ${(rem/1000).toFixed(1)}s`;
 } else {
