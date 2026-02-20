@@ -12,6 +12,9 @@ const app = express();
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
+app.get('/time', (req, res) => {
+  res.json({ serverTime: Date.now() });
+});
 
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me_v2_secure';

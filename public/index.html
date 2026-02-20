@@ -717,6 +717,30 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 </div>
 </div>
 
+<div id="modal-missions" class="modal draggable" style="display:none; border-color: #d400ff;">
+<div class="header" style="font-size:14px; color:white;">MISSION BOARD</div>
+<div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
+
+<div style="margin-bottom:10px; border-bottom:1px solid var(--panel-border); padding-bottom:5px;">
+<button class="tab-btn active" id="btn-msn-ground" onclick="switchMissionTab('ground')">GROUND OPERATIONS</button>
+<button class="tab-btn" id="btn-msn-daily" onclick="switchMissionTab('daily')">DAILY MISSION</button>
+</div>
+
+<div id="msn-ground-view">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">GROUND OPERATIONS</div>
+<div class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center; display:flex; align-items:center; justify-content:center;">
+LOGIC PENDING
+</div>
+</div>
+
+<div id="msn-daily-view" style="display:none;">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">DAILY MISSION</div>
+<div class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center; display:flex; align-items:center; justify-content:center;">
+LOGIC PENDING
+</div>
+</div>
+</div>
+
 <div id="modal-target" class="modal draggable" style="display:none;">
 <div class="header" id="m-t-name" style="font-size:14px;">TARGET</div>
 <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#555" onclick="closeModal(null, true)">[×]</div>
@@ -732,6 +756,26 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 <script>
 // --- NETWORK CONFIG ---
 const API_URL = 'https://exodus-prime.onrender.com/api'; // Укажи здесь адрес своего сервера
+// --- SERVER TIME SYNC ---
+let SERVER_TIME_OFFSET = 0; // разница между серверным и локальным временем (мс)
+
+function now() {
+  return Date.now() + SERVER_TIME_OFFSET;
+}
+
+async function syncServerTime() {
+  try {
+    const t0 = Date.now();
+    const res = await fetch(`${API_URL}/time`); // эндпоинт возвращает { serverTime: 1234567890 }
+    const t1 = Date.now();
+    const { serverTime } = await res.json();
+    const latency = (t1 - t0) / 2; // половина ping = задержка в одну сторону
+    SERVER_TIME_OFFSET = (serverTime + latency) - Date.now();
+    console.log(`SYS: Server time synced. Offset: ${SERVER_TIME_OFFSET}ms`);
+  } catch(e) {
+    console.warn("SYS: Time sync failed, using local time.", e);
+  }
+}
 let AUTH_TOKEN = localStorage.getItem('exodus_token');
 
 // --- AUTH SYSTEM ---
@@ -778,6 +822,7 @@ STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STAT
 log("SYS: NEW USER INITIALIZED.");
 }
 
+await syncServerTime();
 startGameLoop();
 } catch(e) {
 showAuthError(e.message);
@@ -1134,8 +1179,8 @@ if (!STATE.kitchen) STATE.kitchen = { roasterSlots: [{id:0,active:false},{id:1,a
 }
 
 function restoreOfflineProgress(lastTime) {
-const now = Date.now();
-const dt = now - lastTime;
+  const current = now();
+  const dt = current - lastTime;
 if(dt > 5000) {
 let avgFlux = 0.425;
 const offlineGen = (POWER_CFG.panelBaseOutput * avgFlux) * (dt / 1000);
@@ -1219,7 +1264,7 @@ function completeRoasting(s) {
 s.active = false;
 let yieldAmt = Math.floor(Math.random() * (ROASTING_CFG.output.max - ROASTING_CFG.output.min + 1)) + ROASTING_CFG.output.min;
 STATE.inventory["Roasted Guarana"] = (STATE.inventory["Roasted Guarana"] || 0) + yieldAmt;
-log(`KITCHEN: Roasting complete. +${yieldAmt} Roasted Guarana.`);
+log(`KITCHEN: Ro스팅 complete. +${yieldAmt} Roasted Guarana.`);
 renderKitchen(); updateUI();
 }
 
@@ -1967,7 +2012,7 @@ STATE.bodies.forEach(b => { const p = getOrbitalPos(b, time, z); if (Math.hypot(
 if (c) openModal(c); }
 
 function openModal(obj) {
-STATE.selectedObj = obj; document.getElementById('modal-overlay').style.display = 'block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-market'].forEach(id=>document.getElementById(id).style.display='none');
+STATE.selectedObj = obj; document.getElementById('modal-overlay').style.display = 'block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none');
 let m; if (obj.type === 'BASE') { m = document.getElementById('modal-base'); if (typeof renderWaterFilter === 'function') renderWaterFilter();
 if (typeof renderSabatier === 'function') renderSabatier(); if (typeof renderSmelter === 'function') renderSmelter(); if (typeof renderCad === 'function') renderCad();
 if (typeof renderChemLab === 'function') renderChemLab(); if (typeof renderMetalworks === 'function') renderMetalworks(); if (typeof renderMachineParts === 'function') renderMachineParts();
@@ -1982,10 +2027,10 @@ document.getElementById('m-t-res').innerText = obj.scanned ? (obj.res[0]||"None"
 function openBaseModalFromUI() { let b = STATE.bodies.find(x => x.type === 'BASE');
 if (!b) { b = STATE.bodies.find(x => x.id === 4); if(b) b.type = 'BASE'; } if(b) openModal(b);
 else log("ERR: Base coordinates lost."); }
-function openWarehouse() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-hangar','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-warehouse').style.display='block'; renderWarehouse(); }
-function openHangar() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-hangar').style.display='block'; renderHangar(); }
-function openProficiency() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-market'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-proficiency').style.display='block'; renderProficiency(); }
-function openMarket() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-market').style.display='block'; loadMarketData(); populateP2PSelect(); }
+function openWarehouse() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-hangar','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-warehouse').style.display='block'; renderWarehouse(); }
+function openHangar() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-hangar').style.display='block'; renderHangar(); }
+function openProficiency() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-proficiency').style.display='block'; renderProficiency(); }
+function openMarket() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-market').style.display='block'; loadMarketData(); populateP2PSelect(); }
 function closeModal(e, f) { if(f) document.getElementById('modal-overlay').style.display='none'; }
 
 function renderWarehouse() {
@@ -2068,16 +2113,28 @@ function switchTab(t) { document.querySelectorAll('.tab-btn').forEach(b=>b.class
 } if(t==='printer') { renderPrinter(); } }
 function claimDailyReward() { const now = Date.now(); if (now - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
 STATE.lastDailyClaim = now; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1; log("REWARD: +1 Energy Bar acquired."); updateUI(); ServerSys.save(); }
+
 // NEW: Open Daily Missions
 function openDailyMissions() {
-log("SYS: MISSION BOARD MODULE OFFLINE (PENDING UPDATE).");
+document.getElementById('modal-overlay').style.display='block';
+['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-market','modal-missions'].forEach(id=>{let el=document.getElementById(id); if(el)el.style.display='none';});
+document.getElementById('modal-missions').style.display='block';
+switchMissionTab('ground');
 }
+
+function switchMissionTab(tab) {
+document.getElementById('msn-ground-view').style.display = (tab === 'ground') ? 'block' : 'none';
+document.getElementById('msn-daily-view').style.display = (tab === 'daily') ? 'block' : 'none';
+document.getElementById('btn-msn-ground').classList.toggle('active', tab === 'ground');
+document.getElementById('btn-msn-daily').classList.toggle('active', tab === 'daily');
+}
+
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }
 function log(m) { const c=UI_CACHE['console']; if(c) c.innerHTML = `<div><span style="color:#556">[${new Date().toLocaleTimeString().split(' ')[0]}]</span> ${m}</div>` + c.innerHTML; }
 
 function updateUI() {
 try {
-if(UI_CACHE['sys-time']) UI_CACHE['sys-time'].innerText = new Date().toISOString().split('T')[1].split('.')[0];
+if(UI_CACHE['sys-time']) UI_CACHE['sys-time'].innerText = new Date(now()).toISOString().split('T')[1].split('.')[0];
 const fl = Math.floor(STATE.environment.flux * 100); if(UI_CACHE['top-flux-val']) UI_CACHE['top-flux-val'].innerText = `${fl}%`;
 const st = UI_CACHE['stamina-val']; if(st) { st.innerText = `${Math.floor(STATE.stamina.val)}/${STATE.stamina.max}`; st.style.color = (STATE.stamina.val<20)?"var(--danger)":"var(--stamina)"; }
 const btnDaily = UI_CACHE['btn-daily']; if(btnDaily) { const diff = Date.now() - STATE.lastDailyClaim; if (diff >= DAILY_COOLDOWN) { btnDaily.disabled = false;
@@ -2246,150 +2303,150 @@ document.getElementById('btn-mkt-sys').classList.toggle('active', tab === 'sys')
 document.getElementById('btn-mkt-p2p').classList.toggle('active', tab ==='p2p');
 
 if(tab === 'p2p') {
-    loadMarketData(); // Refresh data when opening tab
-    populateP2PSelect();
+loadMarketData(); // Refresh data when opening tab
+populateP2PSelect();
 }
 }
 
 function populateP2PSelect() {
-    const sel = document.getElementById('p2p-item-select');
-    if(!sel) return;
-    sel.innerHTML = '<option value="" disabled selected>SELECT ITEM</option>';
+const sel = document.getElementById('p2p-item-select');
+if(!sel) return;
+sel.innerHTML = '<option value="" disabled selected>SELECT ITEM</option>';
 
-    // Filter items that we actually have in inventory
-    const blacklist = ["Helium3", "Scavenging License"]; // Items you cannot sell
-    Object.keys(STATE.inventory).sort().forEach(key => {
-        if(STATE.inventory[key] > 0 && !blacklist.includes(key)) {
-            const opt = document.createElement('option');
-            opt.value = key;
-            opt.innerText = `${key} (Own: ${Math.floor(STATE.inventory[key])})`;
-            sel.appendChild(opt);
-        }
-    });
+// Filter items that we actually have in inventory
+const blacklist = ["Helium3", "Scavenging License"]; // Items you cannot sell
+Object.keys(STATE.inventory).sort().forEach(key => {
+if(STATE.inventory[key] > 0 && !blacklist.includes(key)) {
+const opt = document.createElement('option');
+opt.value = key;
+opt.innerText = `${key} (Own: ${Math.floor(STATE.inventory[key])})`;
+sel.appendChild(opt);
+}
+});
 }
 
 async function postOffer() {
-    const item = document.getElementById('p2p-item-select').value;
-    const qty = parseInt(document.getElementById('p2p-qty').value);
-    const price = parseInt(document.getElementById('p2p-price').value);
+const item = document.getElementById('p2p-item-select').value;
+const qty = parseInt(document.getElementById('p2p-qty').value);
+const price = parseInt(document.getElementById('p2p-price').value);
 
-    if(!item || !qty || !price) return log("MKT: Invalid Offer Data.");
-    if((STATE.inventory[item] || 0) < qty) return log("MKT: Insufficient Items.");
-    if(price < 1) return log("MKT: Price too low.");
+if(!item || !qty || !price) return log("MKT: Invalid Offer Data.");
+if((STATE.inventory[item] || 0) < qty) return log("MKT: Insufficient Items.");
+if(price < 1) return log("MKT: Price too low.");
 
-    // UI Feedback
-    log("MKT: Posting offer...");
+// UI Feedback
+log("MKT: Posting offer...");
 
-    try {
-        const res = await fetch(`${API_URL}/market/offer`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-            body: JSON.stringify({ item, qty, price })
-        });
-        const data = await res.json();
-        if(!res.ok) throw new Error(data.msg || "POST FAILED");
+try {
+const res = await fetch(`${API_URL}/market/offer`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+body: JSON.stringify({ item, qty, price })
+});
+const data = await res.json();
+if(!res.ok) throw new Error(data.msg || "POST FAILED");
 
-        // Update Local State immediately for responsiveness
-        STATE.inventory[item] -= qty;
-        STATE.market.offers = data.offers || []; // Server returns updated list
+// Update Local State immediately for responsiveness
+STATE.inventory[item] -= qty;
+STATE.market.offers = data.offers || []; // Server returns updated list
 
-        log(`MKT: Listed ${qty} ${item} for ${price} $H3.`);
-        renderP2PMarket();
-        updateUI();
-        populateP2PSelect(); // Refresh list amounts
-    } catch(e) {
-        log(`MKT ERR: ${e.message}`);
-    }
+log(`MKT: Listed ${qty} ${item} for ${price} $H3.`);
+renderP2PMarket();
+updateUI();
+populateP2PSelect(); // Refresh list amounts
+} catch(e) {
+log(`MKT ERR: ${e.message}`);
+}
 }
 
 async function cancelOffer(offerId) {
-    try {
-        const res = await fetch(`${API_URL}/market/cancel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-            body: JSON.stringify({ offerId })
-        });
-        const data = await res.json();
-        if(!res.ok) throw new Error(data.msg || "CANCEL FAILED");
+try {
+const res = await fetch(`${API_URL}/market/cancel`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+body: JSON.stringify({ offerId })
+});
+const data = await res.json();
+if(!res.ok) throw new Error(data.msg || "CANCEL FAILED");
 
-        STATE.market.offers = data.offers || []; // Update list
-        
-        if(data.inventory) STATE.inventory = data.inventory;
+STATE.market.offers = data.offers || []; // Update list
 
-        log("MKT: Offer cancelled. Items returned.");
-        renderP2PMarket();
-        updateUI();
-        populateP2PSelect();
-    } catch(e) {
-        log(`MKT ERR: ${e.message}`);
-    }
+if(data.inventory) STATE.inventory = data.inventory;
+
+log("MKT: Offer cancelled. Items returned.");
+renderP2PMarket();
+updateUI();
+populateP2PSelect();
+} catch(e) {
+log(`MKT ERR: ${e.message}`);
+}
 }
 
 async function buyP2P(offerId) {
-    if((STATE.inventory.Helium3 || 0) <= 0) return log("MKT: No funds.");
+if((STATE.inventory.Helium3 || 0) <= 0) return log("MKT: No funds.");
 
-    try {
-        const res = await fetch(`${API_URL}/market/buy`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-            body: JSON.stringify({ offerId })
-        });
-        const data = await res.json();
-        if(!res.ok) throw new Error(data.msg || "BUY FAILED");
+try {
+const res = await fetch(`${API_URL}/market/buy`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+body: JSON.stringify({ offerId })
+});
+const data = await res.json();
+if(!res.ok) throw new Error(data.msg || "BUY FAILED");
 
-        STATE.inventory = data.inventory; // Sync inventory (Money deducted, Item added)
-        // Refresh offers list to remove the bought item
-        loadMarketData();
+STATE.inventory = data.inventory; // Sync inventory (Money deducted, Item added)
+// Refresh offers list to remove the bought item
+loadMarketData();
 
-        log(`MKT: Purchase successful!`);
-        renderP2PMarket();
-        updateUI();
-    } catch(e) {
-        log(`MKT ERR: ${e.message}`);
-    }
+log(`MKT: Purchase successful!`);
+renderP2PMarket();
+updateUI();
+} catch(e) {
+log(`MKT ERR: ${e.message}`);
+}
 }
 
 function renderP2PMarket() {
-    const myDiv = document.getElementById('p2p-my-offers');
-    const pubDiv = document.getElementById('p2p-public-offers');
-    if(!myDiv || !pubDiv) return;
+const myDiv = document.getElementById('p2p-my-offers');
+const pubDiv = document.getElementById('p2p-public-offers');
+if(!myDiv || !pubDiv) return;
 
-    let myOffersHTML = "";
-    let pubOffersHTML = "";
+let myOffersHTML = "";
+let pubOffersHTML = "";
 
-    // FIX: Ensure offers is an array even if server returns {offers: [...]} object
-    let offersList = [];
-    if (Array.isArray(STATE.market.offers)) {
-        offersList = STATE.market.offers;
-    } else if (STATE.market.offers && Array.isArray(STATE.market.offers.offers)) {
-        offersList = STATE.market.offers.offers;
-    }
+// FIX: Ensure offers is an array even if server returns {offers: [...]} object
+let offersList = [];
+if (Array.isArray(STATE.market.offers)) {
+offersList = STATE.market.offers;
+} else if (STATE.market.offers && Array.isArray(STATE.market.offers.offers)) {
+offersList = STATE.market.offers.offers;
+}
 
-    offersList.forEach(o => {
-        // Fallback: assume 'isMine' is set by backend logic or check against local username
-        const isMine = o.isMine || o.seller === 'ME' || (STATE.username && o.seller === STATE.username);
+offersList.forEach(o => {
+// Fallback: assume 'isMine' is set by backend logic or check against local username
+const isMine = o.isMine || o.seller === 'ME' || (STATE.username && o.seller === STATE.username);
 
-        const card = `
-        <div class="mkt-offer-card">
-        <div>
-        <div style="color:${isMine ? 'var(--neon)' : '#fff'}; font-weight:bold;">${o.item} <span style="color:#889">x${o.qty}</span></div>
-        <div style="font-size:9px; color:#666;">Seller: ${isMine ? 'YOU' : (o.seller || 'Unknown')}</div>
-        </div>
-        <div style="text-align:right;">
-        <div style="color:var(--warning); font-weight:bold; font-size:11px;">${o.price} $H3</div>
-        ${isMine
-        ? `<button class="nav-btn danger" style="padding:1px 5px; font-size:9px; margin-top:2px;" onclick="cancelOffer('${o._id || o.id}')">CANCEL</button>`
-        : `<button class="nav-btn" style="padding:1px 5px; font-size:9px; margin-top:2px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>`
-        }
-        </div>
-        </div>`;
+const card = `
+<div class="mkt-offer-card">
+<div>
+<div style="color:${isMine ? 'var(--neon)' : '#fff'}; font-weight:bold;">${o.item} <span style="color:#889">x${o.qty}</span></div>
+<div style="font-size:9px; color:#666;">Seller: ${isMine ? 'YOU' : (o.seller || 'Unknown')}</div>
+</div>
+<div style="text-align:right;">
+<div style="color:var(--warning); font-weight:bold; font-size:11px;">${o.price} $H3</div>
+${isMine
+? `<button class="nav-btn danger" style="padding:1px 5px; font-size:9px; margin-top:2px;" onclick="cancelOffer('${o._id || o.id}')">CANCEL</button>`
+: `<button class="nav-btn" style="padding:1px 5px; font-size:9px; margin-top:2px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>`
+}
+</div>
+</div>`;
 
-        if(isMine) myOffersHTML += card;
-        else pubOffersHTML += card;
-    });
+if(isMine) myOffersHTML += card;
+else pubOffersHTML += card;
+});
 
-    myDiv.innerHTML = myOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO ACTIVE LISTINGS</div>';
-    pubDiv.innerHTML = pubOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO OFFERS FOUND</div>';
+myDiv.innerHTML = myOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO ACTIVE LISTINGS</div>';
+pubDiv.innerHTML = pubOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO OFFERS FOUND</div>';
 }
 
 // --- INIT ---
