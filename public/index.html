@@ -821,14 +821,13 @@ bottom: el.style.bottom,
 right: el.style.right
 };
 });
-localStorage.setItem('exodus_ui_state', JSON.stringify(uiState));
+STATE.uiState = uiState; // Теперь сохраняем прямо в объект стейта!
 }
 
 function loadUIState() {
 try {
-const saved = localStorage.getItem('exodus_ui_state');
-if (saved) {
-const uiState = JSON.parse(saved);
+const uiState = STATE.uiState;
+if (uiState) {
 for (const id in uiState.panels) {
 const el = document.getElementById(id);
 if (el) {
@@ -1195,7 +1194,8 @@ composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, activ
 lastDailyClaim: 0,
 market: { offers: [] }, // MARKET INITIALIZATION
 uiTabs: { base: 'refinery', market: 'sys', missions: 'ground' },
-activeModal: null
+activeModal: null,
+uiState: null
 };
 
 function init() {
@@ -2111,7 +2111,7 @@ STATE.selectedObj = obj; document.getElementById('modal-overlay').style.display 
 let m; if (obj.type === 'BASE') { m = document.getElementById('modal-base'); if (typeof renderWaterFilter === 'function') renderWaterFilter();
 if (typeof renderSabatier === 'function') renderSabatier(); if (typeof renderSmelter === 'function') renderSmelter(); if (typeof renderCad === 'function') renderCad();
 if (typeof renderChemLab === 'function') renderChemLab(); if (typeof renderMetalworks === 'function') renderMetalworks(); if (typeof renderMachineParts === 'function') renderMachineParts();
-if (typeof renderPrinter === 'function') renderPrinter(); if (typeof renderFuelFactory === 'function') renderFuelFactory(); if (typeof renderKitchen === 'function') renderKitchen(); 
+if (typeof renderPrinter === 'function') renderPrinter(); if (typeof renderFuelFactory === 'function') renderFuelFactory(); if (typeof renderKitchen === 'function') renderKitchen();
 switchTab(STATE.uiTabs ? (STATE.uiTabs.base || 'refinery') : 'refinery');
 } else { m = document.getElementById('modal-target'); document.getElementById('m-t-name').innerText = obj.name; const base = STATE.bodies.find(b => b.type === 'BASE');
 const d = Math.abs(obj.dist - base.dist) + 0.2; document.getElementById('m-t-dist').innerText = d.toFixed(2) + " AU"; document.getElementById('m-t-time').innerText = `~${Math.ceil(d/(BASE_SPEED*60))} MIN`;
@@ -2212,17 +2212,17 @@ else if(r>0.5) b.res=["Si"]; else if(r>0.3) b.res=["Ice water"]; else if(r>0.1) 
 
 function drainBuffer(a) { let td=a; const tick=(a/POWER_CFG.batteryCap)*POWER_CFG.wearRate; for(let b of STATE.power.batteries.filter(x=>x.loc==='grid')){ if(td<=0)break; if(b.charge>0){ let t=Math.min(b.charge,td); b.charge-=t; b.wear=Math.min(100,b.wear+tick); td-=t; }} }
 
-function switchTab(t) { 
-document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); 
-document.getElementById(`tab-btn-${t}`).classList.add('active'); 
-['factory', 'refinery','greenhouse','kitchen', 'chemlab', 'fuel', 'printer'].forEach(x=>document.getElementById(`tab-${x}`).style.display=(x===t)?'block':'none'); 
-if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); } 
-if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); } 
-if(t==='factory') { renderMetalworks(); renderMachineParts(); } 
-if(t==='fuel') { renderFuelFactory(); } 
-if(t==='chemlab') { renderChemLab(); } 
-if(t==='kitchen') { renderKitchen(); } 
-if(t==='printer') { renderPrinter(); } 
+function switchTab(t) {
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+document.getElementById(`tab-btn-${t}`).classList.add('active');
+['factory', 'refinery','greenhouse','kitchen', 'chemlab', 'fuel', 'printer'].forEach(x=>document.getElementById(`tab-${x}`).style.display=(x===t)?'block':'none');
+if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); }
+if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); }
+if(t==='factory') { renderMetalworks(); renderMachineParts(); }
+if(t==='fuel') { renderFuelFactory(); }
+if(t==='chemlab') { renderChemLab(); }
+if(t==='kitchen') { renderKitchen(); }
+if(t==='printer') { renderPrinter(); }
 // Сохранение состояния вкладки
 if (!STATE.uiTabs) STATE.uiTabs = {};
 STATE.uiTabs.base = t;

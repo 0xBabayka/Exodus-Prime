@@ -179,6 +179,7 @@ const GameStateSchema = new mongoose.Schema({
         x: { type: Number, default: 0 }, 
         y: { type: Number, default: 0 } 
     },
+uiState: { type: Object, default: {} },
     zoom: { type: Number, default: 0.8 },
     inventory: {
         type: Map,
