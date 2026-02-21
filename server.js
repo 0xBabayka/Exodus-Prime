@@ -7,17 +7,50 @@ const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const http = require('http'); // Добавлено для WebSocket
+const { Server } = require('socket.io'); // Добавлено для WebSocket
 
 const app = express();
+
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
+
 app.get('/time', (req, res) => {
   res.json({ serverTime: Date.now() });
 });
 
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me_v2_secure';
+
+// --- НАСТРОЙКА WEBSOCKET (SOCKET.IO) ---
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Настрой под свой домен в продакшене
+        methods: ["GET", "POST"]
+    }
+});
+
+// Middleware для авторизации сокетов по JWT
+io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    if (!token) return next(new Error("Authentication error"));
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        socket.user = decoded.user;
+        next();
+    } catch (err) {
+        next(new Error("Authentication error"));
+    }
+});
+
+io.on('connection', (socket) => {
+    // Подключение прошло успешно (здесь можно добавить логику комнат, если понадобится)
+    socket.on('disconnect', () => {
+        // Логика при отключении клиента
+    });
+});
 
 // --- SECURITY MIDDLEWARE (HELMET) ---
 app.use(helmet({
@@ -233,7 +266,6 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
-
 const User = mongoose.model('User', UserSchema);
 
 // Action Log Model
@@ -245,7 +277,6 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
-
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // Market Offer Model
@@ -372,7 +403,6 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
 });
-
 app.use(globalLimiter);
 
 const authLimiter = rateLimit({
@@ -553,7 +583,6 @@ app.post('/api/auth/login', async (req, res) => {
 
         const responseState = user.gameState ? user.gameState.toObject({ flattenMaps: true }) : {};
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
-
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
              if (err) throw err;
              res.json({ token, gameState: responseState });
@@ -616,7 +645,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             return (typeof oldState.inventory.get === 'function') ? 
                 (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         };
-        
         let timeSinceLastSave = 0;
         
         let dbHelium3 = 0;
@@ -684,7 +712,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             const expectedStateFlux = (cycle <= 0.5) ? 
                 POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : 
                 POWER_CFG.minFlux;
-
             // Проверка: не прислал ли клиент "взломанный" flux
             if (newState.environment && typeof newState.environment.flux === 'number') {
                  if (Math.abs(newState.environment.flux - expectedStateFlux) > 0.05) {
@@ -739,7 +766,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
 
             if (oldState.stamina && oldState.inventory && newState.inventory) {
-                const oldVal = oldState.stamina ? (parseFloat(oldState.stamina.val) || 0) : 0;
+                const oldVal = oldState.stamina ? parseFloat(oldState.stamina.val) || 0 : 0;
                 const newVal = parseFloat(newState.stamina.val) || 0;
                 const staminaDiff = newVal - oldVal;
                 if (staminaDiff > 0) {
@@ -824,7 +851,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
-            
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -944,7 +970,6 @@ app.post('/api/game/save', auth, async (req, res) => {
             ];
             const hasMiner = (newState.hangar && newState.hangar.miner > 0) || (newState.hangar && newState.hangar.hauler > 0);
             const SHIP_CARGO_BUFFER = 150;
-            
             for (const ore of oreTypes) {
                 const oldQty = getOldInv(ore.key);
                 const newQty = newState.inventory[ore.key] || 0;
@@ -1141,7 +1166,7 @@ app.post('/api/game/save', auth, async (req, res) => {
             const CRAFT_COST_RULES = [
                 { out: "Steel", in: "Iron Ore", ratio: 1.0 }, 
                 { out: "Aluminium Plate", in: "Aluminium Ore", ratio: 0.8 }, 
-                { out: "Titanium Plate", in: "Titanium Ore", ratio: 0.8 }, 
+                { out: "Titanium Plate", in: "Titan Ore", ratio: 0.8 }, 
                 { out: "Rocket Fuel", in: "Liquid CH4", ratio: 0.4 }, 
                 { out: "Rocket Fuel", in: "Liquid O2", ratio: 0.4 },
                 { out: "PVC Pipe", in: "PVC", ratio: 0.3 }, 
@@ -1377,6 +1402,10 @@ app.post('/api/market/offer', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
+        
+        // --- WEBSOCKET EVENT EMIT ---
+        io.emit('market_update', { action: 'offer_posted' });
+
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
@@ -1437,6 +1466,10 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             currency: o.currency
         }));
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
+
+        // --- WEBSOCKET EVENT EMIT ---
+        io.emit('market_update', { action: 'offer_cancelled' });
+
         res.json({ msg: "Offer Cancelled", inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
@@ -1541,6 +1574,10 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
+
+        // --- WEBSOCKET EVENT EMIT ---
+        io.emit('market_update', { action: 'offer_bought' });
+
         res.json({ msg: "Purchase Successful", inventory: mapToObject(buyer.gameState.inventory) });
     } catch (err) {
         await session.abortTransaction();
@@ -1551,4 +1588,5 @@ app.post('/api/market/buy', auth, async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+// --- ВАЖНО: ЗАМЕНА APP.LISTEN НА SERVER.LISTEN ---
+server.listen(PORT, () => console.log(`Server started on port ${PORT}`));

@@ -283,6 +283,7 @@ flex: 1; background: rgba(0,0,0,0.3); border: 1px solid #334;
 color: #fff; padding: 5px; font-family: monospace;
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body id="body">
 
@@ -777,6 +778,32 @@ console.warn("SYS: Time sync failed, using local time.", e);
 }
 }
 let AUTH_TOKEN = localStorage.getItem('exodus_token');
+let socket = null; // --- Добавлено для WebSocket ---
+
+function initSocket() {
+if (!AUTH_TOKEN) return;
+if (socket) socket.disconnect();
+
+// Защита от краша, если библиотека socket.io не прогрузилась
+if (typeof io === 'undefined') {
+console.warn("SYS: Socket.io library is not loaded. Real-time updates disabled.");
+return;
+}
+
+// Получаем базовый URL без '/api' для подключения Socket.io
+const baseUrl = API_URL.replace(/\/api$/, '');
+
+socket = io(baseUrl, {
+auth: { token: AUTH_TOKEN }
+});
+
+socket.on('market_update', (data) => {
+// Автоматически обновляем данные рынка, если окно открыто
+if (document.getElementById('modal-market').style.display === 'block') {
+loadMarketData();
+}
+});
+}
 
 // --- AUTH SYSTEM ---
 function toggleAuth(mode) {
@@ -805,6 +832,7 @@ if(!res.ok) throw new Error(data.msg || "LOGIN FAILED");
 
 AUTH_TOKEN = data.token;
 localStorage.setItem('exodus_token', AUTH_TOKEN);
+initSocket(); // --- Добавлено для WebSocket ---
 document.getElementById('auth-overlay').style.display = 'none';
 
 if(data.gameState && Object.keys(data.gameState).length > 0) {
@@ -844,6 +872,7 @@ if(!res.ok) throw new Error(data.msg || "REGISTER FAILED");
 
 AUTH_TOKEN = data.token;
 localStorage.setItem('exodus_token', AUTH_TOKEN);
+initSocket(); // --- Добавлено для WebSocket ---
 document.getElementById('auth-overlay').style.display = 'none';
 
 createSystem();
@@ -866,6 +895,7 @@ setTimeout(() => el.classList.remove('glitch-anim'), 300);
 }
 
 function logout() {
+if (socket) socket.disconnect(); // --- Добавлено для WebSocket ---
 localStorage.removeItem('exodus_token');
 location.reload();
 }
@@ -1138,6 +1168,7 @@ ensureBaseStructure();
 createBattery('grid'); createBattery('grid'); createBattery('inventory');
 }
 document.getElementById('auth-overlay').style.display = 'none';
+initSocket(); // --- Добавлено для WebSocket ---
 initMarket(); // Initialize Market Data
 startGameLoop();
 })
