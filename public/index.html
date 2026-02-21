@@ -805,6 +805,65 @@ loadMarketData();
 });
 }
 
+// --- UI STATE MANAGEMENT ---
+function saveUIState() {
+if (!STATE.uiTabs) STATE.uiTabs = { base: 'refinery', market: 'sys', missions: 'ground' };
+const uiState = {
+panels: {},
+activeTabs: STATE.uiTabs,
+activeModal: STATE.activeModal || null
+};
+document.querySelectorAll('.panel.draggable, .modal.draggable').forEach(el => {
+uiState.panels[el.id] = {
+top: el.style.top,
+left: el.style.left,
+bottom: el.style.bottom,
+right: el.style.right
+};
+});
+localStorage.setItem('exodus_ui_state', JSON.stringify(uiState));
+}
+
+function loadUIState() {
+try {
+const saved = localStorage.getItem('exodus_ui_state');
+if (saved) {
+const uiState = JSON.parse(saved);
+for (const id in uiState.panels) {
+const el = document.getElementById(id);
+if (el) {
+if (uiState.panels[id].top) el.style.top = uiState.panels[id].top;
+if (uiState.panels[id].left) el.style.left = uiState.panels[id].left;
+if (uiState.panels[id].bottom) el.style.bottom = uiState.panels[id].bottom;
+if (uiState.panels[id].right) el.style.right = uiState.panels[id].right;
+}
+}
+if (uiState.activeTabs) STATE.uiTabs = uiState.activeTabs;
+STATE.activeModal = uiState.activeModal;
+}
+} catch (e) {
+console.warn("UI State load failed", e);
+}
+}
+
+function restoreUIAfterLoad() {
+loadUIState();
+if (STATE.uiTabs) {
+if (STATE.uiTabs.base) switchTab(STATE.uiTabs.base);
+if (STATE.uiTabs.market) switchMarketTab(STATE.uiTabs.market);
+if (STATE.uiTabs.missions) switchMissionTab(STATE.uiTabs.missions);
+}
+if (STATE.activeModal) {
+if (STATE.activeModal === 'modal-warehouse') openWarehouse();
+else if (STATE.activeModal === 'modal-hangar') openHangar();
+else if (STATE.activeModal === 'modal-proficiency') openProficiency();
+else if (STATE.activeModal === 'modal-market') openMarket();
+else if (STATE.activeModal === 'modal-missions') openDailyMissions();
+else if (STATE.activeModal === 'modal-base') openBaseModalFromUI();
+// Мы не восстанавливаем modal-target автоматически, так как для него требуется STATE.selectedObj
+}
+}
+
 // --- AUTH SYSTEM ---
 function toggleAuth(mode) {
 document.getElementById('auth-error').innerText = '';
@@ -851,6 +910,7 @@ log("SYS: NEW USER INITIALIZED.");
 }
 
 await syncServerTime();
+restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
 showAuthError(e.message);
@@ -881,6 +941,7 @@ createBattery('grid'); createBattery('grid'); createBattery('grid'); createBatte
 STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STATE.power.batteries[2].charge = 20; STATE.power.batteries[3].charge = 20; STATE.power.batteries[4].charge = 20;
 log("SYS: IDENTITY ESTABLISHED.");
 
+restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
 showAuthError(e.message);
@@ -1037,7 +1098,7 @@ if (!this.item) return; e.preventDefault();
 this.item.style.left = (e.clientX - this.offsetX) + 'px';
 this.item.style.top = (e.clientY - this.offsetY) + 'px'; this.item.style.transform = 'none';
 },
-stopDrag: function() { this.item = null; }
+stopDrag: function() { this.item = null; saveUIState(); }
 };
 
 const COMPONENTS = {}; // Removed old components as requested
@@ -1132,7 +1193,9 @@ brewerSlots: [ { id: 0, active: false, startTime: 0, duration: 0 }, { id: 1, act
 greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty', crop: null, startTime: 0, duration: 0 })), selectedSlot: null },
 composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] },
 lastDailyClaim: 0,
-market: { offers: [] } // MARKET INITIALIZATION
+market: { offers: [] }, // MARKET INITIALIZATION
+uiTabs: { base: 'refinery', market: 'sys', missions: 'ground' },
+activeModal: null
 };
 
 function init() {
@@ -1170,6 +1233,7 @@ createBattery('grid'); createBattery('grid'); createBattery('inventory');
 document.getElementById('auth-overlay').style.display = 'none';
 initSocket(); // --- Добавлено для WebSocket ---
 initMarket(); // Initialize Market Data
+restoreUIAfterLoad();
 startGameLoop();
 })
 .catch(() => {
@@ -1207,6 +1271,7 @@ if (!STATE.composter) STATE.composter = { slots: [{id:0, active:false, startTime
 if (!STATE.refinery.sabatierSlots) STATE.refinery.sabatierSlots = [{ id: 0, active: false, mode: null, startTime: 0, duration: 0 }, { id: 1, active: false, mode: null, startTime: 0, duration: 0 }];
 if (!STATE.fuelFactory) STATE.fuelFactory = { slots: Array(4).fill(null).map((_,i)=>({id:i, active:false, mode:null, startTime:0, duration:0}))};
 if (!STATE.kitchen) STATE.kitchen = { roasterSlots: [{id:0,active:false},{id:1,active:false}], grinderSlots: [{id:0,active:false},{id:1,active:false}], brewerSlots: [{id:0,active:false},{id:1,active:false}] };
+if (!STATE.uiTabs) STATE.uiTabs = { base: 'refinery', market: 'sys', missions: 'ground' };
 }
 
 function restoreOfflineProgress(lastTime) {
@@ -1924,7 +1989,6 @@ function unlockScavenging() {
 if (!STATE.skills.scavenging.locked) return; if ((STATE.inventory["Scavenging License"] || 0) < 1) return log("ERR: Missing License.");
 STATE.inventory["Scavenging License"]--; STATE.skills.scavenging.locked = false; levelUpScavenging(); renderProficiency(); updateUI();
 }
-// License purchase moved to new buyLicense function in Market section below
 
 function useStamina(v) { if(STATE.stamina.val>=v) { STATE.stamina.val-=v; updateUI(); return true; } log("ALERT: HUNGRY."); return false; }
 
@@ -2047,22 +2111,24 @@ STATE.selectedObj = obj; document.getElementById('modal-overlay').style.display 
 let m; if (obj.type === 'BASE') { m = document.getElementById('modal-base'); if (typeof renderWaterFilter === 'function') renderWaterFilter();
 if (typeof renderSabatier === 'function') renderSabatier(); if (typeof renderSmelter === 'function') renderSmelter(); if (typeof renderCad === 'function') renderCad();
 if (typeof renderChemLab === 'function') renderChemLab(); if (typeof renderMetalworks === 'function') renderMetalworks(); if (typeof renderMachineParts === 'function') renderMachineParts();
-if (typeof renderPrinter === 'function') renderPrinter(); if (typeof renderFuelFactory === 'function') renderFuelFactory(); if (typeof renderKitchen === 'function') renderKitchen(); switchTab('refinery');
+if (typeof renderPrinter === 'function') renderPrinter(); if (typeof renderFuelFactory === 'function') renderFuelFactory(); if (typeof renderKitchen === 'function') renderKitchen(); 
+switchTab(STATE.uiTabs ? (STATE.uiTabs.base || 'refinery') : 'refinery');
 } else { m = document.getElementById('modal-target'); document.getElementById('m-t-name').innerText = obj.name; const base = STATE.bodies.find(b => b.type === 'BASE');
 const d = Math.abs(obj.dist - base.dist) + 0.2; document.getElementById('m-t-dist').innerText = d.toFixed(2) + " AU"; document.getElementById('m-t-time').innerText = `~${Math.ceil(d/(BASE_SPEED*60))} MIN`;
 document.getElementById('m-t-res').innerText = obj.scanned ? (obj.res[0]||"None") : "SCAN REQ."; const g = document.getElementById('launch-grid'); g.innerHTML="";
 ['probe', 'miner', 'hauler', 'gas'].forEach(t => { const s = SPECS[t]; const durationSec = d / (BASE_SPEED * s.speed); const durationMin = durationSec / 60; const totalMin = durationMin * 2; const fc = Math.ceil(totalMin); const sc = t==='probe'?5:15; let active = (STATE.hangar[t]>0 && (STATE.inventory["Rocket Fuel"]||0)>=fc); if(t==='probe' && obj.scanned) active=false; if(t!=='probe' && !obj.scanned) active=false; const b = document.createElement('button'); b.disabled=!active; b.innerHTML=`<span>LAUNCH ${t.toUpperCase()}</span> <span style="color:${active?'#fff':'#555'}">${fc} FUEL <span style="color:var(--stamina)">[-${sc}E]</span></span>`; b.onclick=()=>launch(t, fc, sc); g.appendChild(b); });
 } m.style.display = 'block'; m.classList.remove('glitch-anim'); void m.offsetWidth; m.classList.add('glitch-anim'); setTimeout(()=>m.classList.remove('glitch-anim'), 300);
+STATE.activeModal = (obj.type === 'BASE') ? 'modal-base' : 'modal-target'; saveUIState();
 }
 
 function openBaseModalFromUI() { let b = STATE.bodies.find(x => x.type === 'BASE');
 if (!b) { b = STATE.bodies.find(x => x.id === 4); if(b) b.type = 'BASE'; } if(b) openModal(b);
-else log("ERR: Base coordinates lost."); }
-function openWarehouse() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-hangar','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-warehouse').style.display='block'; renderWarehouse(); }
-function openHangar() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-hangar').style.display='block'; renderHangar(); }
-function openProficiency() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-proficiency').style.display='block'; renderProficiency(); }
-function openMarket() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-market').style.display='block'; loadMarketData(); populateP2PSelect(); }
-function closeModal(e, f) { if(f) document.getElementById('modal-overlay').style.display='none'; }
+else log("ERR: Base coordinates lost."); STATE.activeModal = 'modal-base'; saveUIState(); }
+function openWarehouse() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-hangar','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-warehouse').style.display='block'; renderWarehouse(); STATE.activeModal = 'modal-warehouse'; saveUIState(); }
+function openHangar() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-proficiency','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-hangar').style.display='block'; renderHangar(); STATE.activeModal = 'modal-hangar'; saveUIState(); }
+function openProficiency() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-market','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-proficiency').style.display='block'; renderProficiency(); STATE.activeModal = 'modal-proficiency'; saveUIState(); }
+function openMarket() { document.getElementById('modal-overlay').style.display='block'; ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-missions'].forEach(id=>document.getElementById(id).style.display='none'); document.getElementById('modal-market').style.display='block'; loadMarketData(); populateP2PSelect(); STATE.activeModal = 'modal-market'; saveUIState(); }
+function closeModal(e, f) { if(f) document.getElementById('modal-overlay').style.display='none'; STATE.activeModal = null; saveUIState(); }
 
 function renderWarehouse() {
 const g = document.getElementById('warehouse-content'); if (!g) return; let htmlBuffer = []; const wBats = STATE.power.batteries.filter(b => b.loc === 'warehouse');
@@ -2124,33 +2190,55 @@ extraInfo = `<div style="margin-top:2px; display:flex; justify-content:space-bet
 } html += `<div style="margin-bottom:15px;"><div style="display:flex; justify-content:space-between; font-size:10px; color:#fff; margin-bottom:3px;"><span>${name} <span style="color:${barColor}">LVL ${s.lvl}</span></span><span style="color:#667">${Math.floor(s.xp)} / ${Math.floor(s.next)} XP</span></div><div style="width:100%; height:4px; background:#111; position:relative;"><div style="height:100%; width:${p}%; background:${barColor}; box-shadow:0 0 5px ${barColor};"></div></div>${extraInfo}</div>`;
 } html += `</div>`; c.innerHTML = html;
 }
+
 function craftComponent(k, s) { if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER."); if(!useStamina(s)) return; const c = COMPONENTS[k];
 for(let r in c.cost) { if (STATE.inventory[r]!==undefined) STATE.inventory[r]-=c.cost[r]; else STATE.components[r]-=c.cost[r]; } if (k === 'battery') { createBattery('inventory'); log(`FACTORY: Battery created.`);
 } else { STATE.components[k]++; log(`FACTORY: ${c.name} created.`); } renderFactory(); updateUI(); }
+
 function launch(t, c, s) { if(STATE.power.gridStatus==='BLACKOUT') return; if(!useStamina(s)) return; STATE.inventory["Rocket Fuel"]-=c; STATE.hangar[t]--; const b = STATE.bodies.find(x=>x.type==="BASE"); const d = Math.abs(STATE.selectedObj.dist-b.dist)+0.2;
 STATE.ships.push({ type:t, spec:SPECS[t], targetId:STATE.selectedObj.id, phase:'outbound', duration:d/(BASE_SPEED*SPECS[t].speed), progress:0, lastTick:now(), startPos:getOrbitalPos(b,now()*ORBIT_CALC_FACTOR,1.0), cargoItem:null, cargoAmount:0 }); log(`CMD: ${t} launched.`); closeModal(null, true); updateUI(); }
+
 function startBuild(t, s) { if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER."); if(!useStamina(s)) return; const sp = SPECS[t]; let ok=true;
 if (t==='probe') { if((STATE.inventory["Iron Ore"]||0)<sp.cost["Iron Ore"] || STATE.inventory.Si<sp.cost.Si) ok=false; } else { for(let p in sp.cost) if(STATE.components[p]<sp.cost[p]) ok=false;
 } if(!ok) return log("ERR: MISSING PARTS."); if (t==='probe') { STATE.inventory["Iron Ore"]-=sp.cost["Iron Ore"]; STATE.inventory.Si-=sp.cost.Si;
 } else { for(let p in sp.cost) STATE.components[p]-=sp.cost[p]; } STATE.buildQueue.push({ type:t, progress:0, totalDuration:sp.buildTime }); renderHangar(); updateUI(); }
+
 function processBuildQueue(dt) { if (STATE.power.gridStatus === 'BLACKOUT') return; for (let i = STATE.buildQueue.length - 1; i >= 0; i--) { const j = STATE.buildQueue[i];
 j.progress += dt * 1000; if (j.progress >= j.totalDuration) { STATE.hangar[j.type]++; log(`SHIPYARD: ${j.type} ready.`); STATE.buildQueue.splice(i, 1);
 } } if(document.getElementById('modal-hangar').style.display === 'block') renderHangar(); }
+
 function scanBody(b) { b.scanned = true; const r = Math.random(); if (b.type === "Asteroid") { if (r>0.7) b.res=["Iron Ore"];
 else if(r>0.5) b.res=["Si"]; else if(r>0.3) b.res=["Ice water"]; else if(r>0.1) b.res=["Pt"]; else b.res=[]; } log(`DATA: ${b.name} scanned.`); updateUI(); }
+
 function drainBuffer(a) { let td=a; const tick=(a/POWER_CFG.batteryCap)*POWER_CFG.wearRate; for(let b of STATE.power.batteries.filter(x=>x.loc==='grid')){ if(td<=0)break; if(b.charge>0){ let t=Math.min(b.charge,td); b.charge-=t; b.wear=Math.min(100,b.wear+tick); td-=t; }} }
-function switchTab(t) { document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); document.getElementById(`tab-btn-${t}`).classList.add('active'); ['factory', 'refinery','greenhouse','kitchen', 'chemlab', 'fuel', 'printer'].forEach(x=>document.getElementById(`tab-${x}`).style.display=(x===t)?'block':'none'); if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); } if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad();
-} if(t==='factory') { renderMetalworks(); renderMachineParts(); } if(t==='fuel') { renderFuelFactory(); } if(t==='chemlab') { renderChemLab(); } if(t==='kitchen') { renderKitchen();
-} if(t==='printer') { renderPrinter(); } }
+
+function switchTab(t) { 
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active')); 
+document.getElementById(`tab-btn-${t}`).classList.add('active'); 
+['factory', 'refinery','greenhouse','kitchen', 'chemlab', 'fuel', 'printer'].forEach(x=>document.getElementById(`tab-${x}`).style.display=(x===t)?'block':'none'); 
+if(t==='greenhouse'){ renderGreenhouse(); renderComposter(); } 
+if(t==='refinery') { renderWaterFilter(); renderSabatier(); renderSmelter(); renderCad(); } 
+if(t==='factory') { renderMetalworks(); renderMachineParts(); } 
+if(t==='fuel') { renderFuelFactory(); } 
+if(t==='chemlab') { renderChemLab(); } 
+if(t==='kitchen') { renderKitchen(); } 
+if(t==='printer') { renderPrinter(); } 
+// Сохранение состояния вкладки
+if (!STATE.uiTabs) STATE.uiTabs = {};
+STATE.uiTabs.base = t;
+saveUIState();
+}
+
 function claimDailyReward() { const currentTime = now(); if (currentTime - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
 STATE.lastDailyClaim = currentTime; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1; log("REWARD: +1 Energy Bar acquired."); updateUI(); ServerSys.save(); }
 
-// NEW: Open Daily Missions
 function openDailyMissions() {
 document.getElementById('modal-overlay').style.display='block';
 ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-market','modal-missions'].forEach(id=>{let el=document.getElementById(id); if(el)el.style.display='none';});
 document.getElementById('modal-missions').style.display='block';
-switchMissionTab('ground');
+switchMissionTab(STATE.uiTabs ? (STATE.uiTabs.missions || 'ground') : 'ground');
+STATE.activeModal = 'modal-missions';
+saveUIState();
 }
 
 function switchMissionTab(tab) {
@@ -2158,6 +2246,10 @@ document.getElementById('msn-ground-view').style.display = (tab === 'ground') ? 
 document.getElementById('msn-daily-view').style.display = (tab === 'daily') ? 'block' : 'none';
 document.getElementById('btn-msn-ground').classList.toggle('active', tab === 'ground');
 document.getElementById('btn-msn-daily').classList.toggle('active', tab === 'daily');
+// Сохранение состояния вкладки
+if (!STATE.uiTabs) STATE.uiTabs = {};
+STATE.uiTabs.missions = tab;
+saveUIState();
 }
 
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }
@@ -2337,6 +2429,11 @@ if(tab === 'p2p') {
 loadMarketData(); // Refresh data when opening tab
 populateP2PSelect();
 }
+
+// Сохранение состояния вкладки
+if (!STATE.uiTabs) STATE.uiTabs = {};
+STATE.uiTabs.market = tab;
+saveUIState();
 }
 
 function populateP2PSelect() {
