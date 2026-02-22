@@ -664,8 +664,8 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 
 <div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning);">
 <div class="header" style="font-size:14px; color:white; display:flex; justify-content:space-between; align-items:center; width: 100%;">
-  <span>GALACTIC MARKET</span>
-  <span id="mkt-live-status" style="font-size:10px; color:#555; margin-right: 20px;">○ OFFLINE</span>
+<span>GALACTIC MARKET</span>
+<span id="mkt-live-status" style="font-size:10px; color:#555; margin-right: 20px;">○ OFFLINE</span>
 </div>
 <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
 
@@ -1237,6 +1237,18 @@ CANVAS.addEventListener('mousedown', e => { STATE.isDragging = true; STATE.dragS
 window.addEventListener('mousemove', e => { if (STATE.isDragging && !DragManager.item) { STATE.camera.x += e.clientX - STATE.lastMouse.x; STATE.camera.y += e.clientY - STATE.lastMouse.y; STATE.lastMouse = {x:e.clientX, y:e.clientY}; }});
 window.addEventListener('mouseup', e => { STATE.isDragging = false; if (Math.hypot(e.clientX - STATE.dragStart.x, e.clientY - STATE.dragStart.y) < 5 && !DragManager.item) handleClick(e); });
 CANVAS.addEventListener('wheel', e => { e.preventDefault(); STATE.zoom = Math.max(0.1, Math.min(STATE.zoom - e.deltaY * 0.001, 3)); }, { passive: false });
+
+// --- ОБРАБОТЧИК ВИДИМОСТИ СТРАНИЦЫ (ANTI-CHEAT) ---
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        ServerSys.save(); // Принудительно сохраняем перед уходом в фон
+    } else {
+        STATE.lastFrameTime = performance.now(); // Сбрасываем таймер кадра, чтобы dt не прыгнул
+        syncServerTime().then(() => {
+            restoreOfflineProgress(STATE.lastSaveTime || now()); // Зачисляем ресурсы за оффлайн
+        });
+    }
+});
 
 if(AUTH_TOKEN) {
 // Try to auto-login via token
