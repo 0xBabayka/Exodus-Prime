@@ -767,7 +767,7 @@ function now() {
 return Date.now() + SERVER_TIME_OFFSET;
 }
 
-async function syncServerTime() {
+async function syncWithServerTime() {
 try {
 const t0 = Date.now();
 const res = await fetch(`${API_URL}/time`); // эндпоинт возвращает { serverTime: 1234567890 }
@@ -933,7 +933,7 @@ STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STAT
 log("SYS: NEW USER INITIALIZED.");
 }
 
-await syncServerTime();
+await syncWithServerTime();
 restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
@@ -965,6 +965,7 @@ createBattery('grid'); createBattery('grid'); createBattery('grid'); createBatte
 STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STATE.power.batteries[2].charge = 20; STATE.power.batteries[3].charge = 20; STATE.power.batteries[4].charge = 20;
 log("SYS: IDENTITY ESTABLISHED.");
 
+await syncWithServerTime();
 restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
@@ -1240,14 +1241,14 @@ CANVAS.addEventListener('wheel', e => { e.preventDefault(); STATE.zoom = Math.ma
 
 // --- ОБРАБОТЧИК ВИДИМОСТИ СТРАНИЦЫ (ANTI-CHEAT) ---
 document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        ServerSys.save(); // Принудительно сохраняем перед уходом в фон
-    } else {
-        STATE.lastFrameTime = performance.now(); // Сбрасываем таймер кадра, чтобы dt не прыгнул
-        syncServerTime().then(() => {
-            restoreOfflineProgress(STATE.lastSaveTime || now()); // Зачисляем ресурсы за оффлайн
-        });
-    }
+if (document.hidden) {
+ServerSys.save(); // Принудительно сохраняем перед уходом в фон
+} else {
+STATE.lastFrameTime = performance.now(); // Сбрасываем таймер кадра, чтобы dt не прыгнул
+syncWithServerTime().then(() => {
+restoreOfflineProgress(STATE.lastSaveTime || now()); // Зачисляем ресурсы за оффлайн
+});
+}
 });
 
 if(AUTH_TOKEN) {
