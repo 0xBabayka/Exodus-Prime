@@ -663,7 +663,10 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 </div>
 
 <div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning);">
-<div class="header" style="font-size:14px; color:white;">GALACTIC MARKET</div>
+<div class="header" style="font-size:14px; color:white; display:flex; justify-content:space-between; align-items:center; width: 100%;">
+  <span>GALACTIC MARKET</span>
+  <span id="mkt-live-status" style="font-size:10px; color:#555; margin-right: 20px;">○ OFFLINE</span>
+</div>
 <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
 
 <div style="margin-bottom:10px; border-bottom:1px solid var(--panel-border); padding-bottom:5px;">
@@ -779,6 +782,7 @@ console.warn("SYS: Time sync failed, using local time.", e);
 }
 let AUTH_TOKEN = localStorage.getItem('exodus_token');
 let socket = null; // --- Добавлено для WebSocket ---
+let marketFetchTimeout = null; // --- Добавлено для Debounce ---
 
 function initSocket() {
 if (!AUTH_TOKEN) return;
@@ -794,13 +798,34 @@ return;
 const baseUrl = API_URL.replace(/\/api$/, '');
 
 socket = io(baseUrl, {
-auth: { token: AUTH_TOKEN }
+auth: { token: AUTH_TOKEN },
+transports: ['websocket', 'polling'], // Явное указание транспортов (важно для Render.com)
+secure: true,
+reconnection: true,
+reconnectionAttempts: Infinity,
+reconnectionDelay: 1000,
+reconnectionDelayMax: 5000
+});
+
+socket.on('connect', () => {
+console.log("SYS: Real-time link established.");
+const ind = document.getElementById('mkt-live-status');
+if(ind) { ind.style.color = 'var(--success)'; ind.innerText = '● LIVE'; }
+});
+
+socket.on('disconnect', () => {
+console.warn("SYS: Real-time link lost.");
+const ind = document.getElementById('mkt-live-status');
+if(ind) { ind.style.color = 'var(--danger)'; ind.innerText = '○ OFFLINE'; }
 });
 
 socket.on('market_update', (data) => {
-// Автоматически обновляем данные рынка, если окно открыто
+// Автоматически обновляем данные рынка, если окно открыто с защитой от спама запросами
 if (document.getElementById('modal-market').style.display === 'block') {
+if (marketFetchTimeout) clearTimeout(marketFetchTimeout);
+marketFetchTimeout = setTimeout(() => {
 loadMarketData();
+}, 300); // 300ms debounce
 }
 });
 }
