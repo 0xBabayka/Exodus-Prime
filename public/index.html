@@ -664,8 +664,8 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 
 <div id="modal-market" class="modal draggable" style="display:none; border-color: var(--warning);">
 <div class="header" style="font-size:14px; color:white; display:flex; justify-content:space-between; align-items:center; width: 100%;">
-  <span>GALACTIC MARKET</span>
-  <span id="mkt-live-status" style="font-size:10px; color:#555; margin-right: 20px;">○ OFFLINE</span>
+<span>GALACTIC MARKET</span>
+<span id="mkt-live-status" style="font-size:10px; color:#555; margin-right: 20px;">○ OFFLINE</span>
 </div>
 <div style="position:absolute; top:10px; right:15px; cursor:pointer; color:#888" onclick="closeModal(null, true)">[×]</div>
 
@@ -767,7 +767,7 @@ function now() {
 return Date.now() + SERVER_TIME_OFFSET;
 }
 
-async function syncServerTime() {
+async function syncWithServerTime() {
 try {
 const t0 = Date.now();
 const res = await fetch(`${API_URL}/time`); // эндпоинт возвращает { serverTime: 1234567890 }
@@ -933,7 +933,7 @@ STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STAT
 log("SYS: NEW USER INITIALIZED.");
 }
 
-await syncServerTime();
+await syncWithServerTime();
 restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
@@ -965,6 +965,7 @@ createBattery('grid'); createBattery('grid'); createBattery('grid'); createBatte
 STATE.power.batteries[0].charge = 30; STATE.power.batteries[1].charge = 30; STATE.power.batteries[2].charge = 20; STATE.power.batteries[3].charge = 20; STATE.power.batteries[4].charge = 20;
 log("SYS: IDENTITY ESTABLISHED.");
 
+await syncWithServerTime();
 restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
@@ -1237,6 +1238,18 @@ CANVAS.addEventListener('mousedown', e => { STATE.isDragging = true; STATE.dragS
 window.addEventListener('mousemove', e => { if (STATE.isDragging && !DragManager.item) { STATE.camera.x += e.clientX - STATE.lastMouse.x; STATE.camera.y += e.clientY - STATE.lastMouse.y; STATE.lastMouse = {x:e.clientX, y:e.clientY}; }});
 window.addEventListener('mouseup', e => { STATE.isDragging = false; if (Math.hypot(e.clientX - STATE.dragStart.x, e.clientY - STATE.dragStart.y) < 5 && !DragManager.item) handleClick(e); });
 CANVAS.addEventListener('wheel', e => { e.preventDefault(); STATE.zoom = Math.max(0.1, Math.min(STATE.zoom - e.deltaY * 0.001, 3)); }, { passive: false });
+
+// --- ОБРАБОТЧИК ВИДИМОСТИ СТРАНИЦЫ (ANTI-CHEAT) ---
+document.addEventListener('visibilitychange', () => {
+if (document.hidden) {
+ServerSys.save(); // Принудительно сохраняем перед уходом в фон
+} else {
+STATE.lastFrameTime = performance.now(); // Сбрасываем таймер кадра, чтобы dt не прыгнул
+syncWithServerTime().then(() => {
+restoreOfflineProgress(STATE.lastSaveTime || now()); // Зачисляем ресурсы за оффлайн
+});
+}
+});
 
 if(AUTH_TOKEN) {
 // Try to auto-login via token
@@ -2047,7 +2060,7 @@ for(let i=0; i<20; i++) { STATE.bodies.push({ id: 200+i, name: `X-${200+i}`, dis
 function loop(ts) {
 const dt = (ts - STATE.lastFrameTime) / 1000; STATE.lastFrameTime = ts; const currentTime = now();
 let cycle = (currentTime % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration; STATE.environment.flux = (cycle <= 0.5) ?
-0.15 + (0.85 * Math.sin(cycle*2*Math.PI)) : 0.15;
+POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : POWER_CFG.minFlux;
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid');
 if (gBats.length === 0) { STATE.power.productionRate=0; STATE.power.consumptionRate=0; STATE.power.gridStatus="BLACKOUT"; } else {
 const gen = POWER_CFG.panelBaseOutput * STATE.environment.flux; let load = POWER_CFG.baseLoad; if(STATE.buildQueue.length > 0) load += STATE.buildQueue.length * POWER_CFG.factoryLoad;
@@ -2057,7 +2070,7 @@ if(d > 0) { STATE.power.gridStatus="ONLINE"; for(let b of gBats) { if(d<=0) brea
 if(s>0){ let a=Math.min(s,d); b.charge+=a; d-=a; }} } else { let dr = Math.abs(d); for(let i=gBats.length-1; i>=0; i--) { if(dr<=0)break;
 let b=gBats[i]; if(b.charge>0){ let t=Math.min(b.charge, dr); b.charge-=t; dr-=t; }} STATE.power.gridStatus = (gBats.reduce((a,b)=>a+b.charge,0) <= 0.001 && dr>0) ? "BLACKOUT" : "DRAINING";
 }
-gBats.forEach(b => { if(b.charge < (POWER_CFG.batteryCap*(1-(b.wear/100))*0.05)) b.wear = Math.min(100, b.wear + (0.0002*dt)); });
+gBats.forEach(b => { if(b.charge < (POWER_CFG.batteryCap*(1-(b.wear/100))*0.05)) b.wear = Math.min(100, b.wear + (POWER_CFG.wearRate * dt)); });
 }
 processBuildQueue(dt);
 STATE.cad.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeCad(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cad-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cad-time-${s.id}`); if (tEl) { let r = s.duration - (currentTime - s.startTime); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
@@ -2193,8 +2206,7 @@ const fGrid = document.getElementById('hangar-fleet-grid'); if(fGrid) { fGrid.in
 const sGrid = document.getElementById('shipyard-grid');
 if(sGrid) {
 // MODIFIED FOR REQUEST: DISABLE CONSTRUCTION AND REMOVE T1 SHIP UI
-sGrid.innerHTML = `<div style="padding:20px; text-align:center; color:var(--danger); border:1px dashed var(--danger);">
-SYSTEM UPDATE IN PROGRESS<br>
+sGrid.innerHTML = `<div style="padding:20px; text-align:center; color:var(--danger); border:1px dashed var(--danger);">SYSTEM UPDATE IN PROGRESS<br>
 SHIP FABRICATION OFFLINE
 </div>`;
 }
