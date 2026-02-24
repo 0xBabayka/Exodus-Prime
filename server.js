@@ -8,10 +8,12 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const http = require('http');
+
 // Добавлено для WebSocket
 const { Server } = require('socket.io');
 
 const app = express();
+
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
@@ -25,6 +27,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'exodus_prime_secret_key_change_me_
 
 // --- НАСТРОЙКА WEBSOCKET (SOCKET.IO) ---
 const server = http.createServer(app);
+
 const io = new Server(server, {
     cors: {
         origin: "*", // Настрой под свой домен в продакшене
@@ -265,6 +268,7 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
+
 const User = mongoose.model('User', UserSchema);
 
 // Action Log Model
@@ -276,6 +280,7 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
+
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // Market Offer Model
@@ -402,6 +407,7 @@ const globalLimiter = rateLimit({
     legacyHeaders: false,
     message: { msg: 'Too many requests from this IP (Global Limit), please try again later' }
 });
+
 app.use(globalLimiter);
 
 const authLimiter = rateLimit({
@@ -415,6 +421,7 @@ const authLimiter = rateLimit({
     },
     message: { msg: 'Too many login attempts for this account, please try again later' }
 });
+
 app.use('/api/auth', authLimiter);
 
 const marketLimiter = rateLimit({
@@ -999,7 +1006,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 
                  if (!newState.lastDailyClaim || newState.lastDailyClaim < serverNow) {
                      newState.lastDailyClaim = serverNow;
-                }
+                 }
             }
             
             // 7. Seeds Check
@@ -1625,9 +1632,9 @@ app.post('/api/market/cancel', auth, async (req, res) => {
     }
 });
 
-// 9. Buy an Offer
+// 9. Buy an Offer (ОБНОВЛЕННАЯ ЛОГИКА С ЧАСТИЧНОЙ ПОКУПКОЙ)
 app.post('/api/market/buy', auth, async (req, res) => {
-    const { offerId } = req.body;
+    let { offerId, buyQty } = req.body;
     const buyerId = req.user.id;
 
     if (!mongoose.Types.ObjectId.isValid(offerId)) {
@@ -1671,29 +1678,57 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(403).json({ msg: "Anti-Cheat: Device Fingerprint Match. Cannot trade between accounts on the same device." });
         }
 
+        // --- ЛОГИКА ЧАСТИЧНОЙ ПОКУПКИ ---
+        if (buyQty === undefined || buyQty === null) {
+            // Если клиент не прислал желаемое количество, покупаем всё (поддержка старого клиента)
+            buyQty = securedOffer.qty;
+        } else {
+            buyQty = parseInt(buyQty, 10);
+            if (isNaN(buyQty) || buyQty <= 0) {
+                await session.abortTransaction();
+                return res.status(400).json({msg: "Invalid quantity specified"});
+            }
+        }
+
+        if (buyQty > securedOffer.qty) {
+            await session.abortTransaction();
+            return res.status(400).json({msg: "Not enough items in offer"});
+        }
+
+        // Вычисляем стоимость. Используем Math.ceil для предотвращения эксплуатации с копейками.
+        let cost;
+        if (buyQty === securedOffer.qty) {
+            cost = securedOffer.price;
+        } else {
+            cost = Math.ceil((securedOffer.price / securedOffer.qty) * buyQty);
+        }
+
+        // ---------------------------------
+
         const buyerH3 = typeof buyer.gameState.inventory.get === 'function' ? buyer.gameState.inventory.get('Helium3') : buyer.gameState.inventory['Helium3'] || 0;
-        if(buyerH3 < securedOffer.price) {
+        if(buyerH3 < cost) {
             await session.abortTransaction();
             return res.status(400).json({msg: "Insufficient Helium3"});
         }
 
+        // Списываем средства и добавляем ресурсы покупателю
         if(typeof buyer.gameState.inventory.set === 'function') {
-            buyer.gameState.inventory.set('Helium3', buyerH3 - securedOffer.price);
+            buyer.gameState.inventory.set('Helium3', buyerH3 - cost);
             const buyerItemQty = buyer.gameState.inventory.get(securedOffer.item) || 0;
-            buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + securedOffer.qty);
+            buyer.gameState.inventory.set(securedOffer.item, buyerItemQty + buyQty);
         } else {
-            buyer.gameState.inventory['Helium3'] = buyerH3 - securedOffer.price;
+            buyer.gameState.inventory['Helium3'] = buyerH3 - cost;
             const buyerItemQty = buyer.gameState.inventory[securedOffer.item] || 0;
-            buyer.gameState.inventory[securedOffer.item] = buyerItemQty + securedOffer.qty;
+            buyer.gameState.inventory[securedOffer.item] = buyerItemQty + buyQty;
         }
 
         buyer.markModified('gameState');
         await buyer.save({ session });
 
+        // Начисляем средства продавцу
         const seller = await User.findById(securedOffer.sellerId).session(session);
-        const price = securedOffer.price;
-        const fee = Math.floor(price * 0.05);
-        const sellerRevenue = price - fee;
+        const fee = Math.floor(cost * 0.05);
+        const sellerRevenue = cost - fee;
         if (seller) {
             if(!seller.gameState.inventory) seller.gameState.inventory = new Map();
             if(typeof seller.gameState.inventory.set === 'function') {
@@ -1707,12 +1742,21 @@ app.post('/api/market/buy', auth, async (req, res) => {
             await seller.save({ session });
         }
 
-        await MarketOffer.deleteOne({ _id: offerId }, { session });
+        // Обновляем или удаляем лот в зависимости от выкупленного объема
+        if (buyQty === securedOffer.qty) {
+            await MarketOffer.deleteOne({ _id: offerId }, { session });
+        } else {
+            securedOffer.qty -= buyQty;
+            securedOffer.price -= cost;
+            if (securedOffer.price < 0) securedOffer.price = 0; // На всякий случай блокируем отрицательную цену
+            await securedOffer.save({ session });
+        }
+
         await session.commitTransaction();
         logAction('MARKET_BUY', buyer.id, buyer.username, req, { 
             item: securedOffer.item, 
-            qty: securedOffer.qty, 
-            fullPrice: price, 
+            qty: buyQty, 
+            fullPrice: cost, 
             feeDeducted: fee,
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
