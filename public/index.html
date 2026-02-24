@@ -1360,7 +1360,6 @@ setTimeout(() => log(`SYS: Offline ${(dt/3600000).toFixed(2)}h. Charge: +${(offl
 }
 }
 }
-
 // --- LOGIC FUNCTIONS (Unchanged logic, just keeping structure) ---
 function createBattery(loc) { STATE.power.batteries.push({ id: Math.random().toString(36).substr(2, 6).toUpperCase(), charge: 0, wear: 0, loc: loc }); }
 
@@ -2316,85 +2315,85 @@ STATE.uiTabs.missions = tab;
 saveUIState();
 
 if (tab === 'daily') {
-    if (STATE.dailyMission) renderDailyMission();
-    else fetchDailyMission();
+if (STATE.dailyMission) renderDailyMission();
+else fetchDailyMission();
 }
 }
 
 async function fetchDailyMission() {
-    try {
-        const res = await fetch(`${API_URL}/game/daily-mission`, {
-            headers: { 'x-auth-token': AUTH_TOKEN }
-        });
-        const data = await res.json();
-        if(res.ok && data.dailyMission) {
-            STATE.dailyMission = data.dailyMission;
-            renderDailyMission();
-        }
-    } catch(e) {
-        console.error("Daily Mission Fetch Error", e);
-    }
+try {
+const res = await fetch(`${API_URL}/game/daily-mission`, {
+headers: { 'x-auth-token': AUTH_TOKEN }
+});
+const data = await res.json();
+if(res.ok && data.dailyMission) {
+STATE.dailyMission = data.dailyMission;
+renderDailyMission();
+}
+} catch(e) {
+console.error("Daily Mission Fetch Error", e);
+}
 }
 
 async function completeDailyMission() {
-    try {
-        const res = await fetch(`${API_URL}/game/daily-mission/complete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN }
-        });
-        const data = await res.json();
-        if(!res.ok) return log(`MISSION ERR: ${data.msg}`);
-        
-        STATE.dailyMission = data.dailyMission;
-        if (data.inventory) STATE.inventory = data.inventory;
-        log(`MISSION COMPLETE: Paid ${STATE.dailyMission.regolithReq} Reg, received ${data.reward} Helium3.`);
-        renderDailyMission();
-        updateUI();
-    } catch(e) {
-        console.error("Daily Mission Complete Error", e);
-    }
+try {
+const res = await fetch(`${API_URL}/game/daily-mission/complete`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN }
+});
+const data = await res.json();
+if(!res.ok) return log(`MISSION ERR: ${data.msg}`);
+
+STATE.dailyMission = data.dailyMission;
+if (data.inventory) STATE.inventory = data.inventory;
+log(`MISSION COMPLETE: Paid ${STATE.dailyMission.regolithReq} Reg, received ${data.reward} Helium3.`);
+renderDailyMission();
+updateUI();
+} catch(e) {
+console.error("Daily Mission Complete Error", e);
+}
 }
 
 function renderDailyMission() {
-    const container = document.getElementById('daily-mission-content');
-    if(!container) return;
-    if(!STATE.dailyMission) { container.innerHTML = "LOADING..."; return; }
+const container = document.getElementById('daily-mission-content');
+if(!container) return;
+if(!STATE.dailyMission) { container.innerHTML = "LOADING..."; return; }
 
-    const dm = STATE.dailyMission;
-    const currentReg = STATE.inventory.Regolith || 0;
-    const req = dm.regolithReq;
-    const reward = req * 1.5;
+const dm = STATE.dailyMission;
+const currentReg = STATE.inventory.Regolith || 0;
+const req = dm.regolithReq;
+const reward = req * 1.5;
 
-    if (dm.completed) {
-        container.innerHTML = `
-            <div style="color:var(--success); font-weight:bold; font-size:14px; margin-bottom:10px;">MISSION ACCOMPLISHED</div>
-            <div style="color:#aaa; font-size:10px;">You have completed today's delivery.</div>
-            <div style="color:#889; font-size:9px; margin-top:5px;">Next mission available tomorrow.</div>
-        `;
-    } else {
-        const canComplete = currentReg >= req;
-        container.innerHTML = `
-            <div style="color:var(--neon); font-weight:bold; font-size:12px; margin-bottom:10px;">REGOLITH DELIVERY</div>
-            <div style="color:#aaa; font-size:10px; margin-bottom:15px; max-width:80%;">
-                Central Command requires raw regolith for planetary expansion. Fulfill the quota to earn Helium-3.
-            </div>
-            <div style="display:flex; justify-content:space-between; width:100%; max-width:250px; background:rgba(255,255,255,0.05); padding:10px; border:1px solid rgba(255,255,255,0.1); margin-bottom:15px;">
-                <div style="text-align:center;">
-                    <div style="color:#889; font-size:9px;">REQUIRED</div>
-                    <div style="color:${canComplete ? 'var(--white)' : 'var(--danger)'}; font-weight:bold;">${Math.floor(currentReg)} / ${req} Reg</div>
-                </div>
-                <div style="text-align:center;">
-                    <div style="color:#889; font-size:9px;">REWARD</div>
-                    <div style="color:var(--warning); font-weight:bold;">+${reward} $H3</div>
-                </div>
-            </div>
-            <button class="nav-btn" style="border-color:var(--success); color:var(--success); padding:8px 20px;" 
-                ${!canComplete ? 'disabled' : ''} 
-                onclick="completeDailyMission()">
-                COMPLETE MISSION
-            </button>
-        `;
-    }
+if (dm.completed) {
+container.innerHTML = `
+<div style="color:var(--success); font-weight:bold; font-size:14px; margin-bottom:10px;">MISSION ACCOMPLISHED</div>
+<div style="color:#aaa; font-size:10px;">You have completed today's delivery.</div>
+<div style="color:#889; font-size:9px; margin-top:5px;">Next mission available tomorrow.</div>
+`;
+} else {
+const canComplete = currentReg >= req;
+container.innerHTML = `
+<div style="color:var(--neon); font-weight:bold; font-size:12px; margin-bottom:10px;">REGOLITH DELIVERY</div>
+<div style="color:#aaa; font-size:10px; margin-bottom:15px; max-width:80%;">
+Central Command requires raw regolith for planetary expansion. Fulfill the quota to earn Helium-3.
+</div>
+<div style="display:flex; justify-content:space-between; width:100%; max-width:250px; background:rgba(255,255,255,0.05); padding:10px; border:1px solid rgba(255,255,255,0.1); margin-bottom:15px;">
+<div style="text-align:center;">
+<div style="color:#889; font-size:9px;">REQUIRED</div>
+<div style="color:${canComplete ? 'var(--white)' : 'var(--danger)'}; font-weight:bold;">${Math.floor(currentReg)} / ${req} Reg</div>
+</div>
+<div style="text-align:center;">
+<div style="color:#889; font-size:9px;">REWARD</div>
+<div style="color:var(--warning); font-weight:bold;">+${reward} $H3</div>
+</div>
+</div>
+<button class="nav-btn" style="border-color:var(--success); color:var(--success); padding:8px 20px;"
+${!canComplete ? 'disabled' : ''}
+onclick="completeDailyMission()">
+COMPLETE MISSION
+</button>
+`;
+}
 }
 
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }
@@ -2658,11 +2657,18 @@ log(`MKT ERR: ${e.message}`);
 async function buyP2P(offerId) {
 if((STATE.inventory.Helium3 || 0) <= 0) return log("MKT: No funds.");
 
+// Читаем количество для покупки из добавленного инпута
+const qtyInput = document.getElementById(`buy-qty-${offerId}`);
+const buyQty = qtyInput ? parseInt(qtyInput.value) : 1;
+
+if (isNaN(buyQty) || buyQty < 1) return log("MKT: Invalid quantity.");
+
 try {
 const res = await fetch(`${API_URL}/market/buy`, {
 method: 'POST',
 headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
-body: JSON.stringify({ offerId })
+// Передаем параметр buyQty на сервер
+body: JSON.stringify({ offerId, buyQty })
 });
 const data = await res.json();
 if(!res.ok) throw new Error(data.msg || "BUY FAILED");
@@ -2699,6 +2705,7 @@ offersList.forEach(o => {
 // Fallback: assume 'isMine' is set by backend logic or check against local username
 const isMine = o.isMine || o.seller === 'ME' || (STATE.username && o.seller === STATE.username);
 
+// Добавлено аккуратное поле ввода количества прямо в карточку публичного оффера
 const card = `
 <div class="mkt-offer-card">
 <div>
@@ -2709,7 +2716,10 @@ const card = `
 <div style="color:var(--warning); font-weight:bold; font-size:11px;">${o.price} $H3</div>
 ${isMine
 ? `<button class="nav-btn danger" style="padding:1px 5px; font-size:9px; margin-top:2px;" onclick="cancelOffer('${o._id || o.id}')">CANCEL</button>`
-: `<button class="nav-btn" style="padding:1px 5px; font-size:9px; margin-top:2px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>`
+: `<div style="display:flex; gap:5px; margin-top:2px; align-items:center; justify-content:flex-end;">
+    <input type="number" id="buy-qty-${o._id || o.id}" value="1" min="1" max="${o.qty}" style="width:35px; background:rgba(0,0,0,0.3); border:1px solid #334; color:#fff; font-family:monospace; font-size:9px; padding:2px; text-align:center;">
+    <button class="nav-btn" style="padding:1px 5px; font-size:9px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>
+   </div>`
 }
 </div>
 </div>`;
