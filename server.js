@@ -7,8 +7,10 @@ const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
-const http = require('http'); // Добавлено для WebSocket
-const { Server } = require('socket.io'); // Добавлено для WebSocket
+const http = require('http');
+
+// Добавлено для WebSocket
+const { Server } = require('socket.io');
 
 const app = express();
 
@@ -179,7 +181,7 @@ const GameStateSchema = new mongoose.Schema({
         x: { type: Number, default: 0 }, 
         y: { type: Number, default: 0 } 
     },
-uiState: { type: Object, default: {} },
+    uiState: { type: Object, default: {} },
     zoom: { type: Number, default: 0.8 },
     inventory: {
         type: Map,
@@ -219,7 +221,8 @@ uiState: { type: Object, default: {} },
     scavenging: {
         active: { type: Boolean, default: false },
         timer: { type: Number, default: 0 },
-        duration: { type: Number, default: 5000 }
+        duration: { type: Number, default: 5000 },
+        lastStart: { type: Number, default: 0 } // timestamp каждого запуска — для надёжного обнаружения серверной стороной
     },
     cad: { slots: [SlotSchema] },
     metalworks: { slots: [SlotSchema] },
@@ -267,6 +270,7 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
+
 const User = mongoose.model('User', UserSchema);
 
 // Action Log Model
@@ -278,6 +282,7 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
+
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // Market Offer Model
@@ -647,7 +652,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 (oldState.inventory.get(key) || 0) : (oldState.inventory[key] || 0);
         };
         let timeSinceLastSave = 0;
-        
         let dbHelium3 = 0;
         if (oldState.inventory && typeof oldState.inventory.get === 'function') {
             dbHelium3 = oldState.inventory.get('Helium3') || 0;
@@ -681,78 +685,154 @@ app.post('/api/game/save', auth, async (req, res) => {
             timeSinceLastSave = 30000;
         }
 
-        // 3. Power & Battery Check (ФУНДАМЕНТАЛЬНОЕ ИСПРАВЛЕНИЕ FLUX)
+        // 3. FULL SERVER-SIDE POWER & BATTERY SIMULATION (AUTHORITATIVE)
+        const POWER_CFG = {
+            cycleDuration: 12 * 60 * 60 * 1000,
+            minFlux: 0.15, maxFlux: 1.0,
+            batteryCap: 33.33, panelBaseOutput: 0.015, wearRate: 0.001
+        };
+        let elapsedSec = timeSinceLastSave / 1000;
+        
+        let cycle = (serverNow % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration;
+        const expectedStateFlux = (cycle <= 0.5) ? 
+            POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : 
+            POWER_CFG.minFlux;
+        let generatedPower = 0;
+        if (timeSinceLastSave > 5000) {
+            generatedPower = (POWER_CFG.panelBaseOutput * 0.425) * elapsedSec;
+        } else {
+            generatedPower = (POWER_CFG.panelBaseOutput * expectedStateFlux) * elapsedSec;
+        }
+
+        let totalOldGridCharge = 0;
+        const newGridBats = (newState.power?.batteries || []).filter(b => b.loc === 'grid');
+        newGridBats.forEach(nb => {
+            const ob = (oldState.power?.batteries || []).find(b => b.id === nb.id);
+            totalOldGridCharge += ob ? (ob.charge || 0) : 0;
+        });
+        let instantPowerSpent = 0;
+        const detectStarts = (oldArr, newArr, getCost) => {
+            if (!newArr) return;
+            newArr.forEach((newSlot, i) => {
+                const oldSlot = (oldArr && oldArr[i]) ? oldArr[i] : {};
+                if (newSlot.active && (!oldSlot.active || newSlot.startTime !== oldSlot.startTime)) {
+                    instantPowerSpent += getCost(newSlot) || 0;
+                }
+            });
+        };
+
+        detectStarts(oldState.cad?.slots, newState.cad?.slots, () => 25);
+        detectStarts(oldState.refinery?.waterSlots, newState.refinery?.waterSlots, () => 10);
+        detectStarts(oldState.refinery?.sabatierSlots, newState.refinery?.sabatierSlots, () => 10);
+        detectStarts(oldState.refinery?.smelterSlots, newState.refinery?.smelterSlots, (s) => ({ iron: 30, steel: 35, aluminium: 40, copper: 40, titanium: 40, silicon: 35 }[s.mode] || 0));
+        detectStarts(oldState.composter?.slots, newState.composter?.slots, () => 15);
+        detectStarts(oldState.fuelFactory?.slots, newState.fuelFactory?.slots, () => 30);
+        detectStarts(oldState.chemlab?.slots, newState.chemlab?.slots, (s) => ({ pvc: 20, perchlorate: 20, pla: 20, empty_battery: 2, electric_silicon: 50 }[s.mode] || 0));
+        detectStarts(oldState.metalworks?.slots, newState.metalworks?.slots, () => 35);
+        detectStarts(oldState.machineParts?.slots, newState.machineParts?.slots, () => 40);
+        detectStarts(oldState.printer?.slots, newState.printer?.slots, (s) => ({ structural_part: 35, pvc_pipe: 15, electronic_parts: 30 }[s.mode] || 0));
+        detectStarts(oldState.kitchen?.roasterSlots, newState.kitchen?.roasterSlots, () => 10);
+        detectStarts(oldState.kitchen?.grinderSlots, newState.kitchen?.grinderSlots, () => 18);
+        detectStarts(oldState.kitchen?.brewerSlots, newState.kitchen?.brewerSlots, () => 30);
+
+        const oldFerm = oldState.refinery?.fermenterSlot || {};
+        const newFerm = newState.refinery?.fermenterSlot || {};
+        if (newFerm.active && (!oldFerm.active || newFerm.startTime !== oldFerm.startTime)) {
+            instantPowerSpent += (newFerm.mode === 'amaranth' ? 10 : 18);
+        }
+
+        if (newState.greenhouse?.slots) {
+            newState.greenhouse.slots.forEach((newSlot, i) => {
+                const oldSlot = oldState.greenhouse?.slots ? oldState.greenhouse.slots[i] : {};
+                if (newSlot.status === 'growing' && oldSlot.status !== 'growing') {
+                     instantPowerSpent += ({ Sprouts: 1, Potato: 10, Maize: 15, Amaranth: 15, Guarana: 10 }[newSlot.crop] || 0);
+                }
+            });
+        }
+
+        const dSnack = (newState.inventory['Snack'] || 0) - getOldInv('Snack');
+        if (dSnack > 0) instantPowerSpent += dSnack * 1;
+        const dMeal = (newState.inventory['Meal'] || 0) - getOldInv('Meal');
+        if (dMeal > 0) instantPowerSpent += dMeal * 2;
+        const dFeast = (newState.inventory['Feast'] || 0) - getOldInv('Feast');
+        if (dFeast > 0) instantPowerSpent += dFeast * 3;
+
+        const oldScavStart = oldState.scavenging?.lastStart || 0;
+        const newScavStart = newState.scavenging?.lastStart || 0;
+        if (newScavStart > 0 && newScavStart !== oldScavStart) {
+            instantPowerSpent += 1;
+        }
+
+        let continuousPowerSpent = 0;
+        if (newState.cad?.slots) {
+            newState.cad.slots.forEach(slot => {
+                if (slot.active) {
+                    continuousPowerSpent += (25 / 43200) * elapsedSec;
+                }
+            });
+        }
+
+        const totalPowerSpent = instantPowerSpent + continuousPowerSpent;
+        
+        // ====== ИСПРАВЛЕНИЕ: Использование совокупности заряда ======
+        let expectedNewCharge = totalOldGridCharge + generatedPower - totalPowerSpent;
+
+        if (expectedNewCharge < -0.5) {
+            logAction('CHEAT_POWER_BYPASS', user.id, user.username, req, {
+                totalOldGridCharge, generatedPower, totalPowerSpent, expectedNewCharge
+            });
+            return res.status(400).json({ msg: 'Game integrity error: Insufficient power for requested actions. Simulation rejected.' });
+        }
+
+        // Сервер теперь не переливает заряд индивидуально,
+        // а проверяет только общую совокупность затрат и генерации.
         if (newState.power && Array.isArray(newState.power.batteries)) {
-            const batteries = newState.power.batteries;
-            const POWER_CFG = {
-                cycleDuration: 12 * 60 * 60 * 1000,
-                minFlux: 0.15,
-                maxFlux: 1.0,
-                batteryCap: 33.33,
-                panelBaseOutput: 0.015
-            };
-            const MAX_ALLOWED_CHARGE = POWER_CFG.batteryCap + 0.5; 
+            let clientTotalGridCharge = 0;
+
+            newState.power.batteries.forEach(newBat => {
+                const oldBat = (oldState.power?.batteries || []).find(b => b.id === newBat.id);
+                newBat.wear = oldBat ? oldBat.wear : 0;
+                // Мы сохраняем newBat.charge от клиента, чтобы не ломать его локальное распределение.
+
+                if (newBat.loc === 'grid') {
+                    if (oldBat && oldBat.charge < (POWER_CFG.batteryCap * (1 - (newBat.wear/100)) * 0.05)) {
+                        newBat.wear = Math.min(100, newBat.wear + (POWER_CFG.wearRate * elapsedSec));
+                    }
+                    
+                    const capacity = POWER_CFG.batteryCap * (1 - (newBat.wear / 100));
+                    if (newBat.charge > capacity) newBat.charge = capacity;
+                    if (newBat.charge < 0) newBat.charge = 0;
+                    
+                    clientTotalGridCharge += newBat.charge;
+                }
+            });
+
+            // Если сумма зарядов батарей от клиента превышает математически возможную (например, чит)
+            if (clientTotalGridCharge > expectedNewCharge + 0.5) {
+                let scale = Math.max(0, expectedNewCharge) / clientTotalGridCharge;
+                let correctedTotal = 0;
+                newState.power.batteries.forEach(b => {
+                    if (b.loc === 'grid') {
+                        b.charge = Number((b.charge * scale).toFixed(4));
+                        correctedTotal += b.charge;
+                    }
+                });
+                clientTotalGridCharge = correctedTotal;
+            }
+
+            newState.power.gridStatus = (newGridBats.length > 0 && clientTotalGridCharge > 0.01) ? "ONLINE" : "BLACKOUT";
+            if (clientTotalGridCharge <= 0 && (generatedPower - totalPowerSpent) < 0) {
+                newState.power.gridStatus = "DRAINING";
+            }
+            if (newGridBats.length === 0) newState.power.gridStatus = "BLACKOUT";
             
-            let totalNewCharge = 0;
-            let totalOldCharge = 0;
+            newState.power.productionRate = (timeSinceLastSave > 5000) ? 0 : (POWER_CFG.panelBaseOutput * expectedStateFlux); 
+            newState.power.consumptionRate = (elapsedSec > 0) ? (continuousPowerSpent / elapsedSec) : 0;
+        }
+        // ==============================================================================
 
-            for (let bat of batteries) {
-                if (bat.charge > MAX_ALLOWED_CHARGE) {
-                    logAction('CHEAT_BATTERY_OVERCHARGE', user.id, user.username, req, {
-                        batId: bat.id,
-                        charge: bat.charge,
-                        limit: POWER_CFG.batteryCap
-                    });
-                    return res.status(400).json({ msg: 'Game integrity error: Battery charge exceeds physical capacity.' });
-                }
-                totalNewCharge += (bat.charge || 0);
-            }
-
-            // Точный расчет Flux, как на клиенте
-            let cycle = (serverNow % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration;
-            const expectedStateFlux = (cycle <= 0.5) ? 
-                POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : 
-                POWER_CFG.minFlux;
-            // Проверка: не прислал ли клиент "взломанный" flux
-            if (newState.environment && typeof newState.environment.flux === 'number') {
-                 if (Math.abs(newState.environment.flux - expectedStateFlux) > 0.05) {
-                      logAction('CHEAT_FLUX_TAMPERING', user.id, user.username, req, {
-                          clientFlux: newState.environment.flux,
-                          serverFlux: expectedStateFlux
-                      });
-                      return res.status(400).json({ msg: 'Game integrity error: Environment flux out of sync.' });
-                 }
-            }
-
-            if (oldState.power && Array.isArray(oldState.power.batteries)) {
-                oldState.power.batteries.forEach(b => totalOldCharge += (b.charge || 0));
-                const chargeDelta = totalNewCharge - totalOldCharge;
-                const elapsedSeconds = timeSinceLastSave / 1000;
-                
-                let expectedGen = 0;
-                if (timeSinceLastSave > 5000) {
-                    // Офлайн генерация (avgFlux = 0.425)
-                    const avgFlux = 0.425;
-                    expectedGen = (POWER_CFG.panelBaseOutput * avgFlux) * elapsedSeconds;
-                } else {
-                    // Онлайн генерация по текущему Flux
-                    expectedGen = (POWER_CFG.panelBaseOutput * expectedStateFlux) * elapsedSeconds;
-                }
-
-                // Буфер на сетевую задержку (допустим, 3 секунды генерации на максимальном пике)
-                const NETWORK_BUFFER = POWER_CFG.panelBaseOutput * POWER_CFG.maxFlux * 3.0;
-                const maxPossibleGain = expectedGen + NETWORK_BUFFER;
-
-                if (chargeDelta > maxPossibleGain) {
-                      logAction('CHEAT_POWER_GENERATION', user.id, user.username, req, {
-                        delta: chargeDelta,
-                        maxAllowed: maxPossibleGain,
-                        elapsedTime: elapsedSeconds,
-                        flux: expectedStateFlux
-                    });
-                    return res.status(400).json({ msg: 'Game integrity error: Abnormal power generation detected.' });
-                }
-            }
+        if (newState.environment) {
+            newState.environment.flux = expectedStateFlux;
         }
 
         // 4. Stamina Check
@@ -828,7 +908,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
                             item: foodItem,
                             lastEaten: lastEaten,
-                            serverNow: serverNow,
+                             serverNow: serverNow,
                             diff: serverNow - lastEaten
                         });
                         return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
@@ -865,7 +945,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                });
+                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -1208,7 +1288,19 @@ app.post('/api/game/save', auth, async (req, res) => {
         logAction('GAME_SAVE', req.user.id, user.username, req, {
             savedAt: serverNow
         });
-        res.json({ msg: 'Game Saved', serverTime: serverNow }); 
+        
+        // --- ВОЗВРАЩАЕМ АКТУАЛЬНЫЙ СТЕЙТ БАТАРЕЙ КЛИЕНТУ ---
+        // Возвращаем именно тот стейт, который в итоге остался после проверки совокупности
+        const savedBatteries = (newState.power && Array.isArray(newState.power.batteries))
+            ? newState.power.batteries.map(b => ({
+                id: b.id,
+                charge: b.charge,
+                wear: b.wear,
+                loc: b.loc
+            }))
+            : [];
+            
+        res.json({ msg: 'Game Saved', serverTime: serverNow, batteries: savedBatteries }); 
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');
@@ -1403,10 +1495,8 @@ app.post('/api/market/offer', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        
         // --- WEBSOCKET EVENT EMIT ---
         io.emit('market_update', { action: 'offer_posted' });
-
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
@@ -1467,10 +1557,8 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             currency: o.currency
         }));
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-
         // --- WEBSOCKET EVENT EMIT ---
         io.emit('market_update', { action: 'offer_cancelled' });
-
         res.json({ msg: "Offer Cancelled", inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
         await session.abortTransaction();
@@ -1575,10 +1663,8 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-
         // --- WEBSOCKET EVENT EMIT ---
         io.emit('market_update', { action: 'offer_bought' });
-
         res.json({ msg: "Purchase Successful", inventory: mapToObject(buyer.gameState.inventory) });
     } catch (err) {
         await session.abortTransaction();
