@@ -739,8 +739,8 @@ LOGIC PENDING
 
 <div id="msn-daily-view" style="display:none;">
 <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">DAILY MISSION</div>
-<div class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center; display:flex; align-items:center; justify-content:center;">
-LOGIC PENDING
+<div id="daily-mission-content" class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+LOADING...
 </div>
 </div>
 </div>
@@ -929,11 +929,11 @@ restoreOfflineProgress(STATE.lastSaveTime || now());
 createSystem();
 ensureBaseStructure(); // ADDED: Ensure composter exists for new users
 STATE.power.batteries = [
-    { id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
-    { id: 'INIT_2', charge: 30, wear: 0, loc: 'grid' },
-    { id: 'INIT_3', charge: 20, wear: 0, loc: 'grid' },
-    { id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
-    { id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
+{ id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
+{ id: 'INIT_2', charge: 30, wear: 0, loc: 'grid' },
+{ id: 'INIT_3', charge: 20, wear: 0, loc: 'grid' },
+{ id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
+{ id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
 ];
 log("SYS: NEW USER INITIALIZED.");
 }
@@ -967,11 +967,11 @@ document.getElementById('auth-overlay').style.display = 'none';
 createSystem();
 ensureBaseStructure(); // ADDED: Ensure composter exists for new users
 STATE.power.batteries = [
-    { id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
-    { id: 'INIT_2', charge: 30, wear: 0, loc: 'grid' },
-    { id: 'INIT_3', charge: 20, wear: 0, loc: 'grid' },
-    { id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
-    { id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
+{ id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
+{ id: 'INIT_2', charge: 30, wear: 0, loc: 'grid' },
+{ id: 'INIT_3', charge: 20, wear: 0, loc: 'grid' },
+{ id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
+{ id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
 ];
 log("SYS: IDENTITY ESTABLISHED.");
 
@@ -1240,6 +1240,7 @@ brewerSlots: [ { id: 0, active: false, startTime: 0, duration: 0 }, { id: 1, act
 greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty', crop: null, startTime: 0, duration: 0 })), selectedSlot: null },
 composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] },
 lastDailyClaim: 0,
+dailyMission: null, // Добавлено для миссий
 market: { offers: [] }, // MARKET INITIALIZATION
 uiTabs: { base: 'refinery', market: 'sys', missions: 'ground' },
 activeModal: null,
@@ -1289,11 +1290,11 @@ restoreOfflineProgress(STATE.lastSaveTime || now());
 createSystem(); // New game logic for existing user but empty state
 ensureBaseStructure();
 STATE.power.batteries = [
-    { id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
-    { id: 'INIT_2', charge: 30, wear: 0, loc: 'grid' },
-    { id: 'INIT_3', charge: 20, wear: 0, loc: 'grid' },
-    { id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
-    { id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
+{ id: 'INIT_1', charge: 30, wear: 0, loc: 'grid' },
+{ id: 'INIT_2', charge: 30, wear: 0, loc: 'grid' },
+{ id: 'INIT_3', charge: 20, wear: 0, loc: 'grid' },
+{ id: 'INIT_4', charge: 20, wear: 0, loc: 'inventory' },
+{ id: 'INIT_5', charge: 20, wear: 0, loc: 'inventory' }
 ];
 }
 document.getElementById('auth-overlay').style.display = 'none';
@@ -1450,7 +1451,6 @@ STATE.inventory["Ground Guarana"] = (STATE.inventory["Ground Guarana"] || 0) + y
 log(`KITCHEN: Grinding complete. +${yieldAmt} Ground Guarana.`);
 renderKitchen(); updateUI();
 }
-
 function startBrewing(id) {
 const s = STATE.kitchen.brewerSlots[id];
 if (s.active || STATE.power.gridStatus === 'BLACKOUT') return;
@@ -2303,6 +2303,7 @@ document.getElementById('modal-missions').style.display='block';
 switchMissionTab(STATE.uiTabs ? (STATE.uiTabs.missions || 'ground') : 'ground');
 STATE.activeModal = 'modal-missions';
 saveUIState();
+fetchDailyMission();
 }
 
 function switchMissionTab(tab) {
@@ -2310,10 +2311,90 @@ document.getElementById('msn-ground-view').style.display = (tab === 'ground') ? 
 document.getElementById('msn-daily-view').style.display = (tab === 'daily') ? 'block' : 'none';
 document.getElementById('btn-msn-ground').classList.toggle('active', tab === 'ground');
 document.getElementById('btn-msn-daily').classList.toggle('active', tab === 'daily');
-// Сохранение состояния вкладки
 if (!STATE.uiTabs) STATE.uiTabs = {};
 STATE.uiTabs.missions = tab;
 saveUIState();
+
+if (tab === 'daily') {
+    if (STATE.dailyMission) renderDailyMission();
+    else fetchDailyMission();
+}
+}
+
+async function fetchDailyMission() {
+    try {
+        const res = await fetch(`${API_URL}/game/daily-mission`, {
+            headers: { 'x-auth-token': AUTH_TOKEN }
+        });
+        const data = await res.json();
+        if(res.ok && data.dailyMission) {
+            STATE.dailyMission = data.dailyMission;
+            renderDailyMission();
+        }
+    } catch(e) {
+        console.error("Daily Mission Fetch Error", e);
+    }
+}
+
+async function completeDailyMission() {
+    try {
+        const res = await fetch(`${API_URL}/game/daily-mission/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN }
+        });
+        const data = await res.json();
+        if(!res.ok) return log(`MISSION ERR: ${data.msg}`);
+        
+        STATE.dailyMission = data.dailyMission;
+        if (data.inventory) STATE.inventory = data.inventory;
+        log(`MISSION COMPLETE: Paid ${STATE.dailyMission.regolithReq} Reg, received ${data.reward} Helium3.`);
+        renderDailyMission();
+        updateUI();
+    } catch(e) {
+        console.error("Daily Mission Complete Error", e);
+    }
+}
+
+function renderDailyMission() {
+    const container = document.getElementById('daily-mission-content');
+    if(!container) return;
+    if(!STATE.dailyMission) { container.innerHTML = "LOADING..."; return; }
+
+    const dm = STATE.dailyMission;
+    const currentReg = STATE.inventory.Regolith || 0;
+    const req = dm.regolithReq;
+    const reward = req * 1.5;
+
+    if (dm.completed) {
+        container.innerHTML = `
+            <div style="color:var(--success); font-weight:bold; font-size:14px; margin-bottom:10px;">MISSION ACCOMPLISHED</div>
+            <div style="color:#aaa; font-size:10px;">You have completed today's delivery.</div>
+            <div style="color:#889; font-size:9px; margin-top:5px;">Next mission available tomorrow.</div>
+        `;
+    } else {
+        const canComplete = currentReg >= req;
+        container.innerHTML = `
+            <div style="color:var(--neon); font-weight:bold; font-size:12px; margin-bottom:10px;">REGOLITH DELIVERY</div>
+            <div style="color:#aaa; font-size:10px; margin-bottom:15px; max-width:80%;">
+                Central Command requires raw regolith for planetary expansion. Fulfill the quota to earn Helium-3.
+            </div>
+            <div style="display:flex; justify-content:space-between; width:100%; max-width:250px; background:rgba(255,255,255,0.05); padding:10px; border:1px solid rgba(255,255,255,0.1); margin-bottom:15px;">
+                <div style="text-align:center;">
+                    <div style="color:#889; font-size:9px;">REQUIRED</div>
+                    <div style="color:${canComplete ? 'var(--white)' : 'var(--danger)'}; font-weight:bold;">${Math.floor(currentReg)} / ${req} Reg</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:#889; font-size:9px;">REWARD</div>
+                    <div style="color:var(--warning); font-weight:bold;">+${reward} $H3</div>
+                </div>
+            </div>
+            <button class="nav-btn" style="border-color:var(--success); color:var(--success); padding:8px 20px;" 
+                ${!canComplete ? 'disabled' : ''} 
+                onclick="completeDailyMission()">
+                COMPLETE MISSION
+            </button>
+        `;
+    }
 }
 
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }

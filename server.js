@@ -8,12 +8,10 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const http = require('http');
-
 // Добавлено для WebSocket
 const { Server } = require('socket.io');
 
 const app = express();
-
 // --- НАСТРОЙКА ДОВЕРИЯ ПРОКСИ ---
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
@@ -48,9 +46,7 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-    // Подключение прошло успешно (здесь можно добавить логику комнат, если понадобится)
     socket.on('disconnect', () => {
-        // Логика при отключении клиента
     });
 });
 
@@ -103,7 +99,6 @@ const HONEYPOT_KEYS = [
 ];
 
 // --- ХЕЛПЕР ДЛЯ ПРЕОБРАЗОВАНИЯ MAP В ОБЪЕКТ ---
-// Исправляет баг сериализации Map в пустой объект {}
 const mapToObject = (map) => {
     if (!map) return {};
     if (typeof map.toJSON === 'function') {
@@ -118,7 +113,6 @@ const mapToObject = (map) => {
 
 // --- DATABASE MODELS & SCHEMAS ---
 
-// Battery Structure
 const BatterySchema = new mongoose.Schema({
     id: { type: String, required: true },
     charge: { type: Number, default: 0, min: 0 },
@@ -126,7 +120,6 @@ const BatterySchema = new mongoose.Schema({
     loc: { type: String, enum: ['grid', 'inventory', 'warehouse'], default: 'inventory' }
 }, { _id: false });
 
-// Generic Machine Slot
 const SlotSchema = new mongoose.Schema({
     id: { type: Number, default: 0 }, 
     active: { type: Boolean, default: false },
@@ -137,7 +130,6 @@ const SlotSchema = new mongoose.Schema({
     crop: { type: String, default: null }
 }, { _id: false });
 
-// Skill Structure
 const SkillSchema = new mongoose.Schema({
     lvl: { type: Number, default: 1, min: 1 },
     xp: { type: Number, default: 0, min: 0 },
@@ -145,7 +137,6 @@ const SkillSchema = new mongoose.Schema({
     locked: { type: Boolean, default: false }
 }, { _id: false });
 
-// Active Ship Structure
 const ShipSchema = new mongoose.Schema({
     type: { type: String, required: true },
     targetId: { type: Number },
@@ -161,7 +152,6 @@ const ShipSchema = new mongoose.Schema({
     spec: { type: Object } 
 }, { _id: false });
 
-// Celestial Body
 const BodySchema = new mongoose.Schema({
     id: Number,
     name: String,
@@ -198,6 +188,11 @@ const GameStateSchema = new mongoose.Schema({
         default: {}
     },
     lastDailyClaim: { type: Number, default: 0 },
+    dailyMission: {
+        date: { type: String, default: "" },
+        regolithReq: { type: Number, default: 0 },
+        completed: { type: Boolean, default: false }
+    },
     skills: {
         scavenging: { type: SkillSchema, default: () => ({}) },
         agriculture: { type: SkillSchema, default: () => ({}) },
@@ -222,7 +217,7 @@ const GameStateSchema = new mongoose.Schema({
         active: { type: Boolean, default: false },
         timer: { type: Number, default: 0 },
         duration: { type: Number, default: 5000 },
-        lastStart: { type: Number, default: 0 } // timestamp каждого запуска — для надёжного обнаружения серверной стороной
+        lastStart: { type: Number, default: 0 } 
     },
     cad: { slots: [SlotSchema] },
     metalworks: { slots: [SlotSchema] },
@@ -270,7 +265,6 @@ const UserSchema = new mongoose.Schema({
     lastSaveTime: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
-
 const User = mongoose.model('User', UserSchema);
 
 // Action Log Model
@@ -282,7 +276,6 @@ const ActionLogSchema = new mongoose.Schema({
     ip: { type: String },
     details: { type: Object }
 });
-
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // Market Offer Model
@@ -538,6 +531,7 @@ app.post('/api/auth/register', async (req, res) => {
             machineParts: { slots: [{id:0},{id:1},{id:2}] },
             printer: { slots: [{id:0},{id:1}] },
             stamina: { val: 100, max: 100 },
+            dailyMission: { date: "", regolithReq: 0, completed: false },
             skills: {
                 scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
@@ -773,10 +767,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         }
 
         const totalPowerSpent = instantPowerSpent + continuousPowerSpent;
-        
-        // ====== ИСПРАВЛЕНИЕ: Использование совокупности заряда ======
         let expectedNewCharge = totalOldGridCharge + generatedPower - totalPowerSpent;
-
         if (expectedNewCharge < -0.5) {
             logAction('CHEAT_POWER_BYPASS', user.id, user.username, req, {
                 totalOldGridCharge, generatedPower, totalPowerSpent, expectedNewCharge
@@ -784,16 +775,12 @@ app.post('/api/game/save', auth, async (req, res) => {
             return res.status(400).json({ msg: 'Game integrity error: Insufficient power for requested actions. Simulation rejected.' });
         }
 
-        // Сервер теперь не переливает заряд индивидуально,
-        // а проверяет только общую совокупность затрат и генерации.
         if (newState.power && Array.isArray(newState.power.batteries)) {
             let clientTotalGridCharge = 0;
-
             newState.power.batteries.forEach(newBat => {
                 const oldBat = (oldState.power?.batteries || []).find(b => b.id === newBat.id);
                 newBat.wear = oldBat ? oldBat.wear : 0;
-                // Мы сохраняем newBat.charge от клиента, чтобы не ломать его локальное распределение.
-
+                
                 if (newBat.loc === 'grid') {
                     if (oldBat && oldBat.charge < (POWER_CFG.batteryCap * (1 - (newBat.wear/100)) * 0.05)) {
                         newBat.wear = Math.min(100, newBat.wear + (POWER_CFG.wearRate * elapsedSec));
@@ -806,8 +793,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                     clientTotalGridCharge += newBat.charge;
                 }
             });
-
-            // Если сумма зарядов батарей от клиента превышает математически возможную (например, чит)
             if (clientTotalGridCharge > expectedNewCharge + 0.5) {
                 let scale = Math.max(0, expectedNewCharge) / clientTotalGridCharge;
                 let correctedTotal = 0;
@@ -825,11 +810,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                 newState.power.gridStatus = "DRAINING";
             }
             if (newGridBats.length === 0) newState.power.gridStatus = "BLACKOUT";
-            
             newState.power.productionRate = (timeSinceLastSave > 5000) ? 0 : (POWER_CFG.panelBaseOutput * expectedStateFlux); 
             newState.power.consumptionRate = (elapsedSec > 0) ? (continuousPowerSpent / elapsedSec) : 0;
         }
-        // ==============================================================================
 
         if (newState.environment) {
             newState.environment.flux = expectedStateFlux;
@@ -908,7 +891,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                         logAction('CHEAT_COOLDOWN_BYPASS', user.id, user.username, req, {
                             item: foodItem,
                             lastEaten: lastEaten,
-                             serverNow: serverNow,
+                            serverNow: serverNow,
                             diff: serverNow - lastEaten
                         });
                         return res.status(400).json({ msg: `Game integrity error: ${foodItem} is on cooldown. Wait longer.` });
@@ -945,7 +928,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
-                 });
+                });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
@@ -1016,7 +999,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 
                  if (!newState.lastDailyClaim || newState.lastDailyClaim < serverNow) {
                      newState.lastDailyClaim = serverNow;
-                 }
+                }
             }
             
             // 7. Seeds Check
@@ -1254,7 +1237,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 { out: "Structural Part", in: "Steel", ratio: 2.0 }, 
                 { out: "Machined Parts", in: "Aluminium Plate", ratio: 1.0 }, 
                 { out: "Moving Parts", in: "Titanium Plate", ratio: 0.5 } 
-            ];
+             ];
             
             for (const rule of CRAFT_COST_RULES) {
                 const oldOutQty = getOldInv(rule.out);
@@ -1288,9 +1271,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         logAction('GAME_SAVE', req.user.id, user.username, req, {
             savedAt: serverNow
         });
-        
         // --- ВОЗВРАЩАЕМ АКТУАЛЬНЫЙ СТЕЙТ БАТАРЕЙ КЛИЕНТУ ---
-        // Возвращаем именно тот стейт, который в итоге остался после проверки совокупности
         const savedBatteries = (newState.power && Array.isArray(newState.power.batteries))
             ? newState.power.batteries.map(b => ({
                 id: b.id,
@@ -1299,7 +1280,6 @@ app.post('/api/game/save', auth, async (req, res) => {
                 loc: b.loc
             }))
             : [];
-            
         res.json({ msg: 'Game Saved', serverTime: serverNow, batteries: savedBatteries }); 
     } catch (err) {
         console.error(err.message);
@@ -1341,6 +1321,84 @@ app.post('/api/game/claim-daily', auth, async (req, res) => {
         res.json({ msg: "Daily Reward Claimed", inventory: mapToObject(user.gameState.inventory), lastDailyClaim: now });
     } catch (err) {
         console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+// --- DAILY MISSION ROUTES ---
+app.get('/api/game/daily-mission', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        let dm = user.gameState.dailyMission;
+        
+        // Создаем новую миссию, если её нет или наступил новый день
+        if (!dm || dm.date !== todayStr) {
+            dm = {
+                date: todayStr,
+                regolithReq: Math.floor(Math.random() * (100 - 30 + 1)) + 30, // 30-100 Regolith
+                completed: false
+            };
+            user.gameState.dailyMission = dm;
+            user.markModified('gameState');
+            await user.save();
+        }
+        res.json({ dailyMission: dm });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Server Error");
+    }
+});
+
+app.post('/api/game/daily-mission/complete', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        let dm = user.gameState.dailyMission;
+
+        if (!dm || dm.date !== todayStr || dm.completed) {
+            return res.status(400).json({ msg: "Mission not available or already completed today." });
+        }
+
+        const regReq = dm.regolithReq;
+        const h3Reward = regReq * 1.5;
+
+        let currentRegolith = 0;
+        if (typeof user.gameState.inventory.get === 'function') {
+            currentRegolith = user.gameState.inventory.get('Regolith') || 0;
+        } else {
+            currentRegolith = user.gameState.inventory['Regolith'] || 0;
+        }
+
+        if (currentRegolith < regReq) {
+            return res.status(400).json({ msg: "Insufficient Regolith." });
+        }
+
+        // Выполняем транзакцию списания/начисления
+        if (typeof user.gameState.inventory.set === 'function') {
+            user.gameState.inventory.set('Regolith', currentRegolith - regReq);
+            const currentH3 = user.gameState.inventory.get('Helium3') || 0;
+            user.gameState.inventory.set('Helium3', currentH3 + h3Reward);
+        } else {
+            user.gameState.inventory['Regolith'] = currentRegolith - regReq;
+            const currentH3 = user.gameState.inventory['Helium3'] || 0;
+            user.gameState.inventory['Helium3'] = currentH3 + h3Reward;
+        }
+
+        dm.completed = true;
+        user.gameState.dailyMission = dm;
+        user.markModified('gameState');
+        await user.save();
+
+        logAction('DAILY_MISSION_COMPLETE', user.id, user.username, req, { regReq, h3Reward });
+
+        res.json({ msg: "Mission Completed", dailyMission: dm, inventory: mapToObject(user.gameState.inventory), reward: h3Reward });
+    } catch (err) {
+        console.error(err);
         res.status(500).send("Server Error");
     }
 });
@@ -1495,7 +1553,6 @@ app.post('/api/market/offer', auth, async (req, res) => {
             price: o.price,
             currency: o.currency
         }));
-        // --- WEBSOCKET EVENT EMIT ---
         io.emit('market_update', { action: 'offer_posted' });
         res.json({ msg: "Offer Posted", offerId: newOffer._id, inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
@@ -1557,7 +1614,6 @@ app.post('/api/market/cancel', auth, async (req, res) => {
             currency: o.currency
         }));
         logAction('MARKET_CANCEL', user.id, user.username, req, { item: offer.item, qty: offer.qty });
-        // --- WEBSOCKET EVENT EMIT ---
         io.emit('market_update', { action: 'offer_cancelled' });
         res.json({ msg: "Offer Cancelled", inventory: mapToObject(user.gameState.inventory), offers: mappedOffers });
     } catch (err) {
@@ -1599,14 +1655,12 @@ app.post('/api/market/buy', auth, async (req, res) => {
             return res.status(400).json({msg: "Cannot buy your own offer"});
         }
 
-        // --- CHECK IP MATCH (BASIC PROTECTION) ---
         if (securedOffer.sellerIp === req.ip) {
             await session.abortTransaction();
             logAction('MARKET_IP_BAN', buyerId, buyer.username, req, { sellerIp: securedOffer.sellerIp, buyerIp: req.ip });
             return res.status(403).json({ msg: "Anti-Cheat: Cannot trade with yourself or same network." });
         }
 
-        // --- CHECK DEVICE FINGERPRINT MATCH ---
         const buyerFingerprint = getDeviceFingerprint(req, false);
         if (securedOffer.sellerFingerprint === buyerFingerprint) {
             await session.abortTransaction();
@@ -1663,7 +1717,6 @@ app.post('/api/market/buy', auth, async (req, res) => {
             sellerReceived: sellerRevenue,
             sellerId: securedOffer.sellerId 
         });
-        // --- WEBSOCKET EVENT EMIT ---
         io.emit('market_update', { action: 'offer_bought' });
         res.json({ msg: "Purchase Successful", inventory: mapToObject(buyer.gameState.inventory) });
     } catch (err) {
@@ -1675,5 +1728,4 @@ app.post('/api/market/buy', auth, async (req, res) => {
     }
 });
 
-// --- ВАЖНО: ЗАМЕНА APP.LISTEN НА SERVER.LISTEN ---
 server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
