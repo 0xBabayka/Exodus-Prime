@@ -690,13 +690,19 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 </div>
 
 <div id="mkt-p2p-view" style="display:none;">
-<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+<!-- P2P Sub-tabs -->
+<div style="margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:5px; display:flex; gap:5px;">
+<button class="tab-btn active" id="btn-p2p-sell" onclick="switchP2PTab('sell')" style="border-color:var(--neon); color:var(--neon);">📤 SELL ORDERS</button>
+<button class="tab-btn" id="btn-p2p-buy" onclick="switchP2PTab('buy')" style="border-color:#ffd700; color:#ffd700;">📥 BUY ORDERS</button>
+</div>
 
+<!-- SELL SUB-TAB -->
+<div id="p2p-sell-view">
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
 <div style="border:1px solid rgba(255,255,255,0.1); padding:10px; background:rgba(255,255,255,0.02);">
-<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px;">CREATE OFFER</div>
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px;">CREATE SELL OFFER</div>
 <div class="mkt-input-group">
-<select id="p2p-item-select" class="mkt-input" style="flex:2;">
-</select>
+<select id="p2p-item-select" class="mkt-input" style="flex:2;"></select>
 <input type="number" id="p2p-qty" class="mkt-input" placeholder="QTY" min="1" value="1">
 </div>
 <div class="mkt-input-group">
@@ -705,17 +711,40 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 </div>
 <div style="font-size:9px; color:#666; margin-top:5px;">Fee: 5% of Sale Price.</div>
 </div>
-
 <div style="border:1px solid rgba(255,255,255,0.1); padding:10px; background:rgba(255,255,255,0.02); height:150px; overflow-y:auto;">
 <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px;">MY ACTIVE LISTINGS</div>
-<div id="p2p-my-offers">
+<div id="p2p-my-offers"></div>
 </div>
+</div>
+<div style="margin-top:15px;">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px;">GALACTIC EXCHANGE SELL LISTINGS</div>
+<div id="p2p-public-offers" class="scan-overlay" style="height:220px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:5px;"></div>
 </div>
 </div>
 
+<!-- BUY SUB-TAB -->
+<div id="p2p-buy-view" style="display:none;">
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+<div style="border:1px solid rgba(255,215,0,0.2); padding:10px; background:rgba(255,215,0,0.03);">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px; color:#ffd700;">CREATE BUY ORDER</div>
+<div class="mkt-input-group">
+<select id="p2p-buy-item-select" class="mkt-input" style="flex:2;"></select>
+<input type="number" id="p2p-buy-qty" class="mkt-input" placeholder="QTY" min="1" value="1">
+</div>
+<div class="mkt-input-group">
+<input type="number" id="p2p-buy-price" class="mkt-input" placeholder="TOTAL PRICE ($H3)" min="1">
+<button class="nav-btn" onclick="postBuyOrder()" style="border-color:#ffd700; color:#ffd700;">POST</button>
+</div>
+<div style="font-size:9px; color:#888; margin-top:5px;">$H3 locked until filled or cancelled.</div>
+</div>
+<div style="border:1px solid rgba(255,215,0,0.2); padding:10px; background:rgba(255,215,0,0.03); height:150px; overflow-y:auto;">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:10px; color:#ffd700;">MY BUY ORDERS</div>
+<div id="p2p-my-buy-orders"></div>
+</div>
+</div>
 <div style="margin-top:15px;">
-<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px;">GALACTIC EXCHANGE LISTINGS</div>
-<div id="p2p-public-offers" class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:5px;">
+<div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; color:#ffd700;">ACTIVE BUY ORDERS</div>
+<div id="p2p-public-buy-orders" class="scan-overlay" style="height:220px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,215,0,0.15); padding:5px;"></div>
 </div>
 </div>
 </div>
@@ -1043,7 +1072,7 @@ const ORBIT_CALC_FACTOR = (Math.PI * 2) / ((6 * 60 * 60 * 1000) * 2.4);
 const POWER_CFG = {
 cycleDuration: 12 * 60 * 60 * 1000,
 minFlux: 0.15, maxFlux: 1.0,
-batteryCap: 33.33, panelBaseOutput: 0.015,
+batteryCap: 33.33, panelBaseOutput: 0.01725,
 baseLoad: 0, factoryLoad: 0,
 wearRate: 0.001,
 maxGridSlots: 3
@@ -2914,21 +2943,28 @@ log(`MKT ERR: ${e.message}`);
 function initMarket() {
 if(!STATE.market) STATE.market = {};
 if(!STATE.market.offers) STATE.market.offers = [];
+if(!STATE.market.buyOrders) STATE.market.buyOrders = [];
 // Load offers from server on init
 loadMarketData();
 }
 
 async function loadMarketData() {
 try {
-const res = await fetch(`${API_URL}/market`, {
-headers: { 'x-auth-token': AUTH_TOKEN }
-});
-const data= await res.json();
-if(!res.ok) throw new Error(data.msg || "DATA LOAD ERROR");
+const [resOffers, resBuy] = await Promise.all([
+fetch(`${API_URL}/market`, { headers: { 'x-auth-token': AUTH_TOKEN } }),
+fetch(`${API_URL}/market/buy-orders`, { headers: { 'x-auth-token': AUTH_TOKEN } })
+]);
+const dataOffers = await resOffers.json();
+if(!resOffers.ok) throw new Error(dataOffers.msg || "DATA LOAD ERROR");
+STATE.market.offers = dataOffers.offers || [];
 
-STATE.market.offers = data.offers || [];
+if(resBuy.ok) {
+const dataBuy = await resBuy.json();
+STATE.market.buyOrders = dataBuy.buyOrders || [];
+}
+
 renderP2PMarket();
-// console.log("MKT: Data sync complete.");
+renderBuyOrdersTab();
 } catch(e) {
 console.error("MKT LOAD ERR:", e);
 }
@@ -2942,14 +2978,32 @@ document.getElementById('btn-mkt-sys').classList.toggle('active', tab === 'sys')
 document.getElementById('btn-mkt-p2p').classList.toggle('active', tab ==='p2p');
 
 if(tab === 'p2p') {
-loadMarketData(); // Refresh data when opening tab
+loadMarketData();
 populateP2PSelect();
+switchP2PTab(STATE.uiTabs.p2pSub || 'sell');
 }
 
 // Сохранение состояния вкладки
 if (!STATE.uiTabs) STATE.uiTabs = {};
 STATE.uiTabs.market = tab;
 saveUIState();
+}
+
+function switchP2PTab(sub) {
+const isSell = sub === 'sell';
+document.getElementById('p2p-sell-view').style.display = isSell ? 'block' : 'none';
+document.getElementById('p2p-buy-view').style.display = isSell ? 'none' : 'block';
+document.getElementById('btn-p2p-sell').classList.toggle('active', isSell);
+document.getElementById('btn-p2p-buy').classList.toggle('active', !isSell);
+if(!STATE.uiTabs) STATE.uiTabs = {};
+STATE.uiTabs.p2pSub = sub;
+if(sub === 'buy') {
+populateBuyOrderSelect();
+renderBuyOrdersTab();
+} else {
+populateP2PSelect();
+renderP2PMarket();
+}
 }
 
 function populateP2PSelect() {
@@ -3102,6 +3156,145 @@ else pubOffersHTML += card;
 
 myDiv.innerHTML = myOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO ACTIVE LISTINGS</div>';
 pubDiv.innerHTML = pubOffersHTML || '<div style="color:#555; text-align:center; padding:10px;">NO OFFERS FOUND</div>';
+}
+
+// --- BUY ORDER LOGIC ---
+
+function populateBuyOrderSelect() {
+const sel = document.getElementById('p2p-buy-item-select');
+if(!sel) return;
+sel.innerHTML = '<option value="" disabled selected>SELECT ITEM</option>';
+const blacklist = ["Helium3", "Scavenging License"];
+// Show all known resource types (from inventory + known list)
+const knownItems = new Set([
+...Object.keys(STATE.inventory),
+'Iron','Copper','Titanium','Carbon','Silica','Scrap','Electronics','Alloy','Polymer','Crystal'
+]);
+Array.from(knownItems).sort().forEach(key => {
+if(!blacklist.includes(key)) {
+const opt = document.createElement('option');
+opt.value = key;
+opt.innerText = key;
+sel.appendChild(opt);
+}
+});
+}
+
+async function postBuyOrder() {
+const item = document.getElementById('p2p-buy-item-select').value;
+const qty = parseInt(document.getElementById('p2p-buy-qty').value);
+const price = parseInt(document.getElementById('p2p-buy-price').value);
+
+if(!item) return log("MKT: Select an item.");
+if(!qty || qty < 1) return log("MKT: Invalid quantity.");
+if(!price || price < 1) return log("MKT: Invalid price.");
+if((STATE.inventory['Helium3'] || 0) < price) return log("MKT: Insufficient $H3 to lock.");
+
+log("MKT: Posting buy order...");
+try {
+const res = await fetch(`${API_URL}/market/buy-order`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+body: JSON.stringify({ item, qty, price })
+});
+const data = await res.json();
+if(!res.ok) throw new Error(data.msg || "POST FAILED");
+
+STATE.inventory = data.inventory;
+STATE.market.buyOrders = data.buyOrders || [];
+log(`MKT: Buy order posted for ${qty}x ${item} @ ${price} $H3.`);
+renderBuyOrdersTab();
+updateUI();
+document.getElementById('p2p-buy-qty').value = 1;
+document.getElementById('p2p-buy-price').value = '';
+} catch(e) {
+log(`MKT ERR: ${e.message}`);
+}
+}
+
+async function cancelBuyOrder(orderId) {
+try {
+const res = await fetch(`${API_URL}/market/buy-order/cancel`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+body: JSON.stringify({ orderId })
+});
+const data = await res.json();
+if(!res.ok) throw new Error(data.msg || "CANCEL FAILED");
+
+STATE.inventory = data.inventory;
+STATE.market.buyOrders = data.buyOrders || [];
+log("MKT: Buy order cancelled. $H3 refunded.");
+renderBuyOrdersTab();
+updateUI();
+} catch(e) {
+log(`MKT ERR: ${e.message}`);
+}
+}
+
+async function fillBuyOrder(orderId) {
+const qtyInput = document.getElementById(`fill-qty-${orderId}`);
+const fillQty = qtyInput ? parseInt(qtyInput.value) : 1;
+if(isNaN(fillQty) || fillQty < 1) return log("MKT: Invalid fill quantity.");
+
+try {
+const res = await fetch(`${API_URL}/market/buy-order/fill`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN },
+body: JSON.stringify({ orderId, fillQty })
+});
+const data = await res.json();
+if(!res.ok) throw new Error(data.msg || "FILL FAILED");
+
+STATE.inventory = data.inventory;
+STATE.market.buyOrders = data.buyOrders || [];
+log(`MKT: Filled ${fillQty} items. $H3 received.`);
+renderBuyOrdersTab();
+updateUI();
+} catch(e) {
+log(`MKT ERR: ${e.message}`);
+}
+}
+
+function renderBuyOrdersTab() {
+const myDiv = document.getElementById('p2p-my-buy-orders');
+const pubDiv = document.getElementById('p2p-public-buy-orders');
+if(!myDiv || !pubDiv) return;
+
+let myHTML = '';
+let pubHTML = '';
+
+const orders = Array.isArray(STATE.market.buyOrders) ? STATE.market.buyOrders : [];
+orders.forEach(o => {
+const isMine = o.isMine;
+// o.qty уже является остатком (remaining), т.к. сервер возвращает его предвычисленным в mapBuyOrders
+const remaining = o.qty || 0;
+const pricePerUnit = remaining > 0 ? Math.round(o.price / remaining) : o.price;
+
+const card = `<div class="mkt-offer-card" style="border-color:rgba(255,215,0,0.3); background:rgba(255,215,0,0.05);">
+<div>
+<div style="color:${isMine ? '#ffd700' : '#fff'}; font-weight:bold;">${o.item} <span style="color:#889;">x${remaining}</span></div>
+<div style="font-size:9px; color:#666;">Buyer: ${isMine ? 'YOU' : (o.buyer || 'Unknown')}</div>
+<div style="font-size:9px; color:#555;">${pricePerUnit} $H3/ea</div>
+</div>
+<div style="text-align:right;">
+<div style="color:#ffd700; font-weight:bold; font-size:11px;">${o.price} $H3</div>
+${isMine
+? `<button class="nav-btn danger" style="padding:1px 5px; font-size:9px; margin-top:2px;" onclick="cancelBuyOrder('${o.id}')">CANCEL</button>`
+: `<div style="display:flex; gap:4px; margin-top:2px; align-items:center; justify-content:flex-end;">
+<input type="number" id="fill-qty-${o.id}" value="1" min="1" max="${remaining}" style="width:35px; background:rgba(0,0,0,0.3); border:1px solid #554; color:#fff; font-family:monospace; font-size:9px; padding:2px; text-align:center;">
+<button class="nav-btn" style="padding:1px 5px; font-size:9px; border-color:#ffd700; color:#ffd700;" onclick="fillBuyOrder('${o.id}')">FILL</button>
+</div>`
+}
+</div>
+</div>`;
+
+if(isMine) myHTML += card;
+else pubHTML += card;
+});
+
+myDiv.innerHTML = myHTML || '<div style="color:#555; text-align:center; padding:10px;">NO ACTIVE BUY ORDERS</div>';
+pubDiv.innerHTML = pubHTML || '<div style="color:#555; text-align:center; padding:10px;">NO BUY ORDERS FOUND</div>';
 }
 
 // --- INIT ---

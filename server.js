@@ -305,6 +305,21 @@ const MarketOfferSchema = new mongoose.Schema({
 });
 const MarketOffer = mongoose.model('MarketOffer', MarketOfferSchema);
 
+// Buy Order Model
+const BuyOrderSchema = new mongoose.Schema({
+    buyerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    buyerName: { type: String, required: true },
+    buyerIp: { type: String, required: true },
+    buyerFingerprint: { type: String, required: true },
+    item: { type: String, required: true },
+    qty: { type: Number, required: true, min: 1 },
+    qtyFilled: { type: Number, default: 0 },
+    price: { type: Number, required: true, min: 1 }, // total H3 locked
+    currency: { type: String, default: 'HELIUM3' },
+    postedAt: { type: Date, default: Date.now }
+});
+const BuyOrder = mongoose.model('BuyOrder', BuyOrderSchema);
+
 // --- HELPER: LOGGING ---
 const logAction = async (action, userId, username, req, details = {}) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -700,7 +715,7 @@ app.post('/api/game/save', auth, async (req, res) => {
         const POWER_CFG = {
             cycleDuration: 12 * 60 * 60 * 1000,
             minFlux: 0.15, maxFlux: 1.0,
-            batteryCap: 33.33, panelBaseOutput: 0.015, wearRate: 0.001
+            batteryCap: 33.33, panelBaseOutput: 0.01725, wearRate: 0.001
         };
         let elapsedSec = timeSinceLastSave / 1000;
         
@@ -1801,3 +1816,276 @@ app.post('/api/market/buy', auth, async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+// --- BUY ORDER ROUTES ---
+
+// Helper: map buy orders for client
+async function mapBuyOrders(requesterId) {
+    const orders = await BuyOrder.find({ $expr: { $gt: ['$qty', '$qtyFilled'] } }).sort({ postedAt: -1 }).limit(100);
+    return orders.map(o => {
+        const remaining = o.qty - o.qtyFilled;
+        // o.price хранит актуальный остаток заблокированного H3 (уменьшается при каждом fill)
+        const priceRemaining = o.price;
+        return {
+            id: o._id.toString(),
+            isMine: o.buyerId.toString() === requesterId,
+            buyer: o.buyerName,
+            item: o.item,
+            qty: remaining,
+            qtyTotal: o.qty,
+            qtyFilled: o.qtyFilled,
+            price: priceRemaining
+        };
+    });
+}
+
+// GET /api/market/buy-orders
+app.get('/api/market/buy-orders', auth, async (req, res) => {
+    try {
+        const buyOrders = await mapBuyOrders(req.user.id);
+        res.json({ buyOrders });
+    } catch(err) {
+        console.error(err);
+        res.status(500).send('Server Error');
+    }
+});
+
+// POST /api/market/buy-order - create
+app.post('/api/market/buy-order', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        let { item, qty, price } = req.body;
+        const blacklist = ['Helium3', 'Scavenging License'];
+        if (!item || blacklist.includes(item)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Invalid item' });
+        }
+        qty = parseInt(qty, 10);
+        price = parseInt(price, 10);
+        if (isNaN(qty) || qty < 1 || isNaN(price) || price < 1) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Invalid qty or price (must be positive integer)' });
+        }
+
+        const user = await User.findById(req.user.id).session(session);
+        if (!user) { await session.abortTransaction(); return res.status(404).json({ msg: 'User not found' }); }
+
+        const activeCount = await BuyOrder.countDocuments({ buyerId: req.user.id, $expr: { $gt: ['$qty', '$qtyFilled'] } }).session(session);
+        if (activeCount >= 10) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Max 10 active buy orders allowed' });
+        }
+
+        const currentH3 = typeof user.gameState.inventory.get === 'function'
+            ? (user.gameState.inventory.get('Helium3') || 0)
+            : (user.gameState.inventory['Helium3'] || 0);
+
+        if (currentH3 < price) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Insufficient Helium3' });
+        }
+
+        // Lock H3
+        if (typeof user.gameState.inventory.set === 'function') {
+            user.gameState.inventory.set('Helium3', currentH3 - price);
+        } else {
+            user.gameState.inventory['Helium3'] = currentH3 - price;
+        }
+        user.markModified('gameState');
+        await user.save({ session });
+
+        const buyerFingerprint = getDeviceFingerprint(req, true);
+        const newOrder = new BuyOrder({
+            buyerId: user.id,
+            buyerName: user.username,
+            buyerIp: req.ip,
+            buyerFingerprint,
+            item, qty, price
+        });
+        await newOrder.save({ session });
+        await session.commitTransaction();
+
+        logAction('MARKET_BUY_ORDER_POST', user.id, user.username, req, { item, qty, price });
+        io.emit('market_update', { action: 'buy_order_posted' });
+
+        const buyOrders = await mapBuyOrders(req.user.id);
+        res.json({ msg: 'Buy Order Posted', inventory: mapToObject(user.gameState.inventory), buyOrders });
+    } catch(err) {
+        await session.abortTransaction();
+        console.error(err);
+        res.status(500).send('Server Error');
+    } finally {
+        session.endSession();
+    }
+});
+
+// POST /api/market/buy-order/cancel
+app.post('/api/market/buy-order/cancel', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        const { orderId } = req.body;
+        if (!mongoose.Types.ObjectId.isValid(orderId)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Invalid Order ID' });
+        }
+
+        const order = await BuyOrder.findById(orderId).session(session);
+        if (!order) { await session.abortTransaction(); return res.status(404).json({ msg: 'Order not found' }); }
+        if (order.buyerId.toString() !== req.user.id) {
+            await session.abortTransaction();
+            return res.status(403).json({ msg: 'Not your order' });
+        }
+
+        const remaining = order.qty - order.qtyFilled;
+        // order.price уже хранит актуальный остаток заблокированного H3 (уменьшается при каждом fill)
+        const refund = order.price;
+
+        const user = await User.findById(req.user.id).session(session);
+        if (typeof user.gameState.inventory.set === 'function') {
+            const h3 = user.gameState.inventory.get('Helium3') || 0;
+            user.gameState.inventory.set('Helium3', h3 + refund);
+        } else {
+            user.gameState.inventory['Helium3'] = (user.gameState.inventory['Helium3'] || 0) + refund;
+        }
+        user.markModified('gameState');
+        await user.save({ session });
+
+        await BuyOrder.deleteOne({ _id: orderId }, { session });
+        await session.commitTransaction();
+
+        logAction('MARKET_BUY_ORDER_CANCEL', user.id, user.username, req, { item: order.item, refund });
+        io.emit('market_update', { action: 'buy_order_cancelled' });
+
+        const buyOrders = await mapBuyOrders(req.user.id);
+        res.json({ msg: 'Buy Order Cancelled', inventory: mapToObject(user.gameState.inventory), buyOrders });
+    } catch(err) {
+        await session.abortTransaction();
+        console.error(err);
+        res.status(500).send('Server Error');
+    } finally {
+        session.endSession();
+    }
+});
+
+// POST /api/market/buy-order/fill
+app.post('/api/market/buy-order/fill', auth, async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        let { orderId, fillQty } = req.body;
+        if (!mongoose.Types.ObjectId.isValid(orderId)) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Invalid Order ID' });
+        }
+
+        fillQty = parseInt(fillQty, 10);
+        if (isNaN(fillQty) || fillQty < 1) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Invalid fill quantity' });
+        }
+
+        const order = await BuyOrder.findById(orderId).session(session);
+        if (!order) { await session.abortTransaction(); return res.status(404).json({ msg: 'Order not found' }); }
+
+        // Anti-cheat
+        if (order.buyerId.toString() === req.user.id) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Cannot fill your own buy order' });
+        }
+        if (order.buyerIp === req.ip) {
+            await session.abortTransaction();
+            logAction('MARKET_IP_BAN', req.user.id, 'UNKNOWN', req, { type: 'buy_order_fill_self_ip' });
+            return res.status(400).json({ msg: 'Transaction blocked (IP)' });
+        }
+        const sellerFp = getDeviceFingerprint(req, false);
+        if (order.buyerFingerprint === sellerFp) {
+            await session.abortTransaction();
+            logAction('MARKET_FP_BAN', req.user.id, 'UNKNOWN', req, { type: 'buy_order_fill_self_fp' });
+            return res.status(400).json({ msg: 'Transaction blocked (Device)' });
+        }
+
+        const remaining = order.qty - order.qtyFilled;
+        if (fillQty > remaining) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: 'Fill qty exceeds remaining order qty' });
+        }
+
+        // Calculate H3 payout for seller (from locked pool)
+        let h3Payout;
+        if (fillQty === remaining) {
+            // Последний fill: отдаём весь оставшийся заблокированный H3, чтобы не было потерь на округлении
+            h3Payout = order.price;
+        } else {
+            // Частичный fill: пропорционально от текущего остатка locked H3 / текущий остаток qty
+            // Используем remaining (order.qty - order.qtyFilled) — реальный остаток ДО этого fill
+            h3Payout = Math.floor((order.price / remaining) * fillQty);
+        }
+        const fee = Math.floor(h3Payout * 0.05);
+        const sellerRevenue = h3Payout - fee;
+
+        // Load seller (current user)
+        const seller = await User.findById(req.user.id).session(session);
+        if (!seller) { await session.abortTransaction(); return res.status(404).json({ msg: 'User not found' }); }
+
+        const sellerItemQty = typeof seller.gameState.inventory.get === 'function'
+            ? (seller.gameState.inventory.get(order.item) || 0)
+            : (seller.gameState.inventory[order.item] || 0);
+
+        if (sellerItemQty < fillQty) {
+            await session.abortTransaction();
+            return res.status(400).json({ msg: `Insufficient ${order.item} in inventory` });
+        }
+
+        // Deduct items from seller, give H3
+        if (typeof seller.gameState.inventory.set === 'function') {
+            seller.gameState.inventory.set(order.item, sellerItemQty - fillQty);
+            const sellerH3 = seller.gameState.inventory.get('Helium3') || 0;
+            seller.gameState.inventory.set('Helium3', sellerH3 + sellerRevenue);
+        } else {
+            seller.gameState.inventory[order.item] = sellerItemQty - fillQty;
+            seller.gameState.inventory['Helium3'] = (seller.gameState.inventory['Helium3'] || 0) + sellerRevenue;
+        }
+        seller.markModified('gameState');
+        await seller.save({ session });
+
+        // Give items to buyer
+        const buyer = await User.findById(order.buyerId).session(session);
+        if (buyer) {
+            if (typeof buyer.gameState.inventory.set === 'function') {
+                const buyerQty = buyer.gameState.inventory.get(order.item) || 0;
+                buyer.gameState.inventory.set(order.item, buyerQty + fillQty);
+            } else {
+                buyer.gameState.inventory[order.item] = (buyer.gameState.inventory[order.item] || 0) + fillQty;
+            }
+            buyer.markModified('gameState');
+            await buyer.save({ session });
+        }
+
+        // Update or delete order
+        if (fillQty === remaining) {
+            await BuyOrder.deleteOne({ _id: orderId }, { session });
+        } else {
+            order.qtyFilled += fillQty;
+            order.price = order.price - h3Payout;
+            if (order.price < 0) order.price = 0;
+            await order.save({ session });
+        }
+
+        await session.commitTransaction();
+
+        logAction('MARKET_BUY_ORDER_FILL', seller.id, seller.username, req, {
+            item: order.item, fillQty, h3Payout, fee, sellerRevenue, buyerId: order.buyerId
+        });
+        io.emit('market_update', { action: 'buy_order_filled' });
+
+        const buyOrders = await mapBuyOrders(req.user.id);
+        res.json({ msg: 'Order Filled', inventory: mapToObject(seller.gameState.inventory), buyOrders });
+    } catch(err) {
+        await session.abortTransaction();
+        console.error(err);
+        res.status(500).send('Server Error');
+    } finally {
+        session.endSession();
+    }
+});
