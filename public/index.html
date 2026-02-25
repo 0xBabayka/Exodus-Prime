@@ -2736,11 +2736,30 @@ if(!res.ok) return log(`MISSION ERR: ${data.msg}`);
 
 STATE.dailyMission = data.dailyMission;
 if (data.inventory) STATE.inventory = data.inventory;
-log(`MISSION COMPLETE: Paid ${STATE.dailyMission.regolithReq} Reg, received ${data.reward} Helium3.`);
+log(`MISSION COMPLETE: Delivered ${data.dailyMission.regolithReq} Reg, received ${data.reward} $H3.`);
 renderDailyMission();
 updateUI();
 } catch(e) {
 console.error("Daily Mission Complete Error", e);
+}
+}
+
+async function completeIceMission() {
+try {
+const res = await fetch(`${API_URL}/game/daily-mission/complete-ice`, {
+method: 'POST',
+headers: { 'Content-Type': 'application/json', 'x-auth-token': AUTH_TOKEN }
+});
+const data = await res.json();
+if(!res.ok) return log(`MISSION ERR: ${data.msg}`);
+
+STATE.dailyMission = data.dailyMission;
+if (data.inventory) STATE.inventory = data.inventory;
+log(`MISSION COMPLETE: Delivered ${data.dailyMission.iceReq} Ice, received ${data.reward} $H3.`);
+renderDailyMission();
+updateUI();
+} catch(e) {
+console.error("Ice Mission Complete Error", e);
 }
 }
 
@@ -2751,39 +2770,83 @@ if(!STATE.dailyMission) { container.innerHTML = "LOADING..."; return; }
 
 const dm = STATE.dailyMission;
 const currentReg = STATE.inventory.Regolith || 0;
-const req = dm.regolithReq;
-const reward = req * 1.5;
+const currentIce = STATE.inventory["Ice water"] || 0;
+const regReq = dm.regolithReq;
+const regReward = regReq * 1.5;
+const iceReq = dm.iceReq || 0;
+const iceReward = iceReq * 2;
 
+// Блок Regolith миссии
+let regolithBlock = '';
 if (dm.completed) {
-container.innerHTML = `
-<div style="color:var(--success); font-weight:bold; font-size:14px; margin-bottom:10px;">MISSION ACCOMPLISHED</div>
-<div style="color:#aaa; font-size:10px;">You have completed today's delivery.</div>
-<div style="color:#889; font-size:9px; margin-top:5px;">Next mission available tomorrow.</div>
-`;
+regolithBlock = `
+<div style="width:100%; max-width:310px; background:rgba(0,255,128,0.05); border:1px solid rgba(0,255,128,0.2); padding:10px; margin-bottom:10px; text-align:center;">
+<div style="color:var(--success); font-weight:bold; font-size:11px; margin-bottom:3px;">✓ REGOLITH DELIVERY — DONE</div>
+<div style="color:#666; font-size:9px;">Delivered ${regReq} Reg · Earned ${regReward} $H3</div>
+</div>`;
 } else {
-const canComplete = currentReg >= req;
-container.innerHTML = `
-<div style="color:var(--neon); font-weight:bold; font-size:12px; margin-bottom:10px;">REGOLITH DELIVERY</div>
-<div style="color:#aaa; font-size:10px; margin-bottom:15px; max-width:80%;">
-Central Command requires raw regolith for planetary expansion. Fulfill the quota to earn Helium-3.
-</div>
-<div style="display:flex; justify-content:space-between; width:100%; max-width:250px; background:rgba(255,255,255,0.05); padding:10px; border:1px solid rgba(255,255,255,0.1); margin-bottom:15px;">
-<div style="text-align:center;">
+const canReg = currentReg >= regReq;
+regolithBlock = `
+<div style="width:100%; max-width:310px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); padding:10px; margin-bottom:10px;">
+<div style="color:var(--neon); font-weight:bold; font-size:11px; margin-bottom:6px; text-align:center;">REGOLITH DELIVERY</div>
+<div style="color:#aaa; font-size:9px; margin-bottom:8px; text-align:center;">Central Command requires raw regolith for planetary expansion.</div>
+<div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+<div style="text-align:center; flex:1;">
 <div style="color:#889; font-size:9px;">REQUIRED</div>
-<div style="color:${canComplete ? 'var(--white)' : 'var(--danger)'}; font-weight:bold;">${Math.floor(currentReg)} / ${req} Reg</div>
+<div style="color:${canReg ? 'var(--white)' : 'var(--danger)'}; font-weight:bold; font-size:11px;">${Math.floor(currentReg)} / ${regReq} Reg</div>
+</div>
+<div style="text-align:center; flex:1;">
+<div style="color:#889; font-size:9px;">REWARD</div>
+<div style="color:var(--warning); font-weight:bold; font-size:11px;">+${regReward} $H3</div>
+</div>
 </div>
 <div style="text-align:center;">
-<div style="color:#889; font-size:9px;">REWARD</div>
-<div style="color:var(--warning); font-weight:bold;">+${reward} $H3</div>
+<button class="nav-btn" style="border-color:var(--success); color:var(--success); padding:5px 16px;" ${!canReg ? 'disabled' : ''} onclick="completeDailyMission()">COMPLETE</button>
 </div>
-</div>
-<button class="nav-btn" style="border-color:var(--success); color:var(--success); padding:8px 20px;"
-${!canComplete ? 'disabled' : ''}
-onclick="completeDailyMission()">
-COMPLETE MISSION
-</button>
-`;
+</div>`;
 }
+
+// Блок Ice миссии
+let iceBlock = '';
+if (iceReq > 0) {
+if (dm.iceCompleted) {
+iceBlock = `
+<div style="width:100%; max-width:310px; background:rgba(0,255,128,0.05); border:1px solid rgba(0,255,128,0.2); padding:10px; margin-bottom:10px; text-align:center;">
+<div style="color:var(--success); font-weight:bold; font-size:11px; margin-bottom:3px;">✓ ICE DELIVERY — DONE</div>
+<div style="color:#666; font-size:9px;">Delivered ${iceReq} Ice · Earned ${iceReward} $H3</div>
+</div>`;
+} else {
+const canIce = currentIce >= iceReq;
+iceBlock = `
+<div style="width:100%; max-width:310px; background:rgba(0,220,255,0.03); border:1px solid rgba(0,220,255,0.15); padding:10px; margin-bottom:10px;">
+<div style="color:#0ff; font-weight:bold; font-size:11px; margin-bottom:6px; text-align:center;">ICE WATER DELIVERY</div>
+<div style="color:#aaa; font-size:9px; margin-bottom:8px; text-align:center;">Supply frozen reserves to the cryo-processing station. 2 $H3 per unit.</div>
+<div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+<div style="text-align:center; flex:1;">
+<div style="color:#889; font-size:9px;">REQUIRED</div>
+<div style="color:${canIce ? 'var(--white)' : 'var(--danger)'}; font-weight:bold; font-size:11px;">${Math.floor(currentIce)} / ${iceReq} Ice</div>
+</div>
+<div style="text-align:center; flex:1;">
+<div style="color:#889; font-size:9px;">REWARD</div>
+<div style="color:var(--warning); font-weight:bold; font-size:11px;">+${iceReward} $H3</div>
+</div>
+</div>
+<div style="text-align:center;">
+<button class="nav-btn" style="border-color:#0ff; color:#0ff; padding:5px 16px;" ${!canIce ? 'disabled' : ''} onclick="completeIceMission()">COMPLETE</button>
+</div>
+</div>`;
+}
+}
+
+// Если обе выполнены
+const bothDone = dm.completed && dm.iceCompleted;
+container.style.justifyContent = 'flex-start';
+container.style.paddingTop = '10px';
+container.innerHTML = `
+${bothDone ? `<div style="color:var(--success); font-weight:bold; font-size:13px; margin-bottom:10px; text-align:center; width:100%;">ALL MISSIONS ACCOMPLISHED</div><div style="color:#889; font-size:9px; margin-bottom:12px; text-align:center; width:100%;">Next missions available tomorrow.</div>` : ''}
+${regolithBlock}
+${iceBlock}
+`;
 }
 
 function resize() { CANVAS.width = window.innerWidth; CANVAS.height = window.innerHeight; }

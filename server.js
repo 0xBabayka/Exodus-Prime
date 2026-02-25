@@ -194,7 +194,9 @@ const GameStateSchema = new mongoose.Schema({
     dailyMission: {
         date: { type: String, default: "" },
         regolithReq: { type: Number, default: 0 },
-        completed: { type: Boolean, default: false }
+        completed: { type: Boolean, default: false },
+        iceReq: { type: Number, default: 0 },
+        iceCompleted: { type: Boolean, default: false }
     },
     skills: {
         scavenging: { type: SkillSchema, default: () => ({}) },
@@ -563,7 +565,7 @@ app.post('/api/auth/register', async (req, res) => {
             machineParts: { slots: [{id:0},{id:1},{id:2}] },
             printer: { slots: [{id:0},{id:1}] },
             stamina: { val: 100, max: 100 },
-            dailyMission: { date: "", regolithReq: 0, completed: false },
+            dailyMission: { date: "", regolithReq: 0, completed: false, iceReq: 0, iceCompleted: false },
             skills: {
                 scavenging: { lvl: 1, xp: 0, next: 100, locked: false },
                 agriculture: { lvl: 1 }, metallurgy: { lvl: 1 }, chemistry: { lvl: 1 }, 
@@ -1389,7 +1391,9 @@ app.get('/api/game/daily-mission', auth, async (req, res) => {
             dm = {
                 date: todayStr,
                 regolithReq: Math.floor(Math.random() * (100 - 30 + 1)) + 30, // 30-100 Regolith
-                completed: false
+                completed: false,
+                iceReq: Math.floor(Math.random() * (100 - 30 + 1)) + 30, // 30-100 Ice water
+                iceCompleted: false
             };
             user.gameState.dailyMission = dm;
             user.markModified('gameState');
@@ -1447,6 +1451,69 @@ app.post('/api/game/daily-mission/complete', auth, async (req, res) => {
         logAction('DAILY_MISSION_COMPLETE', user.id, user.username, req, { regReq, h3Reward });
 
         res.json({ msg: "Mission Completed", dailyMission: dm, inventory: mapToObject(user.gameState.inventory), reward: h3Reward });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Server Error");
+    }
+});
+
+// POST /api/game/daily-mission/complete-ice — Ice Water delivery mission
+app.post('/api/game/daily-mission/complete-ice', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        let dm = user.gameState.dailyMission;
+
+        // Авторитарная проверка: миссия должна существовать, быть сегодняшней и не выполненной
+        if (!dm || dm.date !== todayStr) {
+            return res.status(400).json({ msg: "No active mission for today." });
+        }
+        if (dm.iceCompleted) {
+            return res.status(400).json({ msg: "Ice delivery already completed today." });
+        }
+
+        // Авторитарная проверка: iceReq должен быть валидным числом в диапазоне 30-100
+        const iceReq = dm.iceReq;
+        if (!iceReq || typeof iceReq !== 'number' || iceReq < 30 || iceReq > 100) {
+            return res.status(400).json({ msg: "Invalid mission data. Please refresh the mission." });
+        }
+
+        // Авторитарная проверка: достаточно ли Ice water у игрока
+        let currentIce = 0;
+        if (typeof user.gameState.inventory.get === 'function') {
+            currentIce = user.gameState.inventory.get('Ice water') || 0;
+        } else {
+            currentIce = user.gameState.inventory['Ice water'] || 0;
+        }
+
+        if (currentIce < iceReq) {
+            return res.status(400).json({ msg: `Insufficient Ice water. Need ${iceReq}, have ${Math.floor(currentIce)}.` });
+        }
+
+        // Вычисляем награду: 2 H3 за единицу льда (авторитарно на сервере)
+        const h3Reward = iceReq * 2;
+
+        // Списываем Ice water, начисляем Helium3
+        if (typeof user.gameState.inventory.set === 'function') {
+            user.gameState.inventory.set('Ice water', currentIce - iceReq);
+            const currentH3 = user.gameState.inventory.get('Helium3') || 0;
+            user.gameState.inventory.set('Helium3', currentH3 + h3Reward);
+        } else {
+            user.gameState.inventory['Ice water'] = currentIce - iceReq;
+            const currentH3 = user.gameState.inventory['Helium3'] || 0;
+            user.gameState.inventory['Helium3'] = currentH3 + h3Reward;
+        }
+
+        dm.iceCompleted = true;
+        user.gameState.dailyMission = dm;
+        user.markModified('gameState');
+        await user.save();
+
+        logAction('DAILY_MISSION_ICE_COMPLETE', user.id, user.username, req, { iceReq, h3Reward });
+
+        res.json({ msg: "Ice Mission Completed", dailyMission: dm, inventory: mapToObject(user.gameState.inventory), reward: h3Reward });
     } catch (err) {
         console.error(err);
         res.status(500).send("Server Error");
