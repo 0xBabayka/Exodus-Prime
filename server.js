@@ -1398,6 +1398,16 @@ app.get('/api/game/daily-mission', auth, async (req, res) => {
             user.gameState.dailyMission = dm;
             user.markModified('gameState');
             await user.save();
+        } else if (!dm.iceReq || typeof dm.iceReq !== 'number' || dm.iceReq < 30 || dm.iceReq > 100) {
+            // МИГРАЦИЯ СТАРЬИХ СОХРАНЕНИЙ:
+            // Сегодняшняя миссия существует (дата совпадает), но поле iceReq
+            // отсутствует/равно 0 — признак сохранения до добавления ледяного задания.
+            // Сохраняем regolithReq и completed, добавляем только iceReq/iceCompleted.
+            dm.iceReq = Math.floor(Math.random() * (100 - 30 + 1)) + 30;
+            dm.iceCompleted = (dm.iceCompleted === true) ? true : false;
+            user.gameState.dailyMission = dm;
+            user.markModified('gameState');
+            await user.save();
         }
         res.json({ dailyMission: dm });
     } catch (err) {
