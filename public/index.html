@@ -732,8 +732,8 @@ Cost: 30kW, 5 Stamina. Output: 2-3 Units. Time: 4h.
 
 <div id="msn-ground-view">
 <div class="header" style="background:transparent; border:none; padding:0; margin-bottom:5px; font-size:11px;">GROUND OPERATIONS</div>
-<div class="scan-overlay" style="height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889; text-align:center; display:flex; align-items:center; justify-content:center;">
-LOGIC PENDING
+<div id="ground-ops-content" style="min-height:250px; overflow-y:auto; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); padding:10px; color:#889;">
+LOADING...
 </div>
 </div>
 
@@ -1241,6 +1241,8 @@ greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty'
 composter: { slots: [{id:0, active:false, startTime:0, duration:0}, {id:1, active:false, startTime:0, duration:0}, {id:2, active:false, startTime:0, duration:0}] },
 lastDailyClaim: 0,
 dailyMission: null, // Добавлено для миссий
+iceHarvester: { durability: 100, active: false, startTime: 0, duration: 6 * 60 * 60 * 1000 },
+regolithHarvester: { durability: 100, active: false, startTime: 0, duration: 6 * 60 * 60 * 1000 },
 market: { offers: [] }, // MARKET INITIALIZATION
 uiTabs: { base: 'refinery', market: 'sys', missions: 'ground' },
 activeModal: null,
@@ -1338,6 +1340,8 @@ if (!STATE.refinery.sabatierSlots) STATE.refinery.sabatierSlots = [{ id: 0, acti
 if (!STATE.fuelFactory) STATE.fuelFactory = { slots: Array(4).fill(null).map((_,i)=>({id:i, active:false, mode:null, startTime:0, duration:0}))};
 if (!STATE.kitchen) STATE.kitchen = { roasterSlots: [{id:0,active:false},{id:1,active:false}], grinderSlots: [{id:0,active:false},{id:1,active:false}], brewerSlots: [{id:0,active:false},{id:1,active:false}] };
 if (!STATE.uiTabs) STATE.uiTabs = { base: 'refinery', market: 'sys', missions: 'ground' };
+if (STATE.iceHarvester === undefined) STATE.iceHarvester = { durability: 100, active: false, startTime: 0, duration: 6 * 60 * 60 * 1000 };
+if (STATE.regolithHarvester === undefined) STATE.regolithHarvester = { durability: 100, active: false, startTime: 0, duration: 6 * 60 * 60 * 1000 };
 }
 
 function restoreOfflineProgress(lastTime) {
@@ -1425,7 +1429,7 @@ function completeRoasting(s) {
 s.active = false;
 let yieldAmt = Math.floor(Math.random() * (ROASTING_CFG.output.max - ROASTING_CFG.output.min + 1)) + ROASTING_CFG.output.min;
 STATE.inventory["Roasted Guarana"] = (STATE.inventory["Roasted Guarana"] || 0) + yieldAmt;
-log(`KITCHEN: Ro스팅 complete. +${yieldAmt} Roasted Guarana.`);
+log(`KITCHEN: Roasting complete. +${yieldAmt} Roasted Guarana.`);
 renderKitchen(); updateUI();
 }
 
@@ -2096,7 +2100,7 @@ if(d > 0) { STATE.power.gridStatus="ONLINE"; for(let b of gBats) { if(d<=0) brea
 if(s>0){ let a=Math.min(s,d); b.charge+=a; d-=a; }} } else { let dr = Math.abs(d); for(let i=gBats.length-1; i>=0; i--) { if(dr<=0)break;
 let b=gBats[i]; if(b.charge>0){ let t=Math.min(b.charge, dr); b.charge-=t; dr-=t; }} STATE.power.gridStatus = (gBats.reduce((a,b)=>a+b.charge,0) <= 0.001 && dr>0) ? "BLACKOUT" : "DRAINING";
 }
-gBats.forEach(b => { if(b.charge < (POWER_CFG.batteryCap*(1-(b.wear/100))*0.05)) b.wear = Math.min(100, b.wear + (POWER_CFG.wearRate * dt)); });
+gBats.forEach(b => { /* wear is calculated server-side only */ });
 }
 processBuildQueue(dt);
 STATE.cad.slots.forEach(s => { if (s.active && (currentTime - s.startTime) >= s.duration) { completeCad(s); } else if (s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cad-bar-${s.id}`); if (b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cad-time-${s.id}`); if (tEl) { let r = s.duration - (currentTime - s.startTime); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
@@ -2118,6 +2122,48 @@ STATE.kitchen.brewerSlots.forEach(s => { if (s.active && (currentTime - s.startT
 STATE.composter.slots.forEach(s => { if(s.active && (currentTime - s.startTime) >= s.duration) { completeCompost(s); } else if(s.active) { const modal = document.getElementById('modal-base'); if (modal && modal.style.display === 'block') { let b = document.getElementById(`cp-bar-${s.id}`); if(b) b.style.width = Math.min(100, ((currentTime - s.startTime) / s.duration) * 100) + "%"; let tEl = document.getElementById(`cp-time-${s.id}`); if(tEl) { let r = Math.max(0, s.duration - (currentTime - s.startTime)); tEl.innerText = `${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m`; } } } });
 STATE.greenhouse.slots.forEach(s => { if(s.status==='growing'){ let el = currentTime - s.startTime; let p = (el/s.duration)*100; let b = document.getElementById(`gh-prog-${s.id}`); if(b) b.style.width=Math.min(100,p)+"%"; let t = document.getElementById(`gh-time-${s.id}`); if(t) { let rem = Math.max(0, s.duration - el); t.innerText = `${Math.floor(rem/3600000)}h ${Math.floor((rem%3600000)/60000)}m ${Math.floor((rem%60000)/1000)}s`; } if(p>=100){ s.status='ready'; renderGreenhouse(); } } });
 if(STATE.scavenging.active) { STATE.scavenging.timer+=dt*1000; UI_CACHE['scav-progress'].style.width=(STATE.scavenging.timer/STATE.scavenging.duration)*100+"%"; if(STATE.scavenging.timer>=STATE.scavenging.duration) completeScavenge(); }
+
+// ICE HARVESTER CHECK
+if (STATE.iceHarvester && STATE.iceHarvester.active && (currentTime - STATE.iceHarvester.startTime) >= STATE.iceHarvester.duration) {
+completeIceHarvest();
+} else if (STATE.iceHarvester && STATE.iceHarvester.active) {
+const msnModal = document.getElementById('modal-missions');
+if (msnModal && msnModal.style.display === 'block') {
+const bar = document.getElementById('ice-harvest-bar');
+const timerEl = document.getElementById('ice-harvest-timer');
+const elapsed = currentTime - STATE.iceHarvester.startTime;
+const pct = Math.min(100, (elapsed / STATE.iceHarvester.duration) * 100);
+if (bar) bar.style.width = pct + '%';
+if (timerEl) {
+const rem = Math.max(0, STATE.iceHarvester.duration - elapsed);
+const h = Math.floor(rem / 3600000);
+const m = Math.floor((rem % 3600000) / 60000);
+const s = Math.floor((rem % 60000) / 1000);
+timerEl.innerText = `${h}h ${m}m ${s}s`;
+}
+}
+}
+
+// REGOLITH HARVESTER CHECK
+if (STATE.regolithHarvester && STATE.regolithHarvester.active && (currentTime - STATE.regolithHarvester.startTime) >= STATE.regolithHarvester.duration) {
+completeRegolithHarvest();
+} else if (STATE.regolithHarvester && STATE.regolithHarvester.active) {
+const msnModal = document.getElementById('modal-missions');
+if (msnModal && msnModal.style.display === 'block') {
+const bar = document.getElementById('reg-harvest-bar');
+const timerEl = document.getElementById('reg-harvest-timer');
+const elapsed = currentTime - STATE.regolithHarvester.startTime;
+const pct = Math.min(100, (elapsed / STATE.regolithHarvester.duration) * 100);
+if (bar) bar.style.width = pct + '%';
+if (timerEl) {
+const rem = Math.max(0, STATE.regolithHarvester.duration - elapsed);
+const h = Math.floor(rem / 3600000);
+const m = Math.floor((rem % 3600000) / 60000);
+const s = Math.floor((rem % 60000) / 1000);
+timerEl.innerText = `${h}h ${m}m ${s}s`;
+}
+}
+}
 
 // Render Map
 CTX.fillStyle = "#050608"; CTX.fillRect(0, 0, CANVAS.width, CANVAS.height);
@@ -2199,7 +2245,9 @@ const g = document.getElementById('warehouse-content'); if (!g) return; let html
 htmlBuffer.push(`<div style="grid-column:1/-1; color:var(--neon); font-size:10px; padding-bottom:5px; margin-bottom:5px;">STORED POWER CELLS</div>`); htmlBuffer.push(`<div class="wh-grid" style="margin:0; margin-bottom:10px;">`);
 let slotsToShow = Math.max(4, Math.ceil(wBats.length / 4) * 4);
 for (let i = 0; i < slotsToShow; i++) { if (i < wBats.length) { let b = wBats[i];
-const cp = (b.charge/POWER_CFG.batteryCap)*100; htmlBuffer.push(`<div class="wh-item" onclick="retrieveBattery('${b.id}')" style="border-color:var(--neon);"><div class="wh-cat">PWR</div><div class="wh-name" style="color:var(--neon)">BAT-${b.id}</div><div class="wh-qty" style="font-size:11px">${Math.floor(cp)}%</div><div style="font-size:9px; color:#666; margin-top:2px;">(CLICK TO RETRIEVE)</div></div>`);
+const cp = (b.charge/POWER_CFG.batteryCap)*100;
+let bCol = cp >= 50 ? '#44EE77' : cp >= 20 ? '#FFD700' : cp >= 6 ? '#FF9900' : '#FF3333';
+htmlBuffer.push(`<div class="wh-item" onclick="retrieveBattery('${b.id}')" style="border-color:${bCol}; background:rgba(255,255,255,0.02);"><div class="wh-cat" style="color:${bCol}">PWR</div><div class="wh-name" style="color:${bCol}">BAT-${b.id}</div><div class="wh-qty" style="font-size:11px; color:${bCol}; text-shadow:0 0 5px ${bCol}88;">${Math.floor(cp)}%</div><div style="font-size:9px; color:#666; margin-top:2px;">(CLICK TO RETRIEVE)</div></div>`);
 } else { htmlBuffer.push(`<div class="wh-item" style="border:1px dashed #334; justify-content:center; color:#445;"><div style="font-size:9px;">[ EMPTY SLOT ]</div></div>`); } }
 htmlBuffer.push(`</div>`); htmlBuffer.push(`<div style="grid-column:1/-1; border-bottom:1px solid #334; margin:5px 0;"></div>`);
 let itemsBuffer = []; const add = (c,n,q,col="#9ab") => { if(isNaN(q) || q === undefined || q <= 0) return;
@@ -2273,7 +2321,7 @@ j.progress += dt * 1000; if (j.progress >= j.totalDuration) { STATE.hangar[j.typ
 function scanBody(b) { b.scanned = true; const r = Math.random(); if (b.type === "Asteroid") { if (r>0.7) b.res=["Iron Ore"];
 else if(r>0.5) b.res=["Si"]; else if(r>0.3) b.res=["Ice water"]; else if(r>0.1) b.res=["Pt"]; else b.res=[]; } log(`DATA: ${b.name} scanned.`); updateUI(); }
 
-function drainBuffer(a) { let td=a; const tick=(a/POWER_CFG.batteryCap)*POWER_CFG.wearRate; for(let b of STATE.power.batteries.filter(x=>x.loc==='grid')){ if(td<=0)break; if(b.charge>0){ let t=Math.min(b.charge,td); b.charge-=t; b.wear=Math.min(100,b.wear+tick); td-=t; }} }
+function drainBuffer(a) { let td=a; for(let b of STATE.power.batteries.filter(x=>x.loc==='grid')){ if(td<=0)break; if(b.charge>0){ let t=Math.min(b.charge,td); b.charge-=t; td-=t; }} }
 
 function switchTab(t) {
 document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
@@ -2295,6 +2343,315 @@ saveUIState();
 function claimDailyReward() { const currentTime = now(); if (currentTime - STATE.lastDailyClaim < DAILY_COOLDOWN) return log("ERR: Daily reward not ready.");
 STATE.lastDailyClaim = currentTime; STATE.inventory["Energy Bar"] = (STATE.inventory["Energy Bar"] || 0) + 1; log("REWARD: +1 Energy Bar acquired."); updateUI(); ServerSys.save(); }
 
+function renderGroundOps() {
+const container = document.getElementById('ground-ops-content');
+if (!container) return;
+
+// --- ХАРВЕСТЕР УНИЧТОЖЕН ---
+if (STATE.iceHarvester === null) {
+container.innerHTML = `
+<div style="border:1px solid var(--danger); background:rgba(255,50,50,0.04); padding:12px; margin-bottom:10px;">
+  <div style="color:var(--danger); font-weight:bold; font-size:12px; margin-bottom:8px;">🧊 ICE HARVESTER UNIT</div>
+  <div style="display:flex; align-items:center; gap:10px; padding:12px; background:rgba(0,0,0,0.3);">
+    <div style="font-size:28px; opacity:0.5;">💀</div>
+    <div>
+      <div style="color:var(--danger); font-weight:bold; font-size:11px; letter-spacing:1px;">UNIT DESTROYED</div>
+      <div style="font-size:9px; color:#556; margin-top:4px;">Durability reached zero during the last deployment.<br>Construction capability will be available in a future update.</div>
+    </div>
+  </div>
+</div>
+<div style="font-size:9px; color:#445; border-top:1px solid #223; padding-top:8px;">
+  ⚠ HARVESTER OFFLINE — Awaiting fabrication module.
+</div>
+`;
+renderRegolithHarvester();
+return;
+}
+
+const ih = STATE.iceHarvester;
+const durPct = Math.max(0, ih.durability);
+let durColor = durPct >= 60 ? 'var(--agri)' : durPct >= 30 ? 'var(--warning)' : 'var(--danger)';
+const currentTime = now();
+let timerHtml = 'IDLE';
+let progressPct = 0;
+let actionHtml = '';
+
+if (ih.active) {
+  const elapsed = currentTime - ih.startTime;
+  progressPct = Math.min(100, (elapsed / ih.duration) * 100);
+  const rem = Math.max(0, ih.duration - elapsed);
+  const h = Math.floor(rem / 3600000);
+  const m = Math.floor((rem % 3600000) / 60000);
+  const s = Math.floor((rem % 60000) / 1000);
+  timerHtml = `${h}h ${m}m ${s}s`;
+  actionHtml = `<button class="ref-btn btn-filtering" style="width:100%; margin-top:8px; border-color:var(--neon); color:var(--neon);" disabled>HARVESTING IN PROGRESS...</button>`;
+} else {
+  // Кнопка деплоя
+  actionHtml = `<button class="nav-btn" style="width:100%; margin-top:8px; border-color:var(--neon); color:var(--neon);" onclick="startIceHarvest()">▶ DEPLOY ICE HARVESTER (6h)</button>`;
+
+  // Секция ремонта — только если прочность < 100
+  if (ih.durability < 100) {
+    const maxRepair = 100 - ih.durability;
+    const availScrap = Math.floor(STATE.inventory.Scrap || 0);
+    const repairCap = Math.min(maxRepair, availScrap);
+    actionHtml += `
+<div style="margin-top:10px; border:1px solid rgba(255,152,0,0.3); background:rgba(255,152,0,0.04); padding:8px;">
+  <div style="color:var(--warning); font-size:10px; font-weight:bold; margin-bottom:6px;">🔧 FIELD REPAIR</div>
+  <div style="font-size:9px; color:#889; margin-bottom:8px;">
+    Cost: <span style="color:var(--warning);">1 Scrap = 1 Durability</span> &nbsp;|&nbsp;
+    Available Scrap: <span style="color:#fff;">${availScrap}</span> &nbsp;|&nbsp;
+    Needed to full: <span style="color:#fff;">${maxRepair}</span>
+  </div>
+  <div style="display:flex; gap:6px; align-items:center;">
+    <input type="number" id="repair-scrap-input" value="${repairCap}" min="1" max="${repairCap}"
+      style="width:70px; background:rgba(0,0,0,0.4); border:1px solid #445; color:#fff; font-family:monospace; font-size:10px; padding:4px 6px; text-align:center;"
+      ${repairCap < 1 ? 'disabled' : ''}>
+    <button class="nav-btn" style="flex:1; border-color:var(--warning); color:var(--warning);"
+      onclick="repairIceHarvester()" ${repairCap < 1 ? 'disabled' : ''}>
+      REPAIR
+    </button>
+  </div>
+  ${repairCap < 1 ? '<div style="font-size:9px; color:var(--danger); margin-top:4px;">⚠ No Scrap available for repair.</div>' : ''}
+</div>`;
+  }
+}
+
+container.innerHTML = `
+<div style="border:1px solid rgba(0,229,255,0.3); background:rgba(0,229,255,0.03); padding:12px; margin-bottom:10px;">
+  <div style="color:var(--neon); font-weight:bold; font-size:12px; margin-bottom:8px;">🧊 ICE HARVESTER UNIT</div>
+  <div style="font-size:10px; color:#889; margin-bottom:10px;">
+    Deploy the harvester to extract ice from polar deposits.<br>
+    <span style="color:#aaa;">Duration:</span> 6h &nbsp;|&nbsp;
+    <span style="color:#aaa;">Yield:</span> 60–100 Ice &nbsp;|&nbsp;
+    <span style="color:var(--warning);">Wear per use:</span> 10–35
+  </div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <span style="font-size:10px; color:#889;">DURABILITY</span>
+    <span style="color:${durColor}; font-weight:bold;">${ih.durability} / 100</span>
+  </div>
+  <div style="width:100%; height:6px; background:#111; border:1px solid #334; margin-bottom:10px;">
+    <div style="height:100%; width:${durPct}%; background:${durColor}; box-shadow:0 0 5px ${durColor}; transition:width 0.4s;"></div>
+  </div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <span style="font-size:10px; color:#889;">STATUS</span>
+    <span id="ice-harvest-timer" style="color:${ih.active ? 'var(--neon)' : '#555'}; font-family:monospace;">${timerHtml}</span>
+  </div>
+  <div style="width:100%; height:4px; background:#111; margin-bottom:8px;">
+    <div id="ice-harvest-bar" style="height:100%; width:${progressPct}%; background:var(--neon); transition:width 0.5s;"></div>
+  </div>
+  ${actionHtml}
+</div>
+<div style="font-size:9px; color:#445; border-top:1px solid #223; padding-top:8px;">
+  ⚠ If durability reaches 0 after deployment — the unit is permanently destroyed until a new one is built.
+</div>
+`;
+renderRegolithHarvester();
+}
+
+// ---- REGOLITH HARVESTER BLOCK ----
+
+function renderRegolithHarvester() {
+const container = document.getElementById('ground-ops-content');
+if (!container) return;
+
+// Собираем HTML для regolith harvester и дописываем в контейнер
+let regHtml = '';
+
+// --- УНИЧТОЖЕН ---
+if (STATE.regolithHarvester === null) {
+regHtml = `
+<div style="margin-top:12px; border:1px solid var(--danger); background:rgba(255,50,50,0.04); padding:12px;">
+  <div style="color:var(--danger); font-weight:bold; font-size:12px; margin-bottom:8px;">🪨 REGOLITH HARVESTER UNIT</div>
+  <div style="display:flex; align-items:center; gap:10px; padding:12px; background:rgba(0,0,0,0.3);">
+    <div style="font-size:28px; opacity:0.5;">💀</div>
+    <div>
+      <div style="color:var(--danger); font-weight:bold; font-size:11px; letter-spacing:1px;">UNIT DESTROYED</div>
+      <div style="font-size:9px; color:#556; margin-top:4px;">Durability reached zero during the last deployment.<br>Construction capability will be available in a future update.</div>
+    </div>
+  </div>
+</div>`;
+} else {
+const rh = STATE.regolithHarvester;
+const durPct = Math.max(0, rh.durability);
+let durColor = durPct >= 60 ? 'var(--agri)' : durPct >= 30 ? 'var(--warning)' : 'var(--danger)';
+const currentTime = now();
+let timerHtml = 'IDLE';
+let progressPct = 0;
+let actionHtml = '';
+
+if (rh.active) {
+  const elapsed = currentTime - rh.startTime;
+  progressPct = Math.min(100, (elapsed / rh.duration) * 100);
+  const rem = Math.max(0, rh.duration - elapsed);
+  const h = Math.floor(rem / 3600000);
+  const m = Math.floor((rem % 3600000) / 60000);
+  const s = Math.floor((rem % 60000) / 1000);
+  timerHtml = `${h}h ${m}m ${s}s`;
+  actionHtml = `<button class="ref-btn btn-filtering" style="width:100%; margin-top:8px; border-color:#cc8800; color:#cc8800;" disabled>HARVESTING IN PROGRESS...</button>`;
+} else {
+  actionHtml = `<button class="nav-btn" style="width:100%; margin-top:8px; border-color:#cc8800; color:#cc8800;" onclick="startRegolithHarvest()">▶ DEPLOY REGOLITH HARVESTER (6h)</button>`;
+  if (rh.durability < 100) {
+    const maxRepair = 100 - rh.durability;
+    const availScrap = Math.floor(STATE.inventory.Scrap || 0);
+    const repairCap = Math.min(maxRepair, availScrap);
+    actionHtml += `
+<div style="margin-top:10px; border:1px solid rgba(255,152,0,0.3); background:rgba(255,152,0,0.04); padding:8px;">
+  <div style="color:var(--warning); font-size:10px; font-weight:bold; margin-bottom:6px;">🔧 FIELD REPAIR</div>
+  <div style="font-size:9px; color:#889; margin-bottom:8px;">
+    Cost: <span style="color:var(--warning);">1 Scrap = 1 Durability</span> &nbsp;|&nbsp;
+    Available Scrap: <span style="color:#fff;">${availScrap}</span> &nbsp;|&nbsp;
+    Needed to full: <span style="color:#fff;">${maxRepair}</span>
+  </div>
+  <div style="display:flex; gap:6px; align-items:center;">
+    <input type="number" id="reg-repair-scrap-input" value="${repairCap}" min="1" max="${repairCap}"
+      style="width:70px; background:rgba(0,0,0,0.4); border:1px solid #445; color:#fff; font-family:monospace; font-size:10px; padding:4px 6px; text-align:center;"
+      ${repairCap < 1 ? 'disabled' : ''}>
+    <button class="nav-btn" style="flex:1; border-color:var(--warning); color:var(--warning);"
+      onclick="repairRegolithHarvester()" ${repairCap < 1 ? 'disabled' : ''}>
+      REPAIR
+    </button>
+  </div>
+  ${repairCap < 1 ? '<div style="font-size:9px; color:var(--danger); margin-top:4px;">⚠ No Scrap available for repair.</div>' : ''}
+</div>`;
+  }
+}
+
+regHtml = `
+<div style="margin-top:12px; border:1px solid rgba(204,136,0,0.3); background:rgba(204,136,0,0.03); padding:12px;">
+  <div style="color:#cc8800; font-weight:bold; font-size:12px; margin-bottom:8px;">🪨 REGOLITH HARVESTER UNIT</div>
+  <div style="font-size:10px; color:#889; margin-bottom:10px;">
+    Deploy the harvester to extract raw regolith from surface deposits.<br>
+    <span style="color:#aaa;">Duration:</span> 6h &nbsp;|&nbsp;
+    <span style="color:#aaa;">Yield:</span> 60–180 Regolith &nbsp;|&nbsp;
+    <span style="color:var(--warning);">Wear per use:</span> 15–35
+  </div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <span style="font-size:10px; color:#889;">DURABILITY</span>
+    <span style="color:${durColor}; font-weight:bold;">${rh.durability} / 100</span>
+  </div>
+  <div style="width:100%; height:6px; background:#111; border:1px solid #334; margin-bottom:10px;">
+    <div style="height:100%; width:${durPct}%; background:${durColor}; box-shadow:0 0 5px ${durColor}; transition:width 0.4s;"></div>
+  </div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <span style="font-size:10px; color:#889;">STATUS</span>
+    <span id="reg-harvest-timer" style="color:${rh.active ? '#cc8800' : '#555'}; font-family:monospace;">${timerHtml}</span>
+  </div>
+  <div style="width:100%; height:4px; background:#111; margin-bottom:8px;">
+    <div id="reg-harvest-bar" style="height:100%; width:${progressPct}%; background:#cc8800; transition:width 0.5s;"></div>
+  </div>
+  ${actionHtml}
+</div>
+<div style="font-size:9px; color:#445; border-top:1px solid #223; padding-top:8px; margin-top:8px;">
+  ⚠ If durability reaches 0 after deployment — the unit is permanently destroyed until a new one is built.
+</div>`;
+}
+
+// Добавляем блок реголита в контейнер (после ice harvester)
+const existingReg = document.getElementById('reg-harvester-block');
+if (existingReg) {
+  existingReg.outerHTML = `<div id="reg-harvester-block">${regHtml}</div>`;
+} else {
+  container.insertAdjacentHTML('beforeend', `<div id="reg-harvester-block">${regHtml}</div>`);
+}
+}
+
+function startIceHarvest() {
+const ih = STATE.iceHarvester;
+if (!ih) return log('HARVEST: No harvester available.');
+if (ih.active) return log('HARVEST: Already deployed.');
+if (ih.durability <= 0) return log('HARVEST: Harvester is destroyed.');
+ih.active = true;
+ih.startTime = now();
+ih.duration = 6 * 60 * 60 * 1000;
+log('HARVEST: Ice Harvester deployed. ETA: 6h.');
+renderGroundOps();
+updateUI();
+}
+
+function completeIceHarvest() {
+const ih = STATE.iceHarvester;
+if (!ih) return;
+ih.active = false;
+const iceYield = Math.floor(Math.random() * (100 - 60 + 1)) + 60;
+const wear = Math.floor(Math.random() * (35 - 10 + 1)) + 10;
+STATE.inventory['Ice water'] = (STATE.inventory['Ice water'] || 0) + iceYield;
+ih.durability = Math.max(0, ih.durability - wear);
+if (ih.durability <= 0) {
+  // Харвестер уничтожен — полный износ
+  STATE.iceHarvester = null;
+  log(`HARVEST: Complete! +${iceYield} Ice. Wear: -${wear}. [UNIT DESTROYED — Durability reached zero]`);
+} else {
+  log(`HARVEST: Complete! +${iceYield} Ice. Wear: -${wear} (Durability: ${ih.durability}/100).`);
+}
+renderGroundOps();
+updateUI();
+}
+
+function repairIceHarvester() {
+const ih = STATE.iceHarvester;
+if (!ih) return log('HARVEST: No harvester to repair.');
+if (ih.active) return log('HARVEST: Cannot repair while deployed.');
+const input = document.getElementById('repair-scrap-input');
+const amount = input ? Math.max(1, parseInt(input.value) || 1) : 1;
+const availScrap = Math.floor(STATE.inventory.Scrap || 0);
+const maxRepair = 100 - ih.durability;
+const toRepair = Math.min(amount, maxRepair, availScrap);
+if (toRepair < 1) return log('HARVEST: Nothing to repair or no Scrap available.');
+STATE.inventory.Scrap = (STATE.inventory.Scrap || 0) - toRepair;
+ih.durability = Math.min(100, ih.durability + toRepair);
+log(`HARVEST: Repaired +${toRepair} Durability (used ${toRepair} Scrap). Current: ${ih.durability}/100.`);
+renderGroundOps();
+updateUI();
+}
+
+function startRegolithHarvest() {
+const rh = STATE.regolithHarvester;
+if (!rh) return log('REG-HARVEST: No harvester available.');
+if (rh.active) return log('REG-HARVEST: Already deployed.');
+if (rh.durability <= 0) return log('REG-HARVEST: Harvester is destroyed.');
+rh.active = true;
+rh.startTime = now();
+rh.duration = 6 * 60 * 60 * 1000;
+log('REG-HARVEST: Regolith Harvester deployed. ETA: 6h.');
+renderGroundOps();
+updateUI();
+}
+
+function completeRegolithHarvest() {
+const rh = STATE.regolithHarvester;
+if (!rh) return;
+rh.active = false;
+const regYield = Math.floor(Math.random() * (180 - 60 + 1)) + 60;
+const wear = Math.floor(Math.random() * (35 - 15 + 1)) + 15;
+STATE.inventory['Regolith'] = (STATE.inventory['Regolith'] || 0) + regYield;
+rh.durability = Math.max(0, rh.durability - wear);
+if (rh.durability <= 0) {
+  STATE.regolithHarvester = null;
+  log(`REG-HARVEST: Complete! +${regYield} Regolith. Wear: -${wear}. [UNIT DESTROYED — Durability reached zero]`);
+} else {
+  log(`REG-HARVEST: Complete! +${regYield} Regolith. Wear: -${wear} (Durability: ${rh.durability}/100).`);
+}
+renderGroundOps();
+updateUI();
+}
+
+function repairRegolithHarvester() {
+const rh = STATE.regolithHarvester;
+if (!rh) return log('REG-HARVEST: No harvester to repair.');
+if (rh.active) return log('REG-HARVEST: Cannot repair while deployed.');
+const input = document.getElementById('reg-repair-scrap-input');
+const amount = input ? Math.max(1, parseInt(input.value) || 1) : 1;
+const availScrap = Math.floor(STATE.inventory.Scrap || 0);
+const maxRepair = 100 - rh.durability;
+const toRepair = Math.min(amount, maxRepair, availScrap);
+if (toRepair < 1) return log('REG-HARVEST: Nothing to repair or no Scrap available.');
+STATE.inventory.Scrap = (STATE.inventory.Scrap || 0) - toRepair;
+rh.durability = Math.min(100, rh.durability + toRepair);
+log(`REG-HARVEST: Repaired +${toRepair} Durability (used ${toRepair} Scrap). Current: ${rh.durability}/100.`);
+renderGroundOps();
+updateUI();
+}
+
 function openDailyMissions() {
 document.getElementById('modal-overlay').style.display='block';
 ['modal-base','modal-target','modal-warehouse','modal-hangar','modal-proficiency','modal-market','modal-missions'].forEach(id=>{let el=document.getElementById(id); if(el)el.style.display='none';});
@@ -2303,6 +2660,7 @@ switchMissionTab(STATE.uiTabs ? (STATE.uiTabs.missions || 'ground') : 'ground');
 STATE.activeModal = 'modal-missions';
 saveUIState();
 fetchDailyMission();
+renderGroundOps();
 }
 
 function switchMissionTab(tab) {
@@ -2317,6 +2675,9 @@ saveUIState();
 if (tab === 'daily') {
 if (STATE.dailyMission) renderDailyMission();
 else fetchDailyMission();
+}
+if (tab === 'ground') {
+renderGroundOps();
 }
 }
 
@@ -2417,10 +2778,10 @@ const gs = UI_CACHE['grid-status-text']; const fb = UI_CACHE['flux-bar']; if(gs 
 } else if(STATE.power.gridStatus==='DRAINING') { gs.style.color="var(--warning)"; fb.style.background="var(--warning)"; } else { gs.style.color="var(--danger)"; fb.style.background="#333"; } }
 const aps = UI_CACHE['active-systems-panel']; if(aps) { let h = '<div class="header" style="background:transparent; border-color:rgba(255,255,255,0.1); font-size:9px; color:#889;">ACTIVE SYSTEMS</div>'; let hasActive = false;
 const tag = '<span style="color:#4f4; float:right; text-shadow:0 0 5px #4f4;">LAUNCHED</span>';
-if(STATE.cad.slots.some(s=>s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">ATMOS. DISTILLER ${tag}</div>`; hasActive = true;
-} if(STATE.refinery.waterSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">ICE PURIFICATION ${tag}</div>`; hasActive = true;
+if(STATE.cad.slots.some(s=>s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">🌬️ ATMOS. DISTILLER ${tag}</div>`; hasActive = true;
+} if(STATE.refinery.waterSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">💧 ICE PURIFICATION ${tag}</div>`; hasActive = true;
 } if(STATE.refinery.fermenterSlot.active) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#d400ff; font-size:9px;">BIO-FERMENTATION ${tag}</div>`; hasActive = true;
-} if(STATE.refinery.sabatierSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">SABATIER REACTOR COMPLEX ${tag}</div>`; hasActive = true;
+} if(STATE.refinery.sabatierSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">⚗️ SABATIER REACTOR COMPLEX ${tag}</div>`; hasActive = true;
 } if(STATE.refinery.smelterSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">ORE SMELTER ${tag}</div>`; hasActive = true;
 } if(STATE.fuelFactory && STATE.fuelFactory.slots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:var(--fuel); font-size:9px;">FUEL REFINERY ${tag}</div>`;
 hasActive = true; } if(STATE.chemlab && STATE.chemlab.slots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:var(--chem); font-size:9px;">CHEMICAL SYNTHESIS ${tag}</div>`;
@@ -2430,23 +2791,34 @@ hasActive = true; } if(STATE.printer && STATE.printer.slots.some(s => s.active))
 hasActive = true; } if(STATE.kitchen && STATE.kitchen.roasterSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#cc0000; font-size:9px;">GUARANA ROASTER ${tag}</div>`;
 hasActive = true; } if(STATE.kitchen && STATE.kitchen.grinderSlots && STATE.kitchen.grinderSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#8B4513; font-size:9px;">GUARANA GRINDER ${tag}</div>`;
 hasActive = true; } if(STATE.kitchen && STATE.kitchen.brewerSlots && STATE.kitchen.brewerSlots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:var(--neon); font-size:9px;">ISOTONIC BREWER ${tag}</div>`;
-hasActive = true; } if(STATE.greenhouse.slots.some(s => s.status === 'growing')) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">GREENHOUSE HYDROPONICS ${tag}</div>`;
+hasActive = true; } if(STATE.greenhouse.slots.some(s => s.status === 'growing')) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">🌱 GREENHOUSE HYDROPONICS ${tag}</div>`;
 hasActive = true; } if(STATE.composter.slots.some(s => s.active)) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">BIO-COMPOSTER UNIT ${tag}</div>`;
 hasActive = true; } if(STATE.buildQueue.length > 0) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#ccc; font-size:9px;">SHIPYARD FABRICATION ${tag}</div>`;
+hasActive = true; } if(STATE.iceHarvester && STATE.iceHarvester.active) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:var(--neon); font-size:9px;">🧊 ICE HARVESTER ${tag}</div>`;
+hasActive = true; } if(STATE.regolithHarvester && STATE.regolithHarvester.active) { h += `<div style="padding:2px; border-bottom:1px solid rgba(255,255,255,0.05); color:#cc8800; font-size:9px;">🪨 REGOLITH HARVESTER ${tag}</div>`;
 hasActive = true; } if(!hasActive) h += '<div style="padding:2px; color:#555; font-size:9px; font-style:italic;">SYSTEMS IDLE</div>'; aps.innerHTML = h; }
 const consumables = ['Snack', 'Meal', 'Feast', 'Energy Isotonic', 'Energy Bar'];
 consumables.forEach(k => { if (STATE.inventory[k] === undefined) STATE.inventory[k] = 0; }); const invEl = UI_CACHE['inventory'];
 if(invEl) { invEl.innerHTML = Object.entries(STATE.inventory).filter(([k, v]) => consumables.includes(k)).map(([k,v]) => { let act="", col="var(--kitchen)"; if (v > 0) { if (k === 'Energy Isotonic') { act=`<button class="consume-btn" style="border-color:var(--neon); color:var(--neon);" onclick="consume('${k}')">DRINK</button>`; } else { const last = STATE.cooldowns[k] || 0; const diff = now() - last; if(diff < EATING_COOLDOWN_MS) { let rem = EATING_COOLDOWN_MS - diff; let m = Math.floor(rem/60000); let s = Math.floor((rem%60000)/1000); act=`<span style="font-size:9px; color:#FF3333; font-weight:bold;">[WAIT ${m}m ${s}s]</span>`; } else { act=`<button class="consume-btn" onclick="consume('${k}')">EAT</button>`; } } } else { act=`<span style="font-size:8px; color:#555">EMPTY</span>`; } return `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.01); padding:2px 4px; border-left:2px solid ${col}; margin-bottom:1px;"><div><span style="color:${col}">${k}</span></div><div style="display:flex;
 align-items:center;"> <span style="color:#eee; margin-right:5px;">${Math.floor(v)}</span>${act}</div></div>`; }).join('') || '<div style="color:#444">EMPTY</div>'; }
+
+// ЦВЕТА БАТАРЕЙ ДЛЯ СЕТКИ (GRID)
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid'); let gh = "";
 if (gBats.length === 0) gh = "<div style='color:var(--danger); font-size:9px; font-weight:bold; animation:blink 1s infinite;'>[!] NO POWER</div>";
-else { gh = gBats.map(b => { const cp=(b.charge/POWER_CFG.batteryCap)*100, dp=b.wear, ep=100-cp-dp; return `<div class="battery-item active-slot"><span class="bat-id">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><span class="bat-text">${b.wear.toFixed(1)}% WR</span><button class="bat-action-btn eject" onclick="ejectBattery('${b.id}')">EJECT</button></div>`; }).join('');
+else { gh = gBats.map(b => { 
+const cp=(b.charge/POWER_CFG.batteryCap)*100, dp=b.wear, ep=100-cp-dp; 
+let bCol = cp >= 50 ? '#44EE77' : cp >= 20 ? '#FFD700' : cp >= 6 ? '#FF9900' : '#FF3333';
+return `<div class="battery-item active-slot" style="border-color:${bCol}; background: linear-gradient(90deg, ${bCol}22 0%, transparent 100%);"><span class="bat-id" style="color:${bCol}; text-shadow: 0 0 3px ${bCol}88;">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%; background:${bCol}; box-shadow: 0 0 5px ${bCol};"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><span class="bat-text" style="color:#aaa;">${b.wear.toFixed(1)}% WR</span><button class="bat-action-btn eject" onclick="ejectBattery('${b.id}')">EJECT</button></div>`; 
+}).join('');
 } for(let i=0; i < (POWER_CFG.maxGridSlots - gBats.length); i++) gh += `<div style="border:1px dashed #334; padding:4px; font-size:9px; color:#445; text-align:center; margin-bottom:4px;">[ EMPTY SLOT ]</div>`;
 if(UI_CACHE['active-grid-list']) UI_CACHE['active-grid-list'].innerHTML = gh;
+
+// ЦВЕТА БАТАРЕЙ ДЛЯ СТОЙКИ (INVENTORY RACK)
 const lBats = STATE.power.batteries.filter(b => b.loc === 'inventory'); let bh = "";
 for (let i = 0; i < 5; i++) { if (i < lBats.length) { const b = lBats[i];
 const cp = (b.charge / POWER_CFG.batteryCap) * 100; const dp = b.wear; const ep = 100 - cp - dp;
-bh += `<div class="battery-item"><span class="bat-id">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><div style="display:flex; gap:2px;"><button class="bat-action-btn" style="border-color:var(--agri); color:var(--agri);"
+let bCol = cp >= 50 ? '#44EE77' : cp >= 20 ? '#FFD700' : cp >= 6 ? '#FF9900' : '#FF3333';
+bh += `<div class="battery-item" style="border-left:2px solid ${bCol};"><span class="bat-id" style="color:${bCol};">BAT-${b.id}</span><div class="bat-gauge-container"><div class="bg-charge" style="width:${cp}%; background:${bCol}; box-shadow: 0 0 3px ${bCol};"></div><div class="bg-empty" style="width:${ep}%"></div><div class="bg-wear" style="width:${dp}%"></div></div><div style="display:flex; gap:2px;"><button class="bat-action-btn" style="border-color:var(--agri); color:var(--agri);"
 onclick="installBattery('${b.id}')">INSTALL</button><button class="bat-action-btn" style="border-color:var(--danger); color:var(--danger);" onclick="storeBattery('${b.id}')">STORE</button></div></div>`; } else { bh += `<div class="battery-item" style="justify-content:center; border:1px dashed #334; color:#445;">[ RACK SLOT EMPTY ]</div>`;
 } } if(UI_CACHE['battery-rack']) UI_CACHE['battery-rack'].innerHTML = bh;
 
@@ -2717,9 +3089,9 @@ const card = `
 ${isMine
 ? `<button class="nav-btn danger" style="padding:1px 5px; font-size:9px; margin-top:2px;" onclick="cancelOffer('${o._id || o.id}')">CANCEL</button>`
 : `<div style="display:flex; gap:5px; margin-top:2px; align-items:center; justify-content:flex-end;">
-    <input type="number" id="buy-qty-${o._id || o.id}" value="1" min="1" max="${o.qty}" style="width:35px; background:rgba(0,0,0,0.3); border:1px solid #334; color:#fff; font-family:monospace; font-size:9px; padding:2px; text-align:center;">
-    <button class="nav-btn" style="padding:1px 5px; font-size:9px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>
-   </div>`
+<input type="number" id="buy-qty-${o._id || o.id}" value="1" min="1" max="${o.qty}" style="width:35px; background:rgba(0,0,0,0.3); border:1px solid #334; color:#fff; font-family:monospace; font-size:9px; padding:2px; text-align:center;">
+<button class="nav-btn" style="padding:1px 5px; font-size:9px; border-color:var(--success); color:var(--success);" onclick="buyP2P('${o._id || o.id}')">BUY</button>
+</div>`
 }
 </div>
 </div>`;

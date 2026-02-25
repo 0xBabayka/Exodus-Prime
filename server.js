@@ -244,6 +244,14 @@ const GameStateSchema = new mongoose.Schema({
         selectedSlot: { type: Number, default: null } 
     },
     composter: { slots: [SlotSchema] },
+    iceHarvester: {
+        type: mongoose.Schema.Types.Mixed,
+        default: { durability: 100, active: false, startTime: 0, duration: 21600000 }
+    },
+    regolithHarvester: {
+        type: mongoose.Schema.Types.Mixed,
+        default: { durability: 100, active: false, startTime: 0, duration: 21600000 }
+    },
     ships: [ShipSchema],
     bodies: [BodySchema],
     buildQueue: [{
@@ -531,6 +539,8 @@ app.post('/api/auth/register', async (req, res) => {
             },
             greenhouse: { slots: Array(6).fill(null).map((_, i) => ({ id: i, status: 'empty' })) },
             composter: { slots: [{id:0},{id:1},{id:2}] },
+            iceHarvester: { durability: 100, active: false, startTime: 0, duration: 21600000 },
+            regolithHarvester: { durability: 100, active: false, startTime: 0, duration: 21600000 },
             kitchen: { roasterSlots: [{id:0},{id:1}], grinderSlots: [{id:0},{id:1}], brewerSlots: [{id:0},{id:1}] },
             fuelFactory: { slots: [{id:0},{id:1},{id:2},{id:3}] },
             chemlab: { slots: [{id:0},{id:1},{id:2},{id:3}] },
@@ -786,17 +796,31 @@ app.post('/api/game/save', auth, async (req, res) => {
             let clientTotalGridCharge = 0;
             newState.power.batteries.forEach(newBat => {
                 const oldBat = (oldState.power?.batteries || []).find(b => b.id === newBat.id);
+
+                // AUTHORITATIVE: server always overrides client-sent wear with server-computed value.
+                // The client must never modify wear; it only displays what the server returns.
                 newBat.wear = oldBat ? oldBat.wear : 0;
-                
+
                 if (newBat.loc === 'grid') {
-                    if (oldBat && oldBat.charge < (POWER_CFG.batteryCap * (1 - (newBat.wear/100)) * 0.05)) {
-                        newBat.wear = Math.min(100, newBat.wear + (POWER_CFG.wearRate * elapsedSec));
+                    // --- WEAR CALCULATION 1: Critical threshold ---
+                    // If the battery charge was below 5% of its current effective capacity,
+                    // apply reduced wear (10x slower per the game design spec).
+                    if (oldBat && oldBat.charge < (POWER_CFG.batteryCap * (1 - (newBat.wear / 100)) * 0.05)) {
+                        newBat.wear = Math.min(100, newBat.wear + ((POWER_CFG.wearRate * elapsedSec) / 10));
                     }
-                    
+
+                    // --- WEAR CALCULATION 2: Drain wear from instant power operations ---
+                    // Every drainBuffer(a) call adds wear = (a/batteryCap)*wearRate per battery.
+                    // Summing all drain calls: total drain wear per battery = (instantPowerSpent / batteryCap) * wearRate
+                    if (instantPowerSpent > 0) {
+                        const drainWear = (instantPowerSpent / POWER_CFG.batteryCap) * POWER_CFG.wearRate;
+                        newBat.wear = Math.min(100, newBat.wear + drainWear);
+                    }
+
                     const capacity = POWER_CFG.batteryCap * (1 - (newBat.wear / 100));
                     if (newBat.charge > capacity) newBat.charge = capacity;
                     if (newBat.charge < 0) newBat.charge = 0;
-                    
+
                     clientTotalGridCharge += newBat.charge;
                 }
             });
@@ -922,6 +946,10 @@ app.post('/api/game/save', auth, async (req, res) => {
             const MAX_SCRAP_PER_SCAV = 10;
             maxActionsPossible = Math.ceil(timeSinceLastSave / SCAV_DURATION_MS) + 2;
             const SHIP_BUFFER = 100;
+            // Harvester can yield max 100 ice per 6h deployment
+            const HARVESTER_ICE_BUFFER = Math.ceil(timeSinceLastSave / 21600000) * 100 + 110;
+            // Regolith harvester can yield max 180 regolith per 6h deployment
+            const HARVESTER_REG_BUFFER = Math.ceil(timeSinceLastSave / 21600000) * 180 + 200;
             if (dScrap > (maxActionsPossible * MAX_SCRAP_PER_SCAV) + 20) {
                   logAction('CHEAT_RESOURCE_SCRAP', user.id, user.username, req, { 
                     delta: dScrap, 
@@ -931,7 +959,7 @@ app.post('/api/game/save', auth, async (req, res) => {
                 return res.status(400).json({ msg: 'Game integrity error: Abnormal Scrap increase detected.' });
             }
 
-            if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)) {
+            if (dIce > ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER + HARVESTER_ICE_BUFFER)) {
                   logAction('CHEAT_RESOURCE_ICE', user.id, user.username, req, { 
                     delta: dIce,
                     maxAllowed: ((maxActionsPossible * MAX_ICE_PER_SCAV) + SHIP_BUFFER)
@@ -939,10 +967,10 @@ app.post('/api/game/save', auth, async (req, res) => {
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Ice increase detected.' });
             }
 
-            if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)) {
+            if (dRegolith > ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER + HARVESTER_REG_BUFFER)) {
                   logAction('CHEAT_RESOURCE_REGOLITH', user.id, user.username, req, { 
                     delta: dRegolith, 
-                    maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER)
+                    maxAllowed: ((maxActionsPossible * MAX_REG_PER_SCAV) + SHIP_BUFFER + HARVESTER_REG_BUFFER)
                 });
                  return res.status(400).json({ msg: 'Game integrity error: Abnormal Regolith increase detected.' });
             }
