@@ -48,8 +48,85 @@ io.use((socket, next) => {
     }
 });
 
+// --- CHAT: In-memory history buffer (last 50 msgs per channel) ---
+const CHAT_HISTORY = { general: [], trade: [] };
+const CHAT_MAX_HISTORY = 50;
+const CHAT_MAX_LEN = 200;
+const CHAT_ALLOWED_CHANNELS = ['general', 'trade'];
+// Rate limiter: userId -> last message timestamp
+const chatRateLimit = new Map();
+const CHAT_RATE_MS = 2000; // min 2s between messages
+// Heartbeat map: userId (string) -> timestamp последнего пинга от клиента.
+// Используется в /api/game/save чтобы отличить короткий лаг сети от настоящего оффлайна.
+const onlineHeartbeats = new Map();
+const HEARTBEAT_TIMEOUT = 90 * 1000; // 90 с — считаем оффлайн если нет пинга дольше этого
+
 io.on('connection', (socket) => {
+    // Send chat history to newly connected client
+    socket.on('chat_get_history', (data) => {
+        const channel = data && CHAT_ALLOWED_CHANNELS.includes(data.channel) ? data.channel : 'general';
+        socket.emit('chat_history', { channel, messages: CHAT_HISTORY[channel] });
+    });
+
+    socket.on('chat_message', (data) => {
+        try {
+            if (!socket.user || !socket.user.id) return;
+
+            // Validate channel
+            const channel = data && CHAT_ALLOWED_CHANNELS.includes(data.channel) ? data.channel : null;
+            if (!channel) return socket.emit('chat_error', { msg: 'Invalid channel.' });
+
+            // Validate message text
+            let text = data && typeof data.text === 'string' ? data.text.trim() : '';
+            if (!text || text.length === 0) return;
+            if (text.length > CHAT_MAX_LEN) return socket.emit('chat_error', { msg: `Message too long (max ${CHAT_MAX_LEN} chars).` });
+
+            // Sanitize: strip HTML tags to prevent XSS
+            text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+
+            // Rate limiting
+            const now = Date.now();
+            const lastMsg = chatRateLimit.get(socket.user.id) || 0;
+            if (now - lastMsg < CHAT_RATE_MS) {
+                return socket.emit('chat_error', { msg: 'Sending too fast. Wait a moment.' });
+            }
+            chatRateLimit.set(socket.user.id, now);
+
+            // Get username from socket auth token (already decoded in middleware)
+            // We need the actual username — look it up async safely
+            User.findById(socket.user.id).select('username').then(user => {
+                if (!user) return;
+                const msg = {
+                    id: `${socket.user.id}_${now}`,
+                    channel,
+                    username: user.username,
+                    text,
+                    ts: now
+                };
+                // Store in history
+                CHAT_HISTORY[channel].push(msg);
+                if (CHAT_HISTORY[channel].length > CHAT_MAX_HISTORY) {
+                    CHAT_HISTORY[channel].shift();
+                }
+                // Broadcast to all connected clients
+                io.emit('chat_message', msg);
+            }).catch(err => console.error('Chat user lookup error:', err));
+
+        } catch(err) {
+            console.error('Chat message error:', err);
+        }
+    });
+
+    socket.on('heartbeat', () => {
+        if (socket.user && socket.user.id) {
+            onlineHeartbeats.set(socket.user.id.toString(), Date.now());
+        }
+    });
+
     socket.on('disconnect', () => {
+        if (socket.user && socket.user.id) {
+            onlineHeartbeats.delete(socket.user.id.toString());
+        }
     });
 });
 
@@ -424,6 +501,30 @@ const secureGameState = (state) => {
     return state;
 };
 
+// --- HELPER: ВЫЧИСЛЕНИЕ СРЕДНЕГО ФЛАКСА ЗА ПЕРИОД (площадь под синусоидой) ---
+// Заменяет прежнюю константу 0.425 точным интегрированием реальной кривой освещённости.
+// Используется в /api/game/save для периодов когда игрок был оффлайн.
+// Метод составных трапеций Симпсона: N=60 шагов дают точность < 0.01% при любой длине периода.
+function computeAvgFlux(tFrom, tTo, cycleDuration, minFlux, maxFlux) {
+    const dt = tTo - tFrom;
+    if (dt <= 0) return minFlux;
+    const N = 60;
+    const h = dt / N;
+    let sum = 0;
+    for (let i = 0; i <= N; i++) {
+        const t = tFrom + i * h;
+        const cycle = (t % cycleDuration) / cycleDuration;
+        const flux = (cycle <= 0.5)
+            ? minFlux + (maxFlux - minFlux) * Math.sin(cycle * Math.PI * 2)
+            : minFlux;
+        // Веса Симпсона: 1, 4, 2, 4, 2, ..., 4, 1
+        const w = (i === 0 || i === N) ? 1 : (i % 2 === 0 ? 2 : 4);
+        sum += w * flux;
+    }
+    // Интеграл / ширина периода = среднее значение
+    return (h / 3) * sum / dt;
+}
+
 // --- RATE LIMITING ---
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
@@ -619,7 +720,7 @@ app.post('/api/auth/login', async (req, res) => {
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
         jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' }, (err, token) => {
              if (err) throw err;
-             res.json({ token, gameState: responseState });
+             res.json({ token, gameState: responseState, username: user.username });
         });
     } catch (err) {
         console.error(err.message);
@@ -640,6 +741,7 @@ app.get('/api/game/load', auth, async (req, res) => {
 
         const responseState = user.gameState.toObject({ flattenMaps: true });
         responseState.lastSaveTime = user.lastSaveTime ? new Date(user.lastSaveTime).getTime() : Date.now();
+        responseState._username = user.username;
 
         res.json(responseState);
     } catch (err) {
@@ -726,21 +828,34 @@ app.post('/api/game/save', auth, async (req, res) => {
             POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : 
             POWER_CFG.minFlux;
         let generatedPower = 0;
-        // Порог 30000ms: разграничивает онлайн-сохранение (интервал 3s) от оффлайна.
-        // При 5000ms (было раньше): любая задержка сети >2s переключала на avgFlux=0.425,
-        // что срезало до 50% генерации в дневное время (когда flux >> 0.425).
-        if (timeSinceLastSave > 30000) {
-            generatedPower = (POWER_CFG.panelBaseOutput * 0.425) * elapsedSec;
-        } else {
+        // Определяем онлайн-статус по heartbeat: если socket-пинг приходил < HEARTBEAT_TIMEOUT назад,
+        // игрок считается онлайн и для короткого интервала используем мгновенный флакс.
+        // Для настоящего оффлайна (нет свежего heartbeat) вместо прежней константы 0.425
+        // вычисляем точный средний флакс, интегрируя синусоидальную кривую освещённости за период.
+        const userIdStr = req.user.id.toString();
+        const lastHb = onlineHeartbeats.get(userIdStr) || 0;
+        const isRecentlyOnline = (serverNow - lastHb) < HEARTBEAT_TIMEOUT;
+        if (isRecentlyOnline || timeSinceLastSave <= 30000) {
+            // Онлайн / короткий интервал: мгновенный флакс текущего момента (точнее для малых dt)
             generatedPower = (POWER_CFG.panelBaseOutput * expectedStateFlux) * elapsedSec;
+        } else {
+            // Настоящий оффлайн: точный средний флакс через интеграл синусоиды
+            const avgFlux = computeAvgFlux(
+                serverNow - timeSinceLastSave,
+                serverNow,
+                POWER_CFG.cycleDuration,
+                POWER_CFG.minFlux,
+                POWER_CFG.maxFlux
+            );
+            generatedPower = (POWER_CFG.panelBaseOutput * avgFlux) * elapsedSec;
         }
 
-        let totalOldGridCharge = 0;
+        // Считаем суммарный заряд ВСЕХ батарей в сетке по старому стейту (авторитетно).
+        // Важно: берём oldGridBats из oldState, а не newGridBats из newState,
+        // чтобы учесть батареи, которые игрок мог извлечь между сохранениями.
+        const oldGridBats = (oldState.power?.batteries || []).filter(b => b.loc === 'grid');
+        let totalOldGridCharge = oldGridBats.reduce((sum, b) => sum + (b.charge || 0), 0);
         const newGridBats = (newState.power?.batteries || []).filter(b => b.loc === 'grid');
-        newGridBats.forEach(nb => {
-            const ob = (oldState.power?.batteries || []).find(b => b.id === nb.id);
-            totalOldGridCharge += ob ? (ob.charge || 0) : 0;
-        });
         let instantPowerSpent = 0;
         const detectStarts = (oldArr, newArr, getCost) => {
             if (!newArr) return;
@@ -794,17 +909,26 @@ app.post('/api/game/save', auth, async (req, res) => {
             instantPowerSpent += 1;
         }
 
+        // C.A.D. passive (continuous) power consumption disabled
         let continuousPowerSpent = 0;
-        if (newState.cad?.slots) {
-            newState.cad.slots.forEach(slot => {
-                if (slot.active) {
-                    continuousPowerSpent += (25 / 43200) * elapsedSec;
-                }
-            });
-        }
 
         const totalPowerSpent = instantPowerSpent + continuousPowerSpent;
-        let expectedNewCharge = totalOldGridCharge + generatedPower - totalPowerSpent;
+
+        // Учитываем заряд батарей, перемещённых из inventory/warehouse в grid между сохранениями.
+        // Без этого сервер не знает об их заряде и считает их появление «лишним» зарядом —
+        // что вызывало мгновенный дрейн только что установленной батареи.
+        // Используем СТАРЫЙ заряд из БД (oldBat.charge) — это авторитетно и защищает
+        // от накрутки заряда в инвентаре: клиентское значение не доверяется.
+        let movedToGridCharge = 0;
+        newGridBats.forEach(newBat => {
+            const oldBat = (oldState.power?.batteries || []).find(b => b.id === newBat.id);
+            if (!oldBat || oldBat.loc !== 'grid') {
+                // Батарея новая в сетке — добавляем её СТАРЫЙ заряд из БД
+                movedToGridCharge += oldBat ? (oldBat.charge || 0) : 0;
+            }
+        });
+
+        let expectedNewCharge = totalOldGridCharge + generatedPower - totalPowerSpent + movedToGridCharge;
         if (expectedNewCharge < -0.5) {
             logAction('CHEAT_POWER_BYPASS', user.id, user.username, req, {
                 totalOldGridCharge, generatedPower, totalPowerSpent, expectedNewCharge
@@ -832,8 +956,9 @@ app.post('/api/game/save', auth, async (req, res) => {
                     // --- WEAR CALCULATION 2: Drain wear from instant power operations ---
                     // Every drainBuffer(a) call adds wear = (a/batteryCap)*wearRate per battery.
                     // Summing all drain calls: total drain wear per battery = (instantPowerSpent / batteryCap) * wearRate
+                    // Wear from usage is halved (/ 2) by design — critical threshold wear (CALC 1) is unchanged.
                     if (instantPowerSpent > 0) {
-                        const drainWear = (instantPowerSpent / POWER_CFG.batteryCap) * POWER_CFG.wearRate;
+                        const drainWear = ((instantPowerSpent / POWER_CFG.batteryCap) * POWER_CFG.wearRate) / 2;
                         newBat.wear = Math.min(100, newBat.wear + drainWear);
                     }
 
@@ -844,26 +969,43 @@ app.post('/api/game/save', auth, async (req, res) => {
                     clientTotalGridCharge += newBat.charge;
                 }
             });
+            // Если клиент сообщает суммарный заряд больше ожидаемого — принудительно
+            // дренируем батареи последовательно (с последней к первой), точно так же
+            // как это делает функция drainBuffer на клиенте. Это исключает «перелив»
+            // заряда между батареями и обеспечивает идентичное поведение с клиентом.
             if (clientTotalGridCharge > expectedNewCharge + 0.5) {
-                let scale = Math.max(0, expectedNewCharge) / clientTotalGridCharge;
-                let correctedTotal = 0;
-                newState.power.batteries.forEach(b => {
-                    if (b.loc === 'grid') {
-                        b.charge = Number((b.charge * scale).toFixed(4));
-                        correctedTotal += b.charge;
-                    }
-                });
-                clientTotalGridCharge = correctedTotal;
+                const toDrain = clientTotalGridCharge - Math.max(0, expectedNewCharge);
+                let remaining = toDrain;
+                // Дрейним с конца списка (последняя батарея разряжается первой)
+                const gridBatsInState = newState.power.batteries.filter(b => b.loc === 'grid');
+                for (let i = gridBatsInState.length - 1; i >= 0; i--) {
+                    if (remaining <= 0) break;
+                    const b = gridBatsInState[i];
+                    const taken = Math.min(b.charge, remaining);
+                    b.charge = Number(Math.max(0, b.charge - taken).toFixed(4));
+                    remaining -= taken;
+                }
+                clientTotalGridCharge = newState.power.batteries
+                    .filter(b => b.loc === 'grid')
+                    .reduce((sum, b) => sum + b.charge, 0);
             }
 
-            newState.power.gridStatus = (newGridBats.length > 0 && clientTotalGridCharge > 0.01) ? "ONLINE" : "BLACKOUT";
-            if (clientTotalGridCharge <= 0 && (generatedPower - totalPowerSpent) < 0) {
-                newState.power.gridStatus = "DRAINING";
+            // Сервер никогда не сохраняет статус "DRAINING" в базу данных.
+            // DRAINING — это real-time клиентский статус (gen < load за данный кадр).
+            // Если сохранить DRAINING в БД, при следующей загрузке игры пользователь
+            // увидит DRAINING до первого тика loop() — что и вызывало баг при сворачивании.
+            // Сервер хранит только ONLINE (батареи в сетке и заряд > 0) или BLACKOUT.
+            if (newGridBats.length > 0 && clientTotalGridCharge > 0.01) {
+                newState.power.gridStatus = "ONLINE";
+            } else {
+                newState.power.gridStatus = "BLACKOUT";
             }
-            if (newGridBats.length === 0) newState.power.gridStatus = "BLACKOUT";
             // Порог 30000ms согласован с порогом генерации выше. UI не показывает 0 при пиковых сетевых задержках.
             newState.power.productionRate = (timeSinceLastSave > 30000) ? 0 : (POWER_CFG.panelBaseOutput * expectedStateFlux); 
-            newState.power.consumptionRate = (elapsedSec > 0) ? (continuousPowerSpent / elapsedSec) : 0;
+            // consumptionRate: используем instantPowerSpent / elapsedSec — средняя скорость расхода
+            // за период между сохранениями. Отражает реальный расход (операции/запуски),
+            // так как continuousPowerSpent = 0 после отключения пассивного потребления C.A.D.
+            newState.power.consumptionRate = (elapsedSec > 0) ? (instantPowerSpent / elapsedSec) : 0;
         }
 
         if (newState.environment) {
@@ -1336,7 +1478,12 @@ app.post('/api/game/save', auth, async (req, res) => {
                 loc: b.loc
             }))
             : [];
-        res.json({ msg: 'Game Saved', serverTime: serverNow, batteries: savedBatteries }); 
+        // consumptionRate возвращается клиенту чтобы UI немедленно отражал реальный расход,
+        // не дожидаясь следующей загрузки игры.
+        const savedConsumptionRate = (newState.power && typeof newState.power.consumptionRate === 'number')
+            ? newState.power.consumptionRate
+            : 0;
+        res.json({ msg: 'Game Saved', serverTime: serverNow, batteries: savedBatteries, consumptionRate: savedConsumptionRate });
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server Error');

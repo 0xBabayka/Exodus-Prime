@@ -104,8 +104,48 @@ align-items: center; cursor: move; user-select: none;
 #left-panel { top: 50px; left: 10px; width: 330px; max-height: 85vh; overflow-y: auto; }
 #right-panel { top: 50px; right: 10px; width: 280px; max-height: 60vh; overflow-y: auto; }
 #scanner-panel { bottom: 10px; left: 10px; width: 400px; height: 180px; }
-#log-panel { bottom: 10px; left: 420px; width: 210px; height: 180px; }
+#comms-panel {
+bottom: 10px; left: 420px; width: 320px; height: 220px;
+resize: both;
+overflow: hidden;
+min-width: 240px; min-height: 160px;
+max-width: 700px; max-height: 600px;
+box-sizing: border-box;
+}
+/* Стилизуем нативный resize-grip под дизайн игры */
+#comms-panel::after {
+content: "⤡";
+position: absolute; bottom: 3px; right: 4px;
+font-size: 10px; color: rgba(0,229,255,0.25); pointer-events: none;
+line-height: 1; font-family: monospace;
+}
 
+.chat-tab-btn {
+background: transparent; border: none; border-bottom: 2px solid transparent;
+color: #556; font-size: 9px; padding: 4px 8px; cursor: pointer;
+text-transform: uppercase; font-family: inherit; font-weight: bold; letter-spacing: 0.5px;
+}
+.chat-tab-btn.active { color: var(--neon); border-bottom-color: var(--neon); }
+.chat-tab-btn.trade.active { color: var(--warning); border-bottom-color: var(--warning); }
+.chat-messages {
+flex: 1; overflow-y: auto; font-size: 9px; line-height: 1.5; color: #8daab9;
+padding: 2px 0; word-break: break-word;
+}
+.chat-msg { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.chat-msg .cm-name { font-weight: bold; margin-right: 4px; }
+.chat-msg .cm-name.me { color: var(--neon); }
+.chat-msg .cm-name.other { color: var(--success); }
+.chat-msg.trade .cm-name.other { color: var(--warning); }
+.chat-input-row { display: flex; gap: 4px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.07); }
+.chat-input {
+flex: 1; background: rgba(0,0,0,0.3); border: 1px solid #334; color: #ccc;
+font-family: monospace; font-size: 9px; padding: 3px 5px; outline: none;
+}
+.chat-input:focus { border-color: var(--neon); }
+.chat-send-btn { background: rgba(0,229,255,0.08); border: 1px solid #334; color: #556;
+font-size: 9px; padding: 2px 7px; cursor: pointer; font-family: monospace; }
+.chat-send-btn:hover { border-color: var(--neon); color: var(--neon); }
+.chat-err { color: var(--danger); font-size: 9px; padding: 2px 0; min-height: 12px; }
 /* --- METER / BARS / ITEMS --- */
 .meter-container {
 width: 100%; height: 4px; background: #080a0c; border: 1px solid #334; margin: 4px 0 8px 0; position: relative;
@@ -395,10 +435,33 @@ SCAVENGE SECTOR <span style="font-size:9px; opacity:0.7">[-1 Stam / -1 Energy]</
 </div>
 </div>
 
-<div id="log-panel" class="panel interactive draggable">
-<div class="header" style="justify-content:space-between;"><span>SYSTEM LOG</span></div>
+<div id="comms-panel" class="panel interactive draggable" style="display:flex; flex-direction:column;">
+<div class="header" style="justify-content:space-between; cursor:move;"><span>COMMS</span></div>
+<div style="display:flex; gap:0; border-bottom:1px solid rgba(255,255,255,0.07); margin-bottom:4px;">
+<button class="chat-tab-btn active" id="comms-tab-general" onclick="switchCommsTab('general')">GENERAL</button>
+<button class="chat-tab-btn trade" id="comms-tab-trade" onclick="switchCommsTab('trade')">TRADE</button>
+<button class="chat-tab-btn" id="comms-tab-syslog" onclick="switchCommsTab('syslog')">SYSTEM LOG</button>
+</div>
+<div id="comms-view-general" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+<div id="chat-messages-general" class="chat-messages"></div>
+<div id="chat-err-general" class="chat-err"></div>
+<div class="chat-input-row">
+<input id="chat-input-general" class="chat-input" maxlength="200" placeholder="message..." onkeydown="if(event.key==='Enter')sendChatMsg('general')">
+<button class="chat-send-btn" onclick="sendChatMsg('general')">SEND</button>
+</div>
+</div>
+<div id="comms-view-trade" style="display:none; flex-direction:column; flex:1; min-height:0;">
+<div id="chat-messages-trade" class="chat-messages"></div>
+<div id="chat-err-trade" class="chat-err"></div>
+<div class="chat-input-row">
+<input id="chat-input-trade" class="chat-input" maxlength="200" placeholder="trade offer..." onkeydown="if(event.key==='Enter')sendChatMsg('trade')">
+<button class="chat-send-btn" onclick="sendChatMsg('trade')" style="border-color:#665500; color:var(--warning);">SEND</button>
+</div>
+</div>
+<div id="comms-view-syslog" style="display:none; flex-direction:column; flex:1; min-height:0;">
 <div id="console" style="flex:1; overflow-y:auto; font-size:9px; line-height:1.4; color:#8daab9;">
 > System init... OK<br>> Hangar Module... ONLINE<br>> Storage Protocol V2... ONLINE<br>> Power Grid... ONLINE
+</div>
 </div>
 </div>
 </div>
@@ -811,6 +874,7 @@ console.warn("SYS: Time sync failed, using local time.", e);
 }
 let AUTH_TOKEN = localStorage.getItem('exodus_token');
 let socket = null; // --- Добавлено для WebSocket ---
+let energyWorker = null; // --- Web Worker для фонового тика энергии ---
 let marketFetchTimeout = null; // --- Добавлено для Debounce ---
 
 function initSocket() {
@@ -838,6 +902,8 @@ reconnectionDelayMax: 5000
 
 socket.on('connect', () => {
 console.log("SYS: Real-time link established.");
+// Немедленный heartbeat при подключении — сервер узнает что игрок онлайн
+socket.emit('heartbeat');
 const ind = document.getElementById('mkt-live-status');
 if(ind) { ind.style.color = 'var(--success)'; ind.innerText = '● LIVE'; }
 });
@@ -857,6 +923,30 @@ loadMarketData();
 }, 300); // 300ms debounce
 }
 });
+
+// --- CHAT SOCKET LISTENERS ---
+socket.on('chat_message', (msg) => {
+if (!msg || !msg.channel) return;
+appendChatMessage(msg.channel, msg);
+});
+
+socket.on('chat_history', (data) => {
+if (!data || !data.channel) return;
+const container = document.getElementById(`chat-messages-${data.channel}`);
+if (!container) return;
+container.innerHTML = '';
+(data.messages || []).forEach(msg => appendChatMessage(data.channel, msg));
+});
+
+socket.on('chat_error', (data) => {
+const activeTab = STATE._commsTab || 'general';
+const errEl = document.getElementById(`chat-err-${activeTab}`);
+if (errEl) { errEl.innerText = data.msg || 'Error'; setTimeout(() => { errEl.innerText = ''; }, 3000); }
+});
+
+// Request history for both channels on connect
+socket.emit('chat_get_history', { channel: 'general' });
+socket.emit('chat_get_history', { channel: 'trade' });
 }
 
 // --- UI STATE MANAGEMENT ---
@@ -868,12 +958,18 @@ activeTabs: STATE.uiTabs,
 activeModal: STATE.activeModal || null
 };
 document.querySelectorAll('.panel.draggable, .modal.draggable').forEach(el => {
-uiState.panels[el.id] = {
+const panelData = {
 top: el.style.top,
 left: el.style.left,
 bottom: el.style.bottom,
 right: el.style.right
 };
+// Сохраняем размер только для resizable панелей
+if (el.id === 'comms-panel') {
+panelData.width = el.offsetWidth + 'px';
+panelData.height = el.offsetHeight + 'px';
+}
+uiState.panels[el.id] = panelData;
 });
 STATE.uiState = uiState; // Теперь сохраняем прямо в объект стейта!
 }
@@ -889,6 +985,11 @@ if (uiState.panels[id].top) el.style.top = uiState.panels[id].top;
 if (uiState.panels[id].left) el.style.left = uiState.panels[id].left;
 if (uiState.panels[id].bottom) el.style.bottom = uiState.panels[id].bottom;
 if (uiState.panels[id].right) el.style.right = uiState.panels[id].right;
+// Восстанавливаем размер для resizable панелей
+if (id === 'comms-panel') {
+if (uiState.panels[id].width) el.style.width = uiState.panels[id].width;
+if (uiState.panels[id].height) el.style.height = uiState.panels[id].height;
+}
 }
 }
 if (uiState.activeTabs) STATE.uiTabs = uiState.activeTabs;
@@ -944,12 +1045,20 @@ if(!res.ok) throw new Error(data.msg || "LOGIN FAILED");
 
 AUTH_TOKEN = data.token;
 localStorage.setItem('exodus_token', AUTH_TOKEN);
+if(data.username) STATE.username = data.username;
 initSocket(); // --- Добавлено для WebSocket ---
 document.getElementById('auth-overlay').style.display = 'none';
 
 if(data.gameState && Object.keys(data.gameState).length > 0) {
 // Load state from server
 Object.assign(STATE, data.gameState);
+if(data.username) STATE.username = data.username;
+// Нормализуем gridStatus сразу после загрузки состояния: на случай если в БД
+// остался старый статус DRAINING (стал невозможен после server.js fix).
+if (STATE.power) {
+const gBatsLogin = (STATE.power.batteries || []).filter(b => b.loc === 'grid');
+STATE.power.gridStatus = gBatsLogin.length > 0 ? "ONLINE" : "BLACKOUT";
+}
 log("SYS: CLOUD SYNC COMPLETE.");
 ensureBaseStructure();
 restoreOfflineProgress(STATE.lastSaveTime || now());
@@ -1040,7 +1149,7 @@ headers: {
 'x-auth-token': AUTH_TOKEN
 },
 keepalive: true,
-body: JSON.stringify({ gameState: STATE })
+body: JSON.stringify({ gameState: STATE, clientTime: now() })
 });
 // --- СИНХРОНИЗАЦИЯ БАТАРЕЙ С СЕРВЕРОМ ---
 // Сервер авторитетно пересчитывает заряд на каждом сохранении.
@@ -1050,6 +1159,11 @@ if (res.ok) {
 const data = await res.json();
 if (data.batteries && Array.isArray(data.batteries) && data.batteries.length > 0) {
 STATE.power.batteries = data.batteries;
+}
+// Применяем серверное значение consumptionRate — средний расход за период сохранения.
+// Это позволяет UI показывать реальный расход даже без пассивного потребления.
+if (typeof data.consumptionRate === 'number') {
+STATE.power.consumptionRate = data.consumptionRate;
 }
 }
 } catch(e) { console.error("Save Failed", e); }
@@ -1151,10 +1265,40 @@ const SCAV_TIERS = [
 const UI_CACHE = {};
 const DragManager = {
 item: null, offsetX: 0, offsetY: 0, zIndex: 50,
+// Теги и условия, при которых перетаскивание НЕ должно начинаться —
+// чтобы не блокировать клики на кнопки, поля ввода и прокручиваемые области.
+_isInteractive: function(target, container) {
+const INTERACTIVE_TAGS = ['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A', 'LABEL', 'OPTION'];
+let el = target;
+while (el && el !== container) {
+if (INTERACTIVE_TAGS.includes(el.tagName)) return true;
+// Если элемент прокручиваемый (overflow auto/scroll) — не перетаскиваем
+const style = window.getComputedStyle(el);
+const overflow = style.overflowY + style.overflowX;
+if (/auto|scroll/.test(overflow) && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth)) return true;
+el = el.parentElement;
+}
+return false;
+},
+// Проверяет, попал ли клик в зону нативного resize-grip (правый нижний угол, 16×16px).
+// Браузерный grip всегда находится именно там и имеет стандартный размер 16px.
+// Если клик в этой зоне — DragManager уступает управление браузеру для resize.
+_isResizeGrip: function(e, el) {
+const GRIP = 16;
+const r = el.getBoundingClientRect();
+return (e.clientX >= r.right - GRIP && e.clientY >= r.bottom - GRIP);
+},
 init: function() {
 document.querySelectorAll('.draggable').forEach(el => {
-const h = el.querySelector('.header'); if(!h) return;
-h.addEventListener('mousedown', (e) => this.startDrag(e, el));
+// Перетаскивание с любого места окна, кроме интерактивных элементов
+el.addEventListener('mousedown', (e) => {
+if (this._isInteractive(e.target, el)) return;
+// Если CSS свойство resize задано на элементе и клик в зоне grip — не перетаскиваем
+const resizeStyle = window.getComputedStyle(el).resize;
+if (resizeStyle !== 'none' && this._isResizeGrip(e, el)) return;
+this.startDrag(e, el);
+});
+// Заголовок по-прежнему работает как зона перетаскивания (cursor: move)
 });
 window.addEventListener('mousemove', (e) => this.drag(e));
 window.addEventListener('mouseup', () => this.stopDrag());
@@ -1297,10 +1441,59 @@ CANVAS.addEventListener('wheel', e => { e.preventDefault(); STATE.zoom = Math.ma
 document.addEventListener('visibilitychange', () => {
 if (document.hidden) {
 ServerSys.save(); // Принудительно сохраняем перед уходом в фон
+// Активируем Worker — он продолжит тик энергии пока rAF заморожен
+if (energyWorker) {
+energyWorker.postMessage({ type: 'wake', data: {
+cfg: POWER_CFG,
+batteries: JSON.parse(JSON.stringify(STATE.power.batteries)),
+now: now()
+}});
+}
 } else {
+// Останавливаем Worker-тик: loop() снова берёт управление зарядом
+if (energyWorker) {
+energyWorker.postMessage({ type: 'sleep' });
+}
 STATE.lastFrameTime = performance.now(); // Сбрасываем таймер кадра, чтобы dt не прыгнул
-syncWithServerTime().then(() => {
-restoreOfflineProgress(STATE.lastSaveTime || now()); // Зачисляем ресурсы за оффлайн
+syncWithServerTime().then(async () => {
+// ИСПРАВЛЕНИЕ 1 (двойное начисление) + ИСПРАВЛЕНИЕ 2 (restore до ответа сервера):
+// Ждём завершения save() перед вызовом restoreOfflineProgress.
+// ServerSys.save() делает три вещи: (а) устанавливает STATE.lastSaveTime = now()
+// в самом начале вызова; (б) отправляет текущий STATE на сервер; (в) по ответу
+// записывает авторитативный STATE.power.batteries от сервера.
+// После await батареи содержат серверное значение, а STATE.lastSaveTime = момент
+// начала запроса (≈ сейчас). Поэтому dt в restoreOfflineProgress равен лишь
+// времени сетевого ответа (доли секунды) — двойного начисления не происходит.
+// При быстрых переключениях вкладок каждый вызов save() сдвигает lastSaveTime
+// вперёд, что автоматически предотвращает повторное начисление за тот же период.
+await ServerSys.save();
+// Принудительный fetch актуального состояния батарей с сервера.
+// Дополнительная защита: даже если save() вернул неполный ответ (сеть) —
+// загружаем авторитативное состояние напрямую через /game/load.
+if (AUTH_TOKEN) {
+try {
+const loadRes = await fetch(`${API_URL}/game/load`, { headers: { 'x-auth-token': AUTH_TOKEN } });
+if (loadRes.ok) {
+const freshData = await loadRes.json();
+if (freshData && freshData.power && Array.isArray(freshData.power.batteries) && freshData.power.batteries.length > 0) {
+STATE.power.batteries = freshData.power.batteries;
+}
+if (typeof freshData.lastSaveTime === 'number') {
+STATE.lastSaveTime = freshData.lastSaveTime;
+}
+}
+} catch(e) { console.warn("SYS: Visibility fetch failed.", e); }
+}
+restoreOfflineProgress(STATE.lastSaveTime); // Зачисляем ресурсы за оффлайн
+// После начисления оффлайн-заряда немедленно пересчитываем gridStatus,
+// чтобы не оставался устаревший статус DRAINING от момента ухода в фон.
+const gBatsVis = STATE.power.batteries.filter(b => b.loc === 'grid');
+if (gBatsVis.length === 0) {
+STATE.power.gridStatus = "BLACKOUT";
+} else {
+const totalCharge = gBatsVis.reduce((a, b) => a + b.charge, 0);
+STATE.power.gridStatus = totalCharge > 0.001 ? "ONLINE" : "BLACKOUT";
+}
 });
 }
 });
@@ -1315,6 +1508,14 @@ return res.json();
 .then(data => {
 if(data && Object.keys(data).length > 0) {
 Object.assign(STATE, data);
+if(data._username) STATE.username = data._username;
+// Немедленно нормализуем gridStatus после загрузки: сервер никогда не должен
+// хранить DRAINING (это real-time клиентский статус), но на случай старых записей в БД —
+// сбрасываем до корректного значения ещё до первого тика loop().
+if (STATE.power) {
+const gBatsLoad = (STATE.power.batteries || []).filter(b => b.loc === 'grid');
+STATE.power.gridStatus = gBatsLoad.length > 0 ? "ONLINE" : "BLACKOUT";
+}
 ensureBaseStructure();
 restoreOfflineProgress(STATE.lastSaveTime || now());
 } else {
@@ -1341,12 +1542,119 @@ document.getElementById('auth-overlay').style.display = 'flex';
 document.getElementById('auth-overlay').style.display = 'flex';
 }
 }
+// --- КОД WEB WORKER ДЛЯ ФОНОВОГО ТИКА ЭНЕРГИИ ---
+// Worker работает в отдельном потоке и продолжает начислять заряд батарей
+// даже когда rAF заморожен браузером (скрытая вкладка / свёрнутое окно).
+// Код намеренно написан без стрелочных функций и шаблонных литералов —
+// Blob/Worker требует самодостаточной строки без зависимостей от внешнего контекста.
+const _ENERGY_WORKER_CODE = `
+var _cfg = null;
+var _batteries = [];
+var _lastTick = 0;
+var _active = false;
+
+self.onmessage = function(e) {
+    var msg = e.data;
+    if (msg.type === 'init' || msg.type === 'wake') {
+        _cfg = msg.data.cfg;
+        _batteries = JSON.parse(JSON.stringify(msg.data.batteries));
+        _lastTick = msg.data.now;
+        _active = true;
+    } else if (msg.type === 'sleep') {
+        _active = false;
+    }
+};
+
+setInterval(function() {
+    if (!_active || !_cfg || !_batteries.length) return;
+    var now = Date.now();
+    var dt = Math.min((now - _lastTick) / 1000, 10.0);
+    _lastTick = now;
+    var cycle = (now % _cfg.cycleDuration) / _cfg.cycleDuration;
+    var flux = (cycle <= 0.5)
+        ? _cfg.minFlux + (_cfg.maxFlux - _cfg.minFlux) * Math.sin(cycle * Math.PI * 2)
+        : _cfg.minFlux;
+    var gBats = _batteries.filter(function(b) { return b.loc === 'grid'; });
+    if (gBats.length === 0) {
+        self.postMessage({ type: 'tick', flux: flux, gridStatus: 'BLACKOUT', batteries: _batteries });
+        return;
+    }
+    var gen = _cfg.panelBaseOutput * flux;
+    var d = gen * dt;
+    if (d > 0) {
+        for (var i = 0; i < gBats.length; i++) {
+            if (d <= 0) break;
+            var b = gBats[i];
+            var max = _cfg.batteryCap * (1 - (b.wear / 100));
+            var space = max - b.charge;
+            if (space > 0) { var a = Math.min(space, d); b.charge += a; d -= a; }
+        }
+    }
+    var totalCharge = gBats.reduce(function(s, b) { return s + b.charge; }, 0);
+    self.postMessage({
+        type: 'tick',
+        flux: flux,
+        gridStatus: totalCharge > 0.001 ? 'ONLINE' : 'BLACKOUT',
+        batteries: _batteries
+    });
+}, 1000);
+`;
+
 function startGameLoop() {
 setInterval(() => ServerSys.save(), 3000); // Save every 3s to reduce server load
 window.addEventListener('beforeunload', () => ServerSys.save());
 STATE.lastFrameTime = performance.now();
 requestAnimationFrame(loop);
 setInterval(updateUI, 500);
+
+// --- WEB WORKER: фоновый тик энергии ---
+// Создаём Worker из Blob — работает в едином HTML-файле без внешних скриптов.
+// onmessage применяет результат только когда вкладка скрыта (document.hidden),
+// так что когда вкладка активна — loop() управляет зарядом как обычно.
+if (typeof Worker !== 'undefined') {
+try {
+const _workerBlob = new Blob([_ENERGY_WORKER_CODE], { type: 'application/javascript' });
+const _workerUrl = URL.createObjectURL(_workerBlob);
+energyWorker = new Worker(_workerUrl);
+URL.revokeObjectURL(_workerUrl); // Worker уже загружен, URL освобождаем
+energyWorker.onmessage = function(e) {
+if (!document.hidden) return; // вкладка активна — loop() управляет зарядом сам
+if (e.data.type !== 'tick') return;
+STATE.environment.flux = e.data.flux;
+STATE.power.gridStatus = e.data.gridStatus;
+// Применяем заряд из Worker в STATE (по id батареи)
+if (Array.isArray(e.data.batteries)) {
+e.data.batteries.forEach(function(wb) {
+const sb = STATE.power.batteries.find(function(b) { return b.id === wb.id; });
+if (sb && wb.loc === 'grid') sb.charge = wb.charge;
+});
+}
+};
+energyWorker.onerror = function(err) { console.warn('SYS: EnergyWorker error:', err); };
+console.log('SYS: Energy Worker initialized.');
+} catch(e) {
+console.warn('SYS: Energy Worker unavailable.', e);
+energyWorker = null;
+}
+}
+
+// --- HEARTBEAT: сообщаем серверу каждые 45 секунд что игрок онлайн ---
+// Позволяет серверу использовать точный мгновенный флакс вместо интеграла при сохранении.
+setInterval(() => {
+if (socket && socket.connected) socket.emit('heartbeat');
+}, 45000);
+
+// Сохраняем новый размер окна чата после завершения растягивания
+const commsEl = document.getElementById('comms-panel');
+if (commsEl && typeof ResizeObserver !== 'undefined') {
+let _resizeSaveTimer = null;
+const ro = new ResizeObserver(() => {
+// Debounce: сохраняем только после того, как пользователь отпустил мышь
+clearTimeout(_resizeSaveTimer);
+_resizeSaveTimer = setTimeout(() => { saveUIState(); }, 300);
+});
+ro.observe(commsEl);
+}
 }
 
 // Logic to ensure base exists if save corrupted
@@ -1379,7 +1687,13 @@ const dt = current - lastTime;
 if(dt > 5000) {
 let avgFlux = 0.425;
 const offlineGen = (POWER_CFG.panelBaseOutput * avgFlux) * (dt / 1000);
-const offlineLoad = (STATE.power.consumptionRate || 0) * (dt / 1000);
+// offlineLoad = 0: consumptionRate хранит instantPowerSpent/elapsedSec — мгновенный
+// расход в момент запуска операции, НЕ непрерывную нагрузку. Умножение такого значения
+// на часы давало огромный offlineLoad (например 8.333*21600=180000 kW), который
+// блокировал ветку if(net>0) и батареи не заряжались весь оффлайн-период.
+// Поскольку пассивного потребления нет (C.A.D. passive отключён), все операции —
+// одноразовые запуски, непрерывного расхода в фоне не существует.
+const offlineLoad = 0;
 let net = offlineGen - offlineLoad;
 if(net > 0) {
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid');
@@ -1389,7 +1703,7 @@ const max = POWER_CFG.batteryCap * (1 - (b.wear/100));
 const space = max - b.charge;
 if(space > 0) { const fill = Math.min(space, net); b.charge += fill; net -= fill; }
 }
-setTimeout(() => log(`SYS: Offline ${(dt/3600000).toFixed(2)}h. Charge: +${(offlineGen-offlineLoad).toFixed(2)}kW`), 1000);
+setTimeout(() => log(`SYS: Offline ${(dt/3600000).toFixed(2)}h. Charge: +${offlineGen.toFixed(2)}kW`), 1000);
 }
 }
 }
@@ -2117,14 +2431,22 @@ for(let i=0; i<20; i++) { STATE.bodies.push({ id: 200+i, name: `X-${200+i}`, dis
 }
 
 function loop(ts) {
-const dt = (ts - STATE.lastFrameTime) / 1000; STATE.lastFrameTime = ts; const currentTime = now();
+// Ограничиваем dt максимум 1 секундой: при выходе из фона браузер может дать
+// огромный dt если rAF был заморожен. Оффлайн-прогресс уже начислен через
+// restoreOfflineProgress(), поэтому здесь достаточно корректного малого dt.
+const dt = Math.min((ts - STATE.lastFrameTime) / 1000, 1.0); STATE.lastFrameTime = ts; const currentTime = now();
 let cycle = (currentTime % POWER_CFG.cycleDuration) / POWER_CFG.cycleDuration; STATE.environment.flux = (cycle <= 0.5) ?
 POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : POWER_CFG.minFlux;
 const gBats = STATE.power.batteries.filter(b => b.loc === 'grid');
 if (gBats.length === 0) { STATE.power.productionRate=0; STATE.power.consumptionRate=0; STATE.power.gridStatus="BLACKOUT"; } else {
 const gen = POWER_CFG.panelBaseOutput * STATE.environment.flux; let load = POWER_CFG.baseLoad; if(STATE.buildQueue.length > 0) load += STATE.buildQueue.length * POWER_CFG.factoryLoad;
-STATE.cad.slots.forEach(s => { if(s.active) load += (CAD_CFG.powerCost / (CAD_CFG.duration/1000)); });
-STATE.power.productionRate=gen; STATE.power.consumptionRate=load; let d = (gen - load) * dt;
+// C.A.D. passive (continuous) power consumption disabled
+STATE.power.productionRate=gen;
+// consumptionRate: обновляем только если есть непрерывная нагрузка (load > 0).
+// Иначе сохраняем значение, установленное сервером (среднее за период сохранения),
+// чтобы UI показывал реальный расход, а не постоянный 0.
+if(load > 0) STATE.power.consumptionRate=load;
+let d = (gen - load) * dt;
 if(d > 0) { STATE.power.gridStatus="ONLINE"; for(let b of gBats) { if(d<=0) break; let s = (POWER_CFG.batteryCap*(1-(b.wear/100))) - b.charge;
 if(s>0){ let a=Math.min(s,d); b.charge+=a; d-=a; }} } else { let dr = Math.abs(d); for(let i=gBats.length-1; i>=0; i--) { if(dr<=0)break;
 let b=gBats[i]; if(b.charge>0){ let t=Math.min(b.charge, dr); b.charge-=t; dr-=t; }} STATE.power.gridStatus = (gBats.reduce((a,b)=>a+b.charge,0) <= 0.001 && dr>0) ? "BLACKOUT" : "DRAINING";
@@ -3358,6 +3680,60 @@ else pubHTML += card;
 
 myDiv.innerHTML = myHTML || '<div style="color:#555; text-align:center; padding:10px;">NO ACTIVE BUY ORDERS</div>';
 pubDiv.innerHTML = pubHTML || '<div style="color:#555; text-align:center; padding:10px;">NO BUY ORDERS FOUND</div>';
+}
+
+// --- COMMS PANEL: CHAT + SYSTEM LOG ---
+
+let _commsActiveTab = 'general';
+
+function switchCommsTab(tab) {
+_commsActiveTab = tab;
+STATE._commsTab = tab;
+['general', 'trade', 'syslog'].forEach(t => {
+const view = document.getElementById(`comms-view-${t}`);
+const btn = document.getElementById(`comms-tab-${t}`);
+if (view) view.style.display = (t === tab) ? 'flex' : 'none';
+if (btn) btn.classList.toggle('active', t === tab);
+});
+}
+
+function appendChatMessage(channel, msg) {
+const container = document.getElementById(`chat-messages-${channel}`);
+if (!container) return;
+const isMe = STATE.username && msg.username === STATE.username;
+const nameClass = isMe ? 'me' : 'other';
+const chanClass = channel === 'trade' ? 'trade' : '';
+const time = new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const div = document.createElement('div');
+div.className = `chat-msg ${chanClass}`;
+div.innerHTML = `<span style="color:#334;">[${time}]</span> <span class="cm-name ${nameClass}">${msg.username}:</span><span style="color:#bbb;">${msg.text}</span>`;
+container.appendChild(div);
+// Auto-scroll to bottom
+container.scrollTop = container.scrollHeight;
+// Trim old messages in DOM (keep last 100)
+while (container.children.length > 100) container.removeChild(container.firstChild);
+}
+
+function sendChatMsg(channel) {
+if (!socket || !socket.connected) {
+const errEl = document.getElementById(`chat-err-${channel}`);
+if (errEl) { errEl.innerText = 'Not connected.'; setTimeout(() => { errEl.innerText = ''; }, 2000); }
+return;
+}
+const input = document.getElementById(`chat-input-${channel}`);
+if (!input) return;
+const text = input.value.trim();
+if (!text) return;
+if (text.length > 200) {
+const errEl = document.getElementById(`chat-err-${channel}`);
+if (errEl) { errEl.innerText = 'Too long (max 200 chars).'; setTimeout(() => { errEl.innerText = ''; }, 2000); }
+return;
+}
+socket.emit('chat_message', { channel, text });
+input.value = '';
+// Clear any previous error
+const errEl = document.getElementById(`chat-err-${channel}`);
+if (errEl) errEl.innerText = '';
 }
 
 // --- INIT ---
