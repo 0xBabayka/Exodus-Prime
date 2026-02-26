@@ -1167,6 +1167,19 @@ if (res.ok) {
 const data = await res.json();
 if (data.batteries && Array.isArray(data.batteries) && data.batteries.length > 0) {
 STATE.power.batteries = data.batteries;
+// ИСПРАВЛЕНИЕ 5: ресинхронизируем Worker с авторитативным состоянием батарей от сервера.
+// Без этого Worker продолжает работать со снимком батарей, взятым при wake (уходе в фон).
+// На каждом тике Worker перезаписывает скорректированный серверный заряд своими устаревшими значениями.
+// Решение: при каждом обновлении STATE от сервера пока вкладка скрыта — отправляем Worker wake
+// с актуальными батареями. Worker сбрасывает _batteries и продолжает зарядку от правильного baseline.
+if (document.hidden && energyWorker) {
+energyWorker.postMessage({ type: 'wake', data: {
+cfg: POWER_CFG,
+batteries: JSON.parse(JSON.stringify(STATE.power.batteries)),
+now: Date.now(),
+buildQueueLength: STATE.buildQueue.length
+}});
+}
 }
 // Применяем серверное значение consumptionRate — средний расход за период сохранения.
 // Это позволяет UI показывать реальный расход даже без пассивного потребления.
@@ -1477,7 +1490,11 @@ if (energyWorker) {
 energyWorker.postMessage({ type: 'wake', data: {
 cfg: POWER_CFG,
 batteries: JSON.parse(JSON.stringify(STATE.power.batteries)),
-now: now(),
+now: Date.now(), // ИСПРАВЛЕНИЕ 4: Worker использует Date.now() внутри, не now() с серверным offset.
+// Если передать now() (= Date.now() + SERVER_TIME_OFFSET), то при первом тике Worker:
+// dt = Date.now() - (Date.now() + offset) = -offset/1000.
+// При offset > 0 (сервер опережает) — dt отрицательный, зарядка пропускается.
+// При offset < 0 (клиент опережает) — dt прыгает к кэпу 2с, давая скачок заряда.
 buildQueueLength: STATE.buildQueue.length // ПАТЧ 2: передаём нагрузку очереди
 }});
 }
