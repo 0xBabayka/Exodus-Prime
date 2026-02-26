@@ -726,7 +726,10 @@ app.post('/api/game/save', auth, async (req, res) => {
             POWER_CFG.minFlux + ((POWER_CFG.maxFlux - POWER_CFG.minFlux) * Math.sin(cycle * Math.PI * 2)) : 
             POWER_CFG.minFlux;
         let generatedPower = 0;
-        if (timeSinceLastSave > 5000) {
+        // Порог 30000ms: разграничивает онлайн-сохранение (интервал 3s) от оффлайна.
+        // При 5000ms (было раньше): любая задержка сети >2s переключала на avgFlux=0.425,
+        // что срезало до 50% генерации в дневное время (когда flux >> 0.425).
+        if (timeSinceLastSave > 30000) {
             generatedPower = (POWER_CFG.panelBaseOutput * 0.425) * elapsedSec;
         } else {
             generatedPower = (POWER_CFG.panelBaseOutput * expectedStateFlux) * elapsedSec;
@@ -858,7 +861,8 @@ app.post('/api/game/save', auth, async (req, res) => {
                 newState.power.gridStatus = "DRAINING";
             }
             if (newGridBats.length === 0) newState.power.gridStatus = "BLACKOUT";
-            newState.power.productionRate = (timeSinceLastSave > 5000) ? 0 : (POWER_CFG.panelBaseOutput * expectedStateFlux); 
+            // Порог 30000ms согласован с порогом генерации выше. UI не показывает 0 при пиковых сетевых задержках.
+            newState.power.productionRate = (timeSinceLastSave > 30000) ? 0 : (POWER_CFG.panelBaseOutput * expectedStateFlux); 
             newState.power.consumptionRate = (elapsedSec > 0) ? (continuousPowerSpent / elapsedSec) : 0;
         }
 
