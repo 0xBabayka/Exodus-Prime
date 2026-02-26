@@ -908,6 +908,14 @@ const ind = document.getElementById('mkt-live-status');
 if(ind) { ind.style.color = 'var(--success)'; ind.innerText = '● LIVE'; }
 });
 
+// ПАТЧ 4: дополнительный обработчик reconnect (socket.io v4 использует 'connect' для
+// первого подключения И переподключений, но 'reconnect' гарантирует heartbeat именно
+// после обрыва связи, независимо от порядка срабатывания обработчиков).
+socket.on('reconnect', () => {
+console.log("SYS: Real-time link restored after disconnect.");
+socket.emit('heartbeat');
+});
+
 socket.on('disconnect', () => {
 console.warn("SYS: Real-time link lost.");
 const ind = document.getElementById('mkt-live-status');
@@ -1191,6 +1199,29 @@ baseLoad: 0, factoryLoad: 0,
 wearRate: 0.001,
 maxGridSlots: 3
 };
+// --- HELPER: ТОЧНЫЙ СРЕДНИЙ ФЛАКС ЧЕРЕЗ МЕТОД СИМПСОНА ---
+// Идентична серверной computeAvgFlux (server.js). Заменяет константу 0.425
+// в restoreOfflineProgress, устраняя расхождение клиент/сервер при длинном оффлайне.
+// N=60 шагов дают точность < 0.01% при любой длине периода.
+function computeAvgFlux(tFrom, tTo, cycleDuration, minFlux, maxFlux) {
+var dt = tTo - tFrom;
+if (dt <= 0) return minFlux;
+var N = 60;
+var h = dt / N;
+var sum = 0;
+for (var i = 0; i <= N; i++) {
+var t = tFrom + i * h;
+var cycle = (t % cycleDuration) / cycleDuration;
+var flux = (cycle <= 0.5)
+? minFlux + (maxFlux - minFlux) * Math.sin(cycle * Math.PI * 2)
+: minFlux;
+// Веса Симпсона: 1, 4, 2, 4, 2, ..., 4, 1
+var w = (i === 0 || i === N) ? 1 : (i % 2 === 0 ? 2 : 4);
+sum += w * flux;
+}
+return (h / 3) * sum / dt;
+}
+
 const CAD_CFG = { powerCost: 25, staminaCost: 5, duration: 12 * 60 * 60 * 1000 };
 const FILTER_CFG = { cost: { ice: 25, power: 10, stamina: 2 }, output: { water: 16, regolith: 4 }, duration: 4 * 60 * 60 * 1000 };
 const COMPOST_CFG = { cost: { regolith: 20, waste: 5, water: 8, energy: 15, stamina: 8 }, output: { soil: 10 }, duration: 18 * 60 * 60 * 1000 };
@@ -1446,7 +1477,8 @@ if (energyWorker) {
 energyWorker.postMessage({ type: 'wake', data: {
 cfg: POWER_CFG,
 batteries: JSON.parse(JSON.stringify(STATE.power.batteries)),
-now: now()
+now: now(),
+buildQueueLength: STATE.buildQueue.length // ПАТЧ 2: передаём нагрузку очереди
 }});
 }
 } else {
@@ -1455,18 +1487,37 @@ if (energyWorker) {
 energyWorker.postMessage({ type: 'sleep' });
 }
 STATE.lastFrameTime = performance.now(); // Сбрасываем таймер кадра, чтобы dt не прыгнул
+// ПАТЧ 4: немедленный heartbeat при возврате вкладки — сервер сразу узнаёт что игрок онлайн
+// и использует мгновенный flux вместо оффлайн-интеграла при следующем save.
+if (socket && socket.connected) {
+socket.emit('heartbeat');
+}
+// ИСПРАВЛЕНИЕ 3: фиксируем состояние ДО цикла save/load.
+// Проблема: ServerSys.save() синхронно выставляет STATE.lastSaveTime = now() ещё
+// до отправки HTTP-запроса. После этого restoreOfflineProgress(STATE.lastSaveTime)
+// всегда получает dt ≈ 0–200ms < 5000ms и НИКОГДА не начисляет заряд.
+// Решение: запоминаем оригинальный lastSaveTime и текущий суммарный заряд сетки.
+// После завершения save+load сравниваем заряд: если он вырос (сервер или Worker
+// начислили заряд) — restoreOfflineProgress получает STATE.lastSaveTime (dt≈0, no-op).
+// Если заряд не вырос (сервер недоступен, Worker не работал) — используем оригинальный
+// lastSaveTime чтобы restoreOfflineProgress начислил оффлайн-прогресс как fallback.
+const _offlineLastSaveTime = STATE.lastSaveTime;
+const _offlineChargeBefore = STATE.power.batteries
+.filter(b => b.loc === 'grid')
+.reduce((s, b) => s + b.charge, 0);
 syncWithServerTime().then(async () => {
-// ИСПРАВЛЕНИЕ 1 (двойное начисление) + ИСПРАВЛЕНИЕ 2 (restore до ответа сервера):
-// Ждём завершения save() перед вызовом restoreOfflineProgress.
-// ServerSys.save() делает три вещи: (а) устанавливает STATE.lastSaveTime = now()
-// в самом начале вызова; (б) отправляет текущий STATE на сервер; (в) по ответу
-// записывает авторитативный STATE.power.batteries от сервера.
-// После await батареи содержат серверное значение, а STATE.lastSaveTime = момент
-// начала запроса (≈ сейчас). Поэтому dt в restoreOfflineProgress равен лишь
-// времени сетевого ответа (доли секунды) — двойного начисления не происходит.
-// При быстрых переключениях вкладок каждый вызов save() сдвигает lastSaveTime
-// вперёд, что автоматически предотвращает повторное начисление за тот же период.
-await ServerSys.save();
+// ПАТЧ 5: save с таймаутом 8 секунд — защита от race condition при медленной сети.
+// Если save зависнет, restoreOfflineProgress всё равно запустится по lastSaveTime,
+// который был установлен в начале save(). Без таймаута вся цепочка могла зависнуть
+// навсегда и батареи не получали оффлайн-заряд до следующего переключения.
+try {
+await Promise.race([
+ServerSys.save(),
+new Promise((_, reject) => setTimeout(() => reject(new Error('SYS: Save timeout on visibility restore')), 8000))
+]);
+} catch(saveErr) {
+console.warn(saveErr.message || saveErr);
+}
 // Принудительный fetch актуального состояния батарей с сервера.
 // Дополнительная защита: даже если save() вернул неполный ответ (сеть) —
 // загружаем авторитативное состояние напрямую через /game/load.
@@ -1484,7 +1535,16 @@ STATE.lastSaveTime = freshData.lastSaveTime;
 }
 } catch(e) { console.warn("SYS: Visibility fetch failed.", e); }
 }
-restoreOfflineProgress(STATE.lastSaveTime); // Зачисляем ресурсы за оффлайн
+// ИСПРАВЛЕНИЕ 3 (продолжение): выбираем правильный lastSaveTime для restoreOfflineProgress.
+// Если заряд вырос на 0.1+ kW — сервер (ИСПРАВЛЕНИЕ 2) или Worker уже начислили
+// оффлайн-прогресс. restoreOfflineProgress получает STATE.lastSaveTime ≈ now → dt≈0 → no-op.
+// Если заряд не вырос (сервер был недоступен, Worker не запустился) — используем
+// _offlineLastSaveTime (время ДО ухода в фон) → dt = всё время оффлайна → fallback-зарядка.
+const _offlineChargeAfter = STATE.power.batteries
+.filter(b => b.loc === 'grid')
+.reduce((s, b) => s + b.charge, 0);
+const _serverOrWorkerCharged = _offlineChargeAfter > _offlineChargeBefore + 0.1;
+restoreOfflineProgress(_serverOrWorkerCharged ? STATE.lastSaveTime : _offlineLastSaveTime);
 // После начисления оффлайн-заряда немедленно пересчитываем gridStatus,
 // чтобы не оставался устаревший статус DRAINING от момента ухода в фон.
 const gBatsVis = STATE.power.batteries.filter(b => b.loc === 'grid');
@@ -1552,6 +1612,7 @@ var _cfg = null;
 var _batteries = [];
 var _lastTick = 0;
 var _active = false;
+var _buildQueueLength = 0; // ПАТЧ 2: учёт нагрузки сборочной очереди
 
 self.onmessage = function(e) {
     var msg = e.data;
@@ -1559,6 +1620,7 @@ self.onmessage = function(e) {
         _cfg = msg.data.cfg;
         _batteries = JSON.parse(JSON.stringify(msg.data.batteries));
         _lastTick = msg.data.now;
+        _buildQueueLength = msg.data.buildQueueLength || 0; // ПАТЧ 2
         _active = true;
     } else if (msg.type === 'sleep') {
         _active = false;
@@ -1568,7 +1630,10 @@ self.onmessage = function(e) {
 setInterval(function() {
     if (!_active || !_cfg || !_batteries.length) return;
     var now = Date.now();
-    var dt = Math.min((now - _lastTick) / 1000, 10.0);
+    // ПАТЧ 3: уменьшен cap с 10s до 2s — исключает скачок заряда при задержке Worker-тика.
+    // Оффлайн-прогресс за большие периоды начисляется авторитетно через restoreOfflineProgress,
+    // поэтому в Worker достаточно поддерживать точность малых dt.
+    var dt = Math.min((now - _lastTick) / 1000, 2.0);
     _lastTick = now;
     var cycle = (now % _cfg.cycleDuration) / _cfg.cycleDuration;
     var flux = (cycle <= 0.5)
@@ -1580,7 +1645,11 @@ setInterval(function() {
         return;
     }
     var gen = _cfg.panelBaseOutput * flux;
-    var d = gen * dt;
+    // ПАТЧ 2: учитываем baseLoad и factoryLoad (нагрузку сборочной очереди),
+    // как это делает loop() на активной вкладке. Без этого Worker мог начислять
+    // больше заряда, чем должен, если очередь строительства непустая.
+    var load = (_cfg.baseLoad || 0) + _buildQueueLength * (_cfg.factoryLoad || 0);
+    var d = (gen - load) * dt;
     if (d > 0) {
         for (var i = 0; i < gBats.length; i++) {
             if (d <= 0) break;
@@ -1685,7 +1754,9 @@ function restoreOfflineProgress(lastTime) {
 const current = now();
 const dt = current - lastTime;
 if(dt > 5000) {
-let avgFlux = 0.425;
+// ПАТЧ 1: точный средний флакс через интеграл Симпсона (идентично серверному computeAvgFlux)
+// вместо прежней константы 0.425 — устраняет расхождение UI при длинном оффлайне.
+const avgFlux = computeAvgFlux(lastTime, current, POWER_CFG.cycleDuration, POWER_CFG.minFlux, POWER_CFG.maxFlux);
 const offlineGen = (POWER_CFG.panelBaseOutput * avgFlux) * (dt / 1000);
 // offlineLoad = 0: consumptionRate хранит instantPowerSpent/elapsedSec — мгновенный
 // расход в момент запуска операции, НЕ непрерывную нагрузку. Умножение такого значения

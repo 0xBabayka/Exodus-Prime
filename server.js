@@ -138,6 +138,11 @@ app.use(helmet({
             "script-src": ["'self'", "'unsafe-inline'"],
             "script-src-attr": ["'unsafe-inline'"],
             "img-src": ["'self'", "data:", "*"],
+            // ИСПРАВЛЕНИЕ 1: разрешаем blob:-воркеры.
+            // Без этой директивы Helmet наследует worker-src от default-src ('self'),
+            // что блокирует new Worker(URL.createObjectURL(blob)) с CSP-ошибкой.
+            // Результат: energyWorker = null и фоновая зарядка батарей не работает.
+            "worker-src": ["'self'", "blob:"],
         },
     },
 }));
@@ -984,6 +989,32 @@ app.post('/api/game/save', auth, async (req, res) => {
                     const taken = Math.min(b.charge, remaining);
                     b.charge = Number(Math.max(0, b.charge - taken).toFixed(4));
                     remaining -= taken;
+                }
+                clientTotalGridCharge = newState.power.batteries
+                    .filter(b => b.loc === 'grid')
+                    .reduce((sum, b) => sum + b.charge, 0);
+            }
+
+            // ИСПРАВЛЕНИЕ 2: двусторонняя авторитетность сервера.
+            // Предыдущий код только дренировал (если клиент > ожидаемого).
+            // Но если клиент сообщает МЕНЬШЕ ожидаемого (Worker не работал в фоне
+            // из-за блокировки CSP, заморозки браузером или сетевой ошибки) —
+            // сервер должен зарядить батареи до ожидаемого уровня.
+            // Это делает сервер авторитетным в обоих направлениях и гарантирует
+            // начисление оффлайн-заряда независимо от состояния клиентского Worker-а.
+            if (expectedNewCharge > 0 && clientTotalGridCharge < expectedNewCharge - 0.5) {
+                let toCharge = expectedNewCharge - clientTotalGridCharge;
+                const gridBatsUp = newState.power.batteries.filter(b => b.loc === 'grid');
+                for (let i = 0; i < gridBatsUp.length; i++) {
+                    if (toCharge <= 0) break;
+                    const b = gridBatsUp[i];
+                    const cap = POWER_CFG.batteryCap * (1 - (b.wear / 100));
+                    const space = cap - b.charge;
+                    if (space > 0) {
+                        const add = Math.min(space, toCharge);
+                        b.charge = Number((b.charge + add).toFixed(4));
+                        toCharge -= add;
+                    }
                 }
                 clientTotalGridCharge = newState.power.batteries
                     .filter(b => b.loc === 'grid')
