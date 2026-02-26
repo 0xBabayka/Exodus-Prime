@@ -933,7 +933,22 @@ app.post('/api/game/save', auth, async (req, res) => {
             }
         });
 
-        let expectedNewCharge = totalOldGridCharge + generatedPower - totalPowerSpent + movedToGridCharge;
+        // Учитываем заряд батарей, ИЗВЛЕЧЁННЫХ из сетки между сохранениями.
+        // Без этого expectedNewCharge остаётся завышенным на заряд извлечённой батареи,
+        // и сервер ошибочно «докачивает» этот заряд в оставшиеся батареи сетки.
+        // Пример: A(33,grid) + B(0,grid) — игрок извлекает A — expectedNewCharge=33,
+        // clientTotalGridCharge=0 — ветка "сервер докачивает" заряжает B до 33. Это баг.
+        // Решение: вычесть СТАРЫЙ заряд каждой батареи, покинувшей сетку.
+        let movedFromGridCharge = 0;
+        oldGridBats.forEach(oldBat => {
+            const newBat = (newState.power?.batteries || []).find(b => b.id === oldBat.id);
+            if (!newBat || newBat.loc !== 'grid') {
+                // Батарея была в сетке, теперь нет — вычитаем её СТАРЫЙ заряд из ожидаемого
+                movedFromGridCharge += oldBat.charge || 0;
+            }
+        });
+
+        let expectedNewCharge = totalOldGridCharge + generatedPower - totalPowerSpent + movedToGridCharge - movedFromGridCharge;
         if (expectedNewCharge < -0.5) {
             logAction('CHEAT_POWER_BYPASS', user.id, user.username, req, {
                 totalOldGridCharge, generatedPower, totalPowerSpent, expectedNewCharge
