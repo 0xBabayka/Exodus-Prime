@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const compression = require('compression'); // gzip для ответов
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -18,6 +19,25 @@ const app = express();
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
 
+// --- ОПТИМИЗАЦИЯ 1: GZIP СЖАТИЕ ---
+// Сжимает все ответы > threshold (по умолчанию 1kb).
+// Снижает трафик и ускоряет загрузку клиента на Render.
+app.use(compression());
+
+// --- ОПТИМИЗАЦИЯ 2: HEALTH CHECK ENDPOINT ---
+// Render.com проверяет этот URL чтобы убедиться что сервис запущен.
+// Без него Render может считать деплой неудачным при медленном старте MongoDB.
+app.get('/healthz', (req, res) => {
+    const dbState = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+    const mongoState = dbState[require('mongoose').connection.readyState] || 'unknown';
+    res.status(mongoState === 'connected' ? 200 : 503).json({
+        status: mongoState === 'connected' ? 'ok' : 'degraded',
+        mongo: mongoState,
+        uptime: Math.floor(process.uptime()),
+        ts: Date.now()
+    });
+});
+
 app.get('/time', (req, res) => {
   res.json({ serverTime: Date.now() });
 });
@@ -32,7 +52,16 @@ const io = new Server(server, {
     cors: {
         origin: "*", // Настрой под свой домен в продакшене
         methods: ["GET", "POST"]
-    }
+    },
+    // --- ОПТИМИЗАЦИЯ 3: SOCKET.IO PING TUNING ---
+    // Render закрывает idle-соединения через ~55 сек.
+    // pingInterval 25s + pingTimeout 20s = клиент пингует каждые 25s,
+    // что держит соединение живым и не перегружает сервер лишними пакетами.
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    // Разрешаем только websocket на Render (polling создаёт избыточные HTTP-запросы)
+    // Клиент переключится на polling автоматически только если WS недоступен.
+    transports: ['websocket', 'polling']
 });
 
 // Middleware для авторизации сокетов по JWT
@@ -60,6 +89,23 @@ const CHAT_RATE_MS = 2000; // min 2s between messages
 // Используется в /api/game/save чтобы отличить короткий лаг сети от настоящего оффлайна.
 const onlineHeartbeats = new Map();
 const HEARTBEAT_TIMEOUT = 90 * 1000; // 90 с — считаем оффлайн если нет пинга дольше этого
+
+// --- ОПТИМИЗАЦИЯ 5: ОЧИСТКА ПАМЯТИ ---
+// Map-ы chatRateLimit и onlineHeartbeats растут бесконечно — утечка памяти.
+// Каждые 10 минут удаляем устаревшие записи (старше 5 минут для rateLimit, HEARTBEAT_TIMEOUT для heartbeats).
+setInterval(() => {
+    const now = Date.now();
+    const RATE_STALE_MS = 5 * 60 * 1000; // 5 минут
+    for (const [userId, ts] of chatRateLimit.entries()) {
+        if (now - ts > RATE_STALE_MS) chatRateLimit.delete(userId);
+    }
+    for (const [userId, ts] of onlineHeartbeats.entries()) {
+        if (now - ts > HEARTBEAT_TIMEOUT * 2) onlineHeartbeats.delete(userId);
+    }
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`[MEM] chatRateLimit: ${chatRateLimit.size}, heartbeats: ${onlineHeartbeats.size}`);
+    }
+}, 10 * 60 * 1000);
 
 io.on('connection', (socket) => {
     // Send chat history to newly connected client
@@ -373,6 +419,10 @@ const ActionLogSchema = new mongoose.Schema({
     details: { type: Object }
 });
 
+// --- ОПТИМИЗАЦИЯ 4: TTL INDEX для ActionLog ---
+// MongoDB автоматически удаляет записи старше 30 дней.
+// Без этого лог растёт бесконечно и замедляет запросы на Atlas Free Tier.
+ActionLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
 // Market Offer Model
@@ -2087,6 +2137,49 @@ app.post('/api/market/buy', auth, async (req, res) => {
     } finally {
         session.endSession();
     }
+});
+
+// --- ОПТИМИЗАЦИЯ 6: ОБРАБОТЧИКИ ОШИБОК ПРОЦЕССА ---
+// Render отправляет SIGTERM перед перезапуском/обновлением.
+// Graceful shutdown: прекращаем принимать новые соединения,
+// ждём завершения текущих запросов, закрываем MongoDB.
+process.on('SIGTERM', async () => {
+    console.log('[SHUTDOWN] SIGTERM received. Graceful shutdown...');
+    server.close(async () => {
+        try {
+            await mongoose.connection.close();
+            console.log('[SHUTDOWN] MongoDB connection closed.');
+        } catch(e) {
+            console.error('[SHUTDOWN] Error closing MongoDB:', e.message);
+        }
+        process.exit(0);
+    });
+    // Force exit after 10s if graceful shutdown takes too long
+    setTimeout(() => {
+        console.error('[SHUTDOWN] Forced exit after timeout.');
+        process.exit(1);
+    }, 10000);
+});
+
+// Логируем необработанные исключения — Render их показывает в логах деплоя
+process.on('uncaughtException', (err) => {
+    console.error('[UNCAUGHT EXCEPTION]', err.stack || err);
+    // НЕ падаем сразу — даём шанс завершить текущие запросы
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[UNHANDLED REJECTION] at:', promise, 'reason:', reason);
+});
+
+// --- ОПТИМИЗАЦИЯ 7: ПЕРЕПОДКЛЮЧЕНИЕ К MONGODB ---
+mongoose.connection.on('disconnected', () => {
+    console.warn('[MONGO] Disconnected. Attempting reconnect...');
+});
+mongoose.connection.on('reconnected', () => {
+    console.log('[MONGO] Reconnected successfully.');
+});
+mongoose.connection.on('error', (err) => {
+    console.error('[MONGO] Connection error:', err.message);
 });
 
 server.listen(PORT, () => console.log(`Server started on port ${PORT}`));

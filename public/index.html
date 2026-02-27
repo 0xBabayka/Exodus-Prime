@@ -1730,6 +1730,16 @@ setInterval(() => {
 if (socket && socket.connected) socket.emit('heartbeat');
 }, 45000);
 
+// --- ОПТИМИЗАЦИЯ: SELF-PING (Keep-Alive для Render.com) ---
+// Render.com Free Tier засыпает через 15 минут без входящих запросов.
+// Пингуем /healthz каждые 10 минут чтобы сервер оставался активным.
+// Используем /healthz (не /time) — он не создаёт лишней нагрузки на БД.
+setInterval(() => {
+if (!AUTH_TOKEN) return; // не пингуем если не авторизованы
+fetch(`${API_URL.replace('/api', '')}/healthz`, { method: 'GET' })
+.catch(() => {}); // тихо игнорируем ошибку — сеть могла быть недоступна
+}, 10 * 60 * 1000); // каждые 10 минут
+
 // Сохраняем новый размер окна чата после завершения растягивания
 const commsEl = document.getElementById('comms-panel');
 if (commsEl && typeof ResizeObserver !== 'undefined') {
