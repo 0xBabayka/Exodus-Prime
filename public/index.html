@@ -875,6 +875,7 @@ console.warn("SYS: Time sync failed, using local time.", e);
 let AUTH_TOKEN = localStorage.getItem('exodus_token');
 let socket = null; // --- Добавлено для WebSocket ---
 let energyWorker = null; // --- Web Worker для фонового тика энергии ---
+let _actionSaveTimer = null; // --- Таймер дебаунса мгновенного сохранения ---
 let marketFetchTimeout = null; // --- Добавлено для Debounce ---
 
 function initSocket() {
@@ -920,6 +921,17 @@ socket.on('disconnect', () => {
 console.warn("SYS: Real-time link lost.");
 const ind = document.getElementById('mkt-live-status');
 if(ind) { ind.style.color = 'var(--danger)'; ind.innerText = '○ OFFLINE'; }
+});
+
+// --- RENDER OPT 11: CONNECT_ERROR HANDLER ---
+// Когда Render «просыпается» после сна, первые 1-3 секунды сервер недоступен.
+// socket.io авто-переподключается (reconnectionAttempts: Infinity уже настроен),
+// но без connect_error пользователь видит только '○ OFFLINE' без объяснения причины.
+// '↺ CONNECTING' показывает что идёт переподключение, а не сервер упал навсегда.
+socket.on('connect_error', (err) => {
+console.warn("SYS: Socket connect error:", err.message);
+const ind = document.getElementById('mkt-live-status');
+if(ind) { ind.style.color = 'var(--warning)'; ind.innerText = '↺ CONNECTING'; }
 });
 
 socket.on('market_update', (data) => {
@@ -1194,6 +1206,17 @@ load: async function() {
 return false;
 }
 };
+
+// --- МГНОВЕННОЕ СОХРАНЕНИЕ (Action Save, дебаунс 500 мс) ---
+// Вызывается при любом значимом действии: старт/конец крафта, сделки, запуск кораблей.
+// Батчит несколько быстрых вызовов в один HTTP-save + socket-emit.
+function actionSave() {
+clearTimeout(_actionSaveTimer);
+_actionSaveTimer = setTimeout(() => {
+ServerSys.save();
+if (socket && socket.connected) socket.emit('save_game', { gameState: STATE });
+}, 500);
+}
 
 // --- CONFIG ---
 const CANVAS = document.getElementById('map');
@@ -1687,8 +1710,15 @@ setInterval(function() {
 `;
 
 function startGameLoop() {
-setInterval(() => ServerSys.save(), 3000); // Save every 3s to reduce server load
-window.addEventListener('beforeunload', () => ServerSys.save());
+// --- АВТОСЕЙВ: случайный интервал 30–60 секунд (снижение нагрузки на Render) ---
+(function scheduleAutoSave() {
+const delay = 30000 + Math.floor(Math.random() * 30000);
+setTimeout(() => { ServerSys.save(); if (socket && socket.connected) socket.emit('save_game', { gameState: STATE }); scheduleAutoSave(); }, delay);
+})();
+window.addEventListener('beforeunload', () => {
+ServerSys.save();
+if (socket && socket.connected) socket.emit('save_game', { gameState: STATE });
+});
 STATE.lastFrameTime = performance.now();
 requestAnimationFrame(loop);
 setInterval(updateUI, 500);
@@ -1730,15 +1760,16 @@ setInterval(() => {
 if (socket && socket.connected) socket.emit('heartbeat');
 }, 45000);
 
-// --- ОПТИМИЗАЦИЯ: SELF-PING (Keep-Alive для Render.com) ---
-// Render.com Free Tier засыпает через 15 минут без входящих запросов.
+// --- RENDER OPT 10: SELF-PING KEEP-ALIVE ---
+// Render.com Free Tier засыпает после 15 минут без входящих HTTP-запросов.
 // Пингуем /healthz каждые 10 минут чтобы сервер оставался активным.
-// Используем /healthz (не /time) — он не создаёт лишней нагрузки на БД.
+// /healthz — лёгкий endpoint без нагрузки на БД (в отличие от /time или /api/*).
+// Срабатывает только если пользователь авторизован (вкладка открыта и играет).
 setInterval(() => {
-if (!AUTH_TOKEN) return; // не пингуем если не авторизованы
-fetch(`${API_URL.replace('/api', '')}/healthz`, { method: 'GET' })
-.catch(() => {}); // тихо игнорируем ошибку — сеть могла быть недоступна
-}, 10 * 60 * 1000); // каждые 10 минут
+if (!AUTH_TOKEN) return;
+const pingUrl = API_URL.replace('/api', '') + '/healthz';
+fetch(pingUrl, { method: 'GET', keepalive: true }).catch(() => {});
+}, 10 * 60 * 1000);
 
 // Сохраняем новый размер окна чата после завершения растягивания
 const commsEl = document.getElementById('comms-panel');
@@ -1864,14 +1895,14 @@ drainBuffer(ROASTING_CFG.cost.power);
 STATE.inventory["Fermented Guarana"] -= ROASTING_CFG.cost["Fermented Guarana"];
 s.active = true; s.startTime = now(); s.duration = ROASTING_CFG.duration;
 log(`KITCHEN: Roaster ${id+1} started.`);
-renderKitchen(); updateUI();
+renderKitchen(); updateUI(); actionSave();
 }
 function completeRoasting(s) {
 s.active = false;
 let yieldAmt = Math.floor(Math.random() * (ROASTING_CFG.output.max - ROASTING_CFG.output.min + 1)) + ROASTING_CFG.output.min;
 STATE.inventory["Roasted Guarana"] = (STATE.inventory["Roasted Guarana"] || 0) + yieldAmt;
 log(`KITCHEN: Roasting complete. +${yieldAmt} Roasted Guarana.`);
-renderKitchen(); updateUI();
+renderKitchen(); updateUI(); actionSave();
 }
 
 function startGrinding(id) {
@@ -1886,14 +1917,14 @@ drainBuffer(GRINDER_CFG.cost.power);
 STATE.inventory["Roasted Guarana"] -= GRINDER_CFG.cost["Roasted Guarana"];
 s.active = true; s.startTime = now(); s.duration = GRINDER_CFG.duration;
 log(`KITCHEN: Grinder ${id+1} started.`);
-renderKitchen(); updateUI();
+renderKitchen(); updateUI(); actionSave();
 }
 function completeGrinding(s) {
 s.active = false;
 let yieldAmt = Math.floor(Math.random() * (GRINDER_CFG.output.max - GRINDER_CFG.output.min + 1)) + GRINDER_CFG.output.min;
 STATE.inventory["Ground Guarana"] = (STATE.inventory["Ground Guarana"] || 0) + yieldAmt;
 log(`KITCHEN: Grinding complete. +${yieldAmt} Ground Guarana.`);
-renderKitchen(); updateUI();
+renderKitchen(); updateUI(); actionSave();
 }
 function startBrewing(id) {
 const s = STATE.kitchen.brewerSlots[id];
@@ -1909,14 +1940,14 @@ STATE.inventory["Ground Guarana"] -= BREWING_CFG.cost["Ground Guarana"];
 STATE.inventory.Water -= BREWING_CFG.cost.water;
 s.active = true; s.startTime = now(); s.duration = BREWING_CFG.duration;
 log(`KITCHEN: Brewer ${id+1} started.`);
-renderKitchen(); updateUI();
+renderKitchen(); updateUI(); actionSave();
 }
 function completeBrewing(s) {
 s.active = false;
 let yieldAmt = Math.floor(Math.random() * (BREWING_CFG.output.max - BREWING_CFG.output.min + 1)) + BREWING_CFG.output.min;
 STATE.inventory["Energy Isotonic"] = (STATE.inventory["Energy Isotonic"] || 0) + yieldAmt;
 log(`KITCHEN: Brewing complete. +${yieldAmt} Energy Isotonic.`);
-renderKitchen(); updateUI();
+renderKitchen(); updateUI(); actionSave();
 }
 
 function renderKitchen() {
@@ -1999,7 +2030,7 @@ log(`AGRI: Lucky! Recovered ${sCount} ${s.crop} Seeds.`);
 
 STATE.skills.agriculture.xp+=c.xp;
 if(STATE.skills.agriculture.xp >= STATE.skills.agriculture.next) { STATE.skills.agriculture.lvl++; STATE.skills.agriculture.xp=0; STATE.skills.agriculture.next=Math.floor(STATE.skills.agriculture.next*1.5); log(`SKILL UP: AGRI LVL ${STATE.skills.agriculture.lvl}`); }
-s.status='empty'; s.crop=null; renderGreenhouse(); updateUI();
+s.status='empty'; s.crop=null; renderGreenhouse(); updateUI(); actionSave();
 }
 
 function renderGreenhouse() {
@@ -2034,7 +2065,7 @@ STATE.inventory["Biological Waste"] -= COMPOST_CFG.cost.waste;
 STATE.inventory.Water -= COMPOST_CFG.cost.water;
 s.active = true; s.startTime = now(); s.duration = COMPOST_CFG.duration;
 log(`BIO: Composter ${id+1} started.`);
-renderComposter(); updateUI();
+renderComposter(); updateUI(); actionSave();
 }
 function completeCompost(s) {
 s.active = false;
@@ -2044,7 +2075,7 @@ STATE.skills.agriculture.xp += 15;
 if (Math.random() < 0.1111) { let worms = Math.floor(Math.random() * 5) + 1; STATE.inventory.Worms = (STATE.inventory.Worms || 0) + worms;
 STATE.skills.agriculture.xp += 5; msg += ` & found ${worms} Worms!`; }
 if(STATE.skills.agriculture.xp >= STATE.skills.agriculture.next) { STATE.skills.agriculture.lvl++; STATE.skills.agriculture.xp=0; STATE.skills.agriculture.next=Math.floor(STATE.skills.agriculture.next*1.5); log(`SKILL UP: AGRI LVL ${STATE.skills.agriculture.lvl}`); }
-log(msg + "."); renderComposter(); updateUI();
+log(msg + "."); renderComposter(); updateUI(); actionSave();
 }
 function renderComposter() {
 const c = document.getElementById('composter-ui'); if(!c) return;
@@ -2071,7 +2102,7 @@ useStamina(cfg.cost.stamina);
 if(mode === 'split') { STATE.inventory.Water -= cfg.cost.water; } else if(mode === 'methane') { STATE.inventory.H2 -= cfg.cost.h2; STATE.inventory.CO2 -= cfg.cost.co2; }
 drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`SABATIER: Reactor ${id+1} started [${mode.toUpperCase()}].`); renderSabatier(); updateUI();
+log(`SABATIER: Reactor ${id+1} started [${mode.toUpperCase()}].`); renderSabatier(); updateUI(); actionSave();
 }
 function completeSabatier(s) {
 const cfg = SABATIER_CFG[s.mode]; let xp = 0;
@@ -2083,7 +2114,7 @@ else if(s.mode === 'methane') { STATE.inventory.Methane = (STATE.inventory.Metha
 log(`SABATIER: Reactor ${s.id+1} finished. +Methane, +Water.`); xp += 15; }
 if(xp > 0) { STATE.skills.chemistry.xp += xp; if(STATE.skills.chemistry.xp >= STATE.skills.chemistry.next) { STATE.skills.chemistry.lvl++; STATE.skills.chemistry.xp = 0; STATE.skills.chemistry.next = Math.floor(STATE.skills.chemistry.next * 1.5);
 log(`SKILL UP: CHEMISTRY LVL ${STATE.skills.chemistry.lvl}`); } }
-s.active = false; s.mode = null; renderSabatier(); updateUI();
+s.active = false; s.mode = null; renderSabatier(); updateUI(); actionSave();
 }
 function renderSabatier() {
 const c = document.getElementById('sabatier-ui'); if(!c) return;
@@ -2105,7 +2136,7 @@ if(p < CAD_CFG.powerCost) return log("ERR: LOW POWER.");
 if(!useStamina(CAD_CFG.staminaCost)) return;
 drainBuffer(CAD_CFG.powerCost);
 s.active = true; s.startTime = now(); s.duration = CAD_CFG.duration;
-log(`ATMOS: C.A.D. Cell ${id+1} started.`); renderCad(); updateUI();
+log(`ATMOS: C.A.D. Cell ${id+1} started.`); renderCad(); updateUI(); actionSave();
 }
 function completeCad(s) {
 s.active = false;
@@ -2117,7 +2148,7 @@ if(Math.random() < 0.10) { let a=Math.floor(Math.random()*2)+1; STATE.inventory.
 if(Math.random() < 0.05) { let ne=Math.floor(Math.random()*2)+1; STATE.inventory.Neon=(STATE.inventory.Neon||0)+ne; msg+=`, ${ne} Ne`; }
 if(Math.random() < 0.03) { let kr=Math.floor(Math.random()*2)+1; STATE.inventory.Krypton=(STATE.inventory.Krypton||0)+kr; msg+=`, ${kr} Kr`; }
 if(Math.random() < 0.02) { let xe=Math.floor(Math.random()*2)+1; STATE.inventory.Xenon=(STATE.inventory.Xenon||0)+xe; msg+=`, ${xe} Xe`; }
-log(msg); renderCad(); updateUI();
+log(msg); renderCad(); updateUI(); actionSave();
 }
 function renderCad() {
 const c = document.getElementById('cad-container'); if(!c) return;
@@ -2138,12 +2169,12 @@ if(p<FILTER_CFG.cost.power) return log("ERR: LOW POWER.");
 if((STATE.inventory["Ice water"]||0)<FILTER_CFG.cost.ice) return log("ERR: NO ICE.");
 if(!useStamina(FILTER_CFG.cost.stamina)) return;
 drainBuffer(FILTER_CFG.cost.power); STATE.inventory["Ice water"]-=FILTER_CFG.cost.ice;
-s.active=true; s.startTime=now(); s.duration=FILTER_CFG.duration; log(`REF: Cell ${id+1} filtering.`); renderWaterFilter(); updateUI();
+s.active=true; s.startTime=now(); s.duration=FILTER_CFG.duration; log(`REF: Cell ${id+1} filtering.`); renderWaterFilter(); updateUI(); actionSave();
 }
 function completeWaterFilter(s) {
 s.active=false; STATE.inventory.Water=(STATE.inventory.Water||0)+FILTER_CFG.output.water;
 STATE.inventory.Regolith=(STATE.inventory.Regolith||0)+FILTER_CFG.output.regolith;
-log(`REF: Cell ${s.id+1} done. +Water, +Regolith.`); renderWaterFilter(); updateUI();
+log(`REF: Cell ${s.id+1} done. +Water, +Regolith.`); renderWaterFilter(); updateUI(); actionSave();
 }
 function startFermentation(mode) {
 const s = STATE.refinery.fermenterSlot; const cfg = FERMENT_CFG[mode];
@@ -2155,14 +2186,14 @@ if(mode === 'amaranth') { if((STATE.inventory.Amaranth||0) < cfg.cost.amaranth) 
 } else if(mode === 'guarana') { if((STATE.inventory.Guarana||0) < cfg.cost.guarana) return log("ERR: NO GUARANA."); STATE.inventory.Guarana -= cfg.cost.guarana; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`REF: Fermentation (${mode}) started.`); renderWaterFilter(); updateUI();
+log(`REF: Fermentation (${mode}) started.`); renderWaterFilter(); updateUI(); actionSave();
 }
 function completeFermentation() {
 const s = STATE.refinery.fermenterSlot; const cfg = FERMENT_CFG[s.mode]; s.active = false;
 let yieldAmt = Math.floor(Math.random() * (cfg.output.max - cfg.output.min + 1)) + cfg.output.min;
 if(s.mode === 'amaranth') { STATE.inventory["Fermented Amaranth"] = (STATE.inventory["Fermented Amaranth"]||0) + yieldAmt; log(`REF: Fermentation complete. +${yieldAmt} Fermented Amaranth.`);
 } else if(s.mode === 'guarana') { STATE.inventory["Fermented Guarana"] = (STATE.inventory["Fermented Guarana"]||0) + yieldAmt; log(`REF: Fermentation complete. +${yieldAmt} Fermented Guarana.`); }
-s.mode = null; renderWaterFilter(); updateUI();
+s.mode = null; renderWaterFilter(); updateUI(); actionSave();
 }
 function renderWaterFilter() {
 const c=document.getElementById('water-filter-ui'); if(!c)return;
@@ -2204,7 +2235,7 @@ STATE.inventory["Iron Ore"] -= cfg.cost["Iron Ore"]; } else if (mode === 'alumin
 } else if (mode === 'silicon') { STATE.inventory.Regolith -= cfg.cost.regolith; STATE.inventory.CO2 -= cfg.cost.co2; }
 drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`SMELTER: Crucible ${id+1} activated [${mode.toUpperCase()}].`); renderSmelter(); updateUI();
+log(`SMELTER: Crucible ${id+1} activated [${mode.toUpperCase()}].`); renderSmelter(); updateUI(); actionSave();
 }
 function completeSmelter(s) {
 s.active = false; let msg = ""; let xp = 0; const bonusStacks = Math.floor(STATE.skills.metallurgy.lvl / 5);
@@ -2233,7 +2264,7 @@ msg = `SMELTER ${s.id+1}: Produced ${yieldAmt} Raw silicon`; if(lucky) { let bon
 msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Raw silicon"] = (STATE.inventory["Raw silicon"] || 0) + yieldAmt; xp = 10; }
 if(xp > 0) { STATE.skills.metallurgy.xp += xp; if(STATE.skills.metallurgy.xp >= STATE.skills.metallurgy.next) { STATE.skills.metallurgy.lvl++; STATE.skills.metallurgy.xp = 0; STATE.skills.metallurgy.next = Math.floor(STATE.skills.metallurgy.next * 1.5);
 log(`SKILL UP: METALLURGY LVL ${STATE.skills.metallurgy.lvl}`); } }
-s.mode = null; log(msg); renderSmelter(); updateUI();
+s.mode = null; log(msg); renderSmelter(); updateUI(); actionSave();
 }
 function renderSmelter() {
 const c = document.getElementById('smelter-ui'); if(!c) return;
@@ -2259,7 +2290,7 @@ STATE.inventory["Aluminium Ore"] -= cfg.cost["Aluminium Ore"]; } else if (mode =
 STATE.inventory["Titanium Ore"] -= cfg.cost["Titanium Ore"]; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`FACTORY: Metalworks ${id+1} started [${mode.toUpperCase()}].`); renderMetalworks(); updateUI();
+log(`FACTORY: Metalworks ${id+1} started [${mode.toUpperCase()}].`); renderMetalworks(); updateUI(); actionSave();
 }
 function completeMetalworks(s) {
 s.active = false; let msg = ""; const cfg = METALWORKS_CFG[s.mode]; let xp = 0;
@@ -2272,7 +2303,7 @@ yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Titanium Pla
 xp = 55; }
 if(xp > 0) { STATE.skills.metallurgy.xp += xp; if(STATE.skills.metallurgy.xp >= STATE.skills.metallurgy.next) { STATE.skills.metallurgy.lvl++; STATE.skills.metallurgy.xp = 0; STATE.skills.metallurgy.next = Math.floor(STATE.skills.metallurgy.next * 1.5);
 log(`SKILL UP: METALLURGY LVL ${STATE.skills.metallurgy.lvl}`); } }
-s.mode = null; log(msg + "."); renderMetalworks(); updateUI();
+s.mode = null; log(msg + "."); renderMetalworks(); updateUI(); actionSave();
 }
 function renderMetalworks() {
 const c = document.getElementById('metalworks-ui'); if(!c) return;
@@ -2299,7 +2330,7 @@ if ((STATE.inventory["Titanium Plate"]||0) < cfg.cost["Titanium Plate"]) return 
 STATE.inventory["Titanium Plate"] -= cfg.cost["Titanium Plate"]; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`FACTORY: Machine Shop ${id+1} started [${mode.toUpperCase()}].`); renderMachineParts(); updateUI();
+log(`FACTORY: Machine Shop ${id+1} started [${mode.toUpperCase()}].`); renderMachineParts(); updateUI(); actionSave();
 }
 function completeMachineParts(s) {
 s.active = false; let msg = ""; const cfg = MACHINE_PARTS_CFG[s.mode]; let xp = 0;
@@ -2312,7 +2343,7 @@ yieldAmt += bonus; msg += ` (+${bonus} Bonus!)`; } STATE.inventory["Moving Parts
 xp = 140; }
 if(xp > 0) { STATE.skills.engineering.xp += xp; if(STATE.skills.engineering.xp >= STATE.skills.engineering.next) { STATE.skills.engineering.lvl++; STATE.skills.engineering.xp = 0; STATE.skills.engineering.next = Math.floor(STATE.skills.engineering.next * 1.5);
 log(`SKILL UP: ENGINEERING LVL ${STATE.skills.engineering.lvl}`); } }
-s.mode = null; log(msg + "."); renderMachineParts(); updateUI();
+s.mode = null; log(msg + "."); renderMachineParts(); updateUI(); actionSave();
 }
 function renderMachineParts() {
 const c = document.getElementById('machineparts-content'); if(!c) return;
@@ -2344,7 +2375,7 @@ if ((STATE.inventory.Regolith||0) < cfg.cost.Regolith) return log("ERR: MISSING 
 STATE.inventory["Copper Ore"] -= cfg.cost["Copper Ore"]; STATE.inventory.PVC -= cfg.cost.PVC; STATE.inventory["Electric silicon"] -= cfg.cost["Electric silicon"]; STATE.inventory.Regolith -= cfg.cost.Regolith; }
 useStamina(cfg.cost.stamina); drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`PRINTER: Job ${id+1} started [${mode.toUpperCase()}].`); renderPrinter(); updateUI();
+log(`PRINTER: Job ${id+1} started [${mode.toUpperCase()}].`); renderPrinter(); updateUI(); actionSave();
 }
 function completePrinter(s) {
 s.active = false; let msg = ""; const cfg = PRINTER_CFG[s.mode]; let xp = 0;
@@ -2356,7 +2387,7 @@ else if (s.mode === 'electronic_parts') { let yieldAmt = Math.floor(Math.random(
 msg = `PRINTER: Produced ${yieldAmt} Electronic Parts`; STATE.inventory["Electronic Parts"] = (STATE.inventory["Electronic Parts"] || 0) + yieldAmt; xp = 45; }
 if(xp > 0) { STATE.skills.engineering.xp += xp; if(STATE.skills.engineering.xp >= STATE.skills.engineering.next) { STATE.skills.engineering.lvl++; STATE.skills.engineering.xp = 0; STATE.skills.engineering.next = Math.floor(STATE.skills.engineering.next * 1.5);
 log(`SKILL UP: ENGINEERING LVL ${STATE.skills.engineering.lvl}`); } }
-s.mode = null; log(msg + "."); renderPrinter(); updateUI();
+s.mode = null; log(msg + "."); renderPrinter(); updateUI(); actionSave();
 }
 function renderPrinter() {
 const c = document.getElementById('printer-ui'); if(!c) return;
@@ -2385,7 +2416,7 @@ if (mode === 'methane') { STATE.inventory.Methane -= cfg.cost.methane; } else if
 } else if (mode === 'synthesis') { STATE.inventory["Liquid CH4"] -= cfg.cost.liquidMethane; STATE.inventory["Liquid O2"] -= cfg.cost.liquidO2; }
 drainBuffer(cfg.cost.power);
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`FUEL: Slot ${id+1} Process (${mode.toUpperCase()}) started.`); renderFuelFactory(); updateUI();
+log(`FUEL: Slot ${id+1} Process (${mode.toUpperCase()}) started.`); renderFuelFactory(); updateUI(); actionSave();
 }
 function completeFuelProcess(s) {
 s.active = false;
@@ -2394,7 +2425,7 @@ log(`FUEL: Slot ${s.id+1} complete. +${cfg.output.liquidMethane} Liquid CH4.`); 
 STATE.inventory["Liquid O2"] = (STATE.inventory["Liquid O2"] || 0) + cfg.output.liquidO2; log(`FUEL: Slot ${s.id+1} complete. +${cfg.output.liquidO2} Liquid O2.`);
 } else if (s.mode === 'synthesis') { const cfg = FUEL_CFG.synthesis; STATE.inventory["Rocket Fuel"] = (STATE.inventory["Rocket Fuel"] || 0) + cfg.output.rocketFuel;
 log(`FUEL: Slot ${s.id+1} complete. +${cfg.output.rocketFuel} ROCKET FUEL.`); }
-s.mode = null; renderFuelFactory(); updateUI();
+s.mode = null; renderFuelFactory(); updateUI(); actionSave();
 }
 function renderFuelFactory() {
 const c = document.getElementById('fuel-factory-ui'); if(!c) return;
@@ -2430,7 +2461,7 @@ if (mode === 'pvc') { STATE.inventory.Methane -= cfg.cost.methane; STATE.invento
 } else if (mode === 'empty_battery') { STATE.inventory.Perchlorate -= cfg.cost.perchlorate; STATE.inventory.Water -= cfg.cost.water; STATE.inventory["Iron Ore"] -= cfg.cost["Iron Ore"];
 STATE.inventory.PVC -= cfg.cost.PVC; } else if (mode === 'electric_silicon') { STATE.inventory["Raw silicon"] -= cfg.cost["Raw silicon"]; }
 s.active = true; s.mode = mode; s.startTime = now(); s.duration = cfg.duration;
-log(`CHEM: Reaction ${id+1} started [${mode.toUpperCase()}].`); renderChemLab(); updateUI();
+log(`CHEM: Reaction ${id+1} started [${mode.toUpperCase()}].`); renderChemLab(); updateUI(); actionSave();
 }
 function completeChem(s) {
 s.active = false; let msg = ""; let xp = 0; const bonusStacks = Math.floor(STATE.skills.chemistry.lvl / 5);
@@ -2450,7 +2481,7 @@ if (lucky) { let bonus = 1; amt += bonus; msg += ` (+${bonus} Bonus!)`;
 } STATE.inventory["Electric silicon"] = (STATE.inventory["Electric silicon"] || 0) + amt; xp = 25; }
 if(xp > 0) { STATE.skills.chemistry.xp += xp; if(STATE.skills.chemistry.xp >= STATE.skills.chemistry.next) { STATE.skills.chemistry.lvl++; STATE.skills.chemistry.xp = 0; STATE.skills.chemistry.next = Math.floor(STATE.skills.chemistry.next * 1.5);
 log(`SKILL UP: CHEMISTRY LVL ${STATE.skills.chemistry.lvl}`); } }
-s.mode = null; log(msg + "."); renderChemLab(); updateUI();
+s.mode = null; log(msg + "."); renderChemLab(); updateUI(); actionSave();
 }
 function renderChemLab() {
 const c = document.getElementById('chemlab-ui'); if(!c) return;
@@ -2471,6 +2502,7 @@ let p=STATE.power.batteries.filter(b=>b.loc==='grid').reduce((a,b)=>a+b.charge,0
 if(p<1) return log("ERR: DRONE POWER LOW.");
 if(!useStamina(1)) return;
 STATE.scavenging.lastStart = now(); drainBuffer(1); STATE.scavenging.active=true; STATE.scavenging.timer=0; UI_CACHE['btn-scavenge'].disabled=true; log("SCAV: Scanning...");
+actionSave();
 }
 function completeScavenge() {
 STATE.scavenging.active = false; UI_CACHE['btn-scavenge'].disabled = false; UI_CACHE['scav-progress'].style.width = "0%";
@@ -2488,7 +2520,7 @@ if (bonusStacks > 0) { const chance = bonusStacks * 0.10;
 if (Math.random() < chance) { let bonusAmt = Math.floor(Math.random() * 5) + 1;
 if (Math.random() > 0.5) { STATE.inventory.Scrap += bonusAmt; msg += ` +${bonusAmt} Scrap (Lucky!)`; } else { STATE.inventory.Regolith += bonusAmt;
 msg += ` +${bonusAmt} Regolith (Lucky!)`; } } }
-log(msg); updateUI();
+log(msg); updateUI(); actionSave();
 }
 function levelUpScavenging() {
 const s = STATE.skills.scavenging; s.lvl++; s.xp = 0; const tier = SCAV_TIERS.find(t => s.lvl >= t.min && s.lvl <= t.max);
@@ -2753,15 +2785,15 @@ extraInfo = `<div style="margin-top:2px; display:flex; justify-content:space-bet
 
 function craftComponent(k, s) { if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER."); if(!useStamina(s)) return; const c = COMPONENTS[k];
 for(let r in c.cost) { if (STATE.inventory[r]!==undefined) STATE.inventory[r]-=c.cost[r]; else STATE.components[r]-=c.cost[r]; } if (k === 'battery') { createBattery('inventory'); log(`FACTORY: Battery created.`);
-} else { STATE.components[k]++; log(`FACTORY: ${c.name} created.`); } renderFactory(); updateUI(); }
+} else { STATE.components[k]++; log(`FACTORY: ${c.name} created.`); } renderFactory(); updateUI(); actionSave(); }
 
 function launch(t, c, s) { if(STATE.power.gridStatus==='BLACKOUT') return; if(!useStamina(s)) return; STATE.inventory["Rocket Fuel"]-=c; STATE.hangar[t]--; const b = STATE.bodies.find(x=>x.type==="BASE"); const d = Math.abs(STATE.selectedObj.dist-b.dist)+0.2;
-STATE.ships.push({ type:t, spec:SPECS[t], targetId:STATE.selectedObj.id, phase:'outbound', duration:d/(BASE_SPEED*SPECS[t].speed), progress:0, lastTick:now(), startPos:getOrbitalPos(b,now()*ORBIT_CALC_FACTOR,1.0), cargoItem:null, cargoAmount:0 }); log(`CMD: ${t} launched.`); closeModal(null, true); updateUI(); }
+STATE.ships.push({ type:t, spec:SPECS[t], targetId:STATE.selectedObj.id, phase:'outbound', duration:d/(BASE_SPEED*SPECS[t].speed), progress:0, lastTick:now(), startPos:getOrbitalPos(b,now()*ORBIT_CALC_FACTOR,1.0), cargoItem:null, cargoAmount:0 }); log(`CMD: ${t} launched.`); closeModal(null, true); updateUI(); actionSave(); }
 
 function startBuild(t, s) { if(STATE.power.gridStatus==='BLACKOUT') return log("ERR: NO POWER."); if(!useStamina(s)) return; const sp = SPECS[t]; let ok=true;
 if (t==='probe') { if((STATE.inventory["Iron Ore"]||0)<sp.cost["Iron Ore"] || STATE.inventory.Si<sp.cost.Si) ok=false; } else { for(let p in sp.cost) if(STATE.components[p]<sp.cost[p]) ok=false;
 } if(!ok) return log("ERR: MISSING PARTS."); if (t==='probe') { STATE.inventory["Iron Ore"]-=sp.cost["Iron Ore"]; STATE.inventory.Si-=sp.cost.Si;
-} else { for(let p in sp.cost) STATE.components[p]-=sp.cost[p]; } STATE.buildQueue.push({ type:t, progress:0, totalDuration:sp.buildTime }); renderHangar(); updateUI(); }
+} else { for(let p in sp.cost) STATE.components[p]-=sp.cost[p]; } STATE.buildQueue.push({ type:t, progress:0, totalDuration:sp.buildTime }); renderHangar(); updateUI(); actionSave(); }
 
 function processBuildQueue(dt) { if (STATE.power.gridStatus === 'BLACKOUT') return; for (let i = STATE.buildQueue.length - 1; i >= 0; i--) { const j = STATE.buildQueue[i];
 j.progress += dt * 1000; if (j.progress >= j.totalDuration) { STATE.hangar[j.type]++; log(`SHIPYARD: ${j.type} ready.`); STATE.buildQueue.splice(i, 1);
@@ -3014,7 +3046,7 @@ ih.startTime = now();
 ih.duration = 6 * 60 * 60 * 1000;
 log('HARVEST: Ice Harvester deployed. ETA: 6h.');
 renderGroundOps();
-updateUI();
+updateUI(); actionSave();
 }
 
 function completeIceHarvest() {
@@ -3033,7 +3065,7 @@ if (ih.durability <= 0) {
   log(`HARVEST: Complete! +${iceYield} Ice. Wear: -${wear} (Durability: ${ih.durability}/100).`);
 }
 renderGroundOps();
-updateUI();
+updateUI(); actionSave();
 }
 
 function repairIceHarvester() {
@@ -3063,7 +3095,7 @@ rh.startTime = now();
 rh.duration = 6 * 60 * 60 * 1000;
 log('REG-HARVEST: Regolith Harvester deployed. ETA: 6h.');
 renderGroundOps();
-updateUI();
+updateUI(); actionSave();
 }
 
 function completeRegolithHarvest() {
@@ -3081,7 +3113,7 @@ if (rh.durability <= 0) {
   log(`REG-HARVEST: Complete! +${regYield} Regolith. Wear: -${wear} (Durability: ${rh.durability}/100).`);
 }
 renderGroundOps();
-updateUI();
+updateUI(); actionSave();
 }
 
 function repairRegolithHarvester() {
@@ -3418,6 +3450,7 @@ STATE.inventory = data.inventory; // Sync inventory
 log("MARKET: Scavenging License acquired.");
 renderWarehouse();
 updateUI();
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }
@@ -3535,6 +3568,7 @@ log(`MKT: Listed ${qty} ${item} for ${price} $H3.`);
 renderP2PMarket();
 updateUI();
 populateP2PSelect(); // Refresh list amounts
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }
@@ -3558,6 +3592,7 @@ log("MKT: Offer cancelled. Items returned.");
 renderP2PMarket();
 updateUI();
 populateP2PSelect();
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }
@@ -3589,6 +3624,7 @@ loadMarketData();
 log(`MKT: Purchase successful!`);
 renderP2PMarket();
 updateUI();
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }
@@ -3690,6 +3726,7 @@ renderBuyOrdersTab();
 updateUI();
 document.getElementById('p2p-buy-qty').value = 1;
 document.getElementById('p2p-buy-price').value = '';
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }
@@ -3710,6 +3747,7 @@ STATE.market.buyOrders = data.buyOrders || [];
 log("MKT: Buy order cancelled. $H3 refunded.");
 renderBuyOrdersTab();
 updateUI();
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }
@@ -3734,6 +3772,7 @@ STATE.market.buyOrders = data.buyOrders || [];
 log(`MKT: Filled ${fillQty} items. $H3 received.`);
 renderBuyOrdersTab();
 updateUI();
+actionSave();
 } catch(e) {
 log(`MKT ERR: ${e.message}`);
 }

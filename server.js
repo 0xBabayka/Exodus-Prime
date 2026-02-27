@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const compression = require('compression'); // gzip для ответов
+const compression = require('compression'); // gzip-сжатие HTTP-ответов
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -19,20 +19,22 @@ const app = express();
 // Важно для корректного определения IP через Render/Heroku/Nginx
 app.set('trust proxy', 1);
 
-// --- ОПТИМИЗАЦИЯ 1: GZIP СЖАТИЕ ---
-// Сжимает все ответы > threshold (по умолчанию 1kb).
-// Снижает трафик и ускоряет загрузку клиента на Render.
+// --- RENDER OPT 1: GZIP COMPRESSION ---
+// Сжимает все ответы > 1kb. Снижает трафик и ускоряет загрузку.
+// Важно: вставлять ДО всех роутов чтобы сжатие применялось везде.
 app.use(compression());
 
-// --- ОПТИМИЗАЦИЯ 2: HEALTH CHECK ENDPOINT ---
-// Render.com проверяет этот URL чтобы убедиться что сервис запущен.
-// Без него Render может считать деплой неудачным при медленном старте MongoDB.
+// --- RENDER OPT 2: HEALTH CHECK ENDPOINT ---
+// Render.com опрашивает этот URL каждые ~30 секунд.
+// Возвращает 200 если MongoDB подключена, 503 если нет.
+// Без /healthz Render может считать деплой неудачным при медленном старте Atlas.
 app.get('/healthz', (req, res) => {
-    const dbState = ['disconnected', 'connected', 'connecting', 'disconnecting'];
-    const mongoState = dbState[require('mongoose').connection.readyState] || 'unknown';
-    res.status(mongoState === 'connected' ? 200 : 503).json({
-        status: mongoState === 'connected' ? 'ok' : 'degraded',
-        mongo: mongoState,
+    const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+    const mongoStatus = states[mongoose.connection.readyState] || 'unknown';
+    const isHealthy = mongoose.connection.readyState === 1;
+    res.status(isHealthy ? 200 : 503).json({
+        status: isHealthy ? 'ok' : 'degraded',
+        mongo: mongoStatus,
         uptime: Math.floor(process.uptime()),
         ts: Date.now()
     });
@@ -53,15 +55,12 @@ const io = new Server(server, {
         origin: "*", // Настрой под свой домен в продакшене
         methods: ["GET", "POST"]
     },
-    // --- ОПТИМИЗАЦИЯ 3: SOCKET.IO PING TUNING ---
-    // Render закрывает idle-соединения через ~55 сек.
-    // pingInterval 25s + pingTimeout 20s = клиент пингует каждые 25s,
-    // что держит соединение живым и не перегружает сервер лишними пакетами.
+    // --- RENDER OPT 3: SOCKET.IO PING TUNING ---
+    // Render.com закрывает idle-соединения через ~55 секунд.
+    // pingInterval 25s = клиент пингует каждые 25s — соединение остаётся живым.
+    // pingTimeout 20s = если клиент не ответил за 20s после пинга — считаем отключённым.
     pingInterval: 25000,
-    pingTimeout: 20000,
-    // Разрешаем только websocket на Render (polling создаёт избыточные HTTP-запросы)
-    // Клиент переключится на polling автоматически только если WS недоступен.
-    transports: ['websocket', 'polling']
+    pingTimeout: 20000
 });
 
 // Middleware для авторизации сокетов по JWT
@@ -90,22 +89,21 @@ const CHAT_RATE_MS = 2000; // min 2s between messages
 const onlineHeartbeats = new Map();
 const HEARTBEAT_TIMEOUT = 90 * 1000; // 90 с — считаем оффлайн если нет пинга дольше этого
 
-// --- ОПТИМИЗАЦИЯ 5: ОЧИСТКА ПАМЯТИ ---
-// Map-ы chatRateLimit и onlineHeartbeats растут бесконечно — утечка памяти.
-// Каждые 10 минут удаляем устаревшие записи (старше 5 минут для rateLimit, HEARTBEAT_TIMEOUT для heartbeats).
+// --- RENDER OPT 5: ОЧИСТКА ПАМЯТИ (предотвращение утечки Map) ---
+// chatRateLimit и onlineHeartbeats накапливают записи всех когда-либо подключавшихся игроков.
+// Без очистки Map растут бесконечно → рост RAM → рестарты на Free Tier.
+// Каждые 15 минут удаляем устаревшие записи.
 setInterval(() => {
     const now = Date.now();
-    const RATE_STALE_MS = 5 * 60 * 1000; // 5 минут
-    for (const [userId, ts] of chatRateLimit.entries()) {
-        if (now - ts > RATE_STALE_MS) chatRateLimit.delete(userId);
+    const RATE_STALE_MS = 5 * 60 * 1000;      // chatRateLimit: 5 мин — запись точно устарела
+    const HB_STALE_MS = HEARTBEAT_TIMEOUT * 3; // heartbeats: 4.5 мин — точно оффлайн
+    for (const [uid, ts] of chatRateLimit.entries()) {
+        if (now - ts > RATE_STALE_MS) chatRateLimit.delete(uid);
     }
-    for (const [userId, ts] of onlineHeartbeats.entries()) {
-        if (now - ts > HEARTBEAT_TIMEOUT * 2) onlineHeartbeats.delete(userId);
+    for (const [uid, ts] of onlineHeartbeats.entries()) {
+        if (now - ts > HB_STALE_MS) onlineHeartbeats.delete(uid);
     }
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`[MEM] chatRateLimit: ${chatRateLimit.size}, heartbeats: ${onlineHeartbeats.size}`);
-    }
-}, 10 * 60 * 1000);
+}, 15 * 60 * 1000);
 
 io.on('connection', (socket) => {
     // Send chat history to newly connected client
@@ -169,9 +167,43 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
+    // --- SAVE ON DISCONNECT via Socket ---
+    // Клиент посылает save_game при каждом actionSave и autosave.
+    // Сервер хранит последний снимок и сохраняет «безопасные» поля при disconnect.
+    // Inventory / power / skills — управляются авторитетно через HTTP /api/game/save.
+    socket.on('save_game', (data) => {
+        if (!socket.user || !socket.user.id || !data || !data.gameState) return;
+        onlineHeartbeats.set(socket.user.id.toString(), Date.now());
+        socket._lastGameState = data.gameState;
+    });
+
+    socket.on('disconnect', async () => {
         if (socket.user && socket.user.id) {
             onlineHeartbeats.delete(socket.user.id.toString());
+            if (socket._lastGameState) {
+                try {
+                    const gs = socket._lastGameState;
+                    const user = await User.findById(socket.user.id);
+                    if (user && user.gameState) {
+                        const safeFields = [
+                            'cad', 'metalworks', 'machineParts', 'printer',
+                            'fuelFactory', 'chemlab', 'composter', 'refinery',
+                            'greenhouse', 'kitchen', 'scavenging',
+                            'iceHarvester', 'regolithHarvester',
+                            'ships', 'buildQueue', 'uiState', 'camera', 'zoom', 'bodies'
+                        ];
+                        safeFields.forEach(f => {
+                            if (gs[f] !== undefined) user.gameState[f] = gs[f];
+                        });
+                        user.markModified('gameState');
+                        user.lastSaveTime = new Date();
+                        await user.save();
+                        console.log(`[SOCKET-SAVE] Disconnect save OK for user ${socket.user.id}`);
+                    }
+                } catch(err) {
+                    console.error('[SOCKET-SAVE] Disconnect save error:', err.message);
+                }
+            }
         }
     });
 });
@@ -419,9 +451,9 @@ const ActionLogSchema = new mongoose.Schema({
     details: { type: Object }
 });
 
-// --- ОПТИМИЗАЦИЯ 4: TTL INDEX для ActionLog ---
+// --- RENDER OPT 4: TTL INDEX ДЛЯ ActionLog ---
 // MongoDB автоматически удаляет записи старше 30 дней.
-// Без этого лог растёт бесконечно и замедляет запросы на Atlas Free Tier.
+// Без этого лог растёт бесконечно — Atlas Free Tier замедляется и выходит за лимит хранилища.
 ActionLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 const ActionLog = mongoose.model('ActionLog', ActionLogSchema);
 
@@ -630,10 +662,29 @@ app.use('/api/market', marketLimiter);
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/exodus_prime', {
     maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000
+    serverSelectionTimeoutMS: 10000, // увеличено: Atlas иногда медленно отвечает при холодном старте
+    connectTimeoutMS: 15000,          // таймаут установки TCP-соединения
+    socketTimeoutMS: 45000,           // таймаут чтения/записи на сокет (0 = бесконечно — плохо для Render)
+    family: 4,                        // RENDER OPT 6: IPv4 only — Render/Atlas иногда ломается на IPv6
+    retryWrites: true                 // авто-повтор упавших writes (рекомендовано Atlas)
 })
-    .then(() => console.log('MongoDB Connected'))
+    .then(() => {
+        console.log('MongoDB Connected');
+    })
     .catch(err => console.error('MongoDB Error:', err));
+
+// --- RENDER OPT 6b: MONGODB RECONNECT / ERROR LOGGING ---
+// Render может перезапускать контейнеры — mongoose авто-переподключается,
+// но без логирования разрывы невидимы в панели Render Dashboard → Logs.
+mongoose.connection.on('disconnected', () => {
+    console.warn('[MONGO] Disconnected. Mongoose will auto-reconnect...');
+});
+mongoose.connection.on('reconnected', () => {
+    console.log('[MONGO] Reconnected successfully.');
+});
+mongoose.connection.on('error', (err) => {
+    console.error('[MONGO] Connection error:', err.message);
+});
 
 // --- AUTH MIDDLEWARE ---
 const auth = (req, res, next) => {
@@ -2139,47 +2190,39 @@ app.post('/api/market/buy', auth, async (req, res) => {
     }
 });
 
-// --- ОПТИМИЗАЦИЯ 6: ОБРАБОТЧИКИ ОШИБОК ПРОЦЕССА ---
-// Render отправляет SIGTERM перед перезапуском/обновлением.
-// Graceful shutdown: прекращаем принимать новые соединения,
-// ждём завершения текущих запросов, закрываем MongoDB.
-process.on('SIGTERM', async () => {
-    console.log('[SHUTDOWN] SIGTERM received. Graceful shutdown...');
+// --- RENDER OPT 7: GRACEFUL SHUTDOWN (SIGTERM) ---
+// Render отправляет SIGTERM перед каждым деплоем/рестартом.
+// Без обработчика Node.js падает немедленно, обрывая активные запросы и сохранения.
+// Graceful shutdown: прекращаем принимать новые соединения, ждём завершения текущих,
+// закрываем MongoDB — чтобы не потерять данные игрока при деплое.
+process.on('SIGTERM', () => {
+    console.log('[SHUTDOWN] SIGTERM received. Starting graceful shutdown...');
     server.close(async () => {
+        console.log('[SHUTDOWN] HTTP server closed. Closing MongoDB...');
         try {
             await mongoose.connection.close();
-            console.log('[SHUTDOWN] MongoDB connection closed.');
-        } catch(e) {
-            console.error('[SHUTDOWN] Error closing MongoDB:', e.message);
+            console.log('[SHUTDOWN] MongoDB closed. Exiting cleanly.');
+        } catch (e) {
+            console.error('[SHUTDOWN] MongoDB close error:', e.message);
         }
         process.exit(0);
     });
-    // Force exit after 10s if graceful shutdown takes too long
+    // Форс-выход через 12s если graceful не завершился (Render ждёт ~15s)
     setTimeout(() => {
-        console.error('[SHUTDOWN] Forced exit after timeout.');
+        console.error('[SHUTDOWN] Force exit after 12s timeout.');
         process.exit(1);
-    }, 10000);
+    }, 12000);
 });
 
-// Логируем необработанные исключения — Render их показывает в логах деплоя
+// --- RENDER OPT 8: ОБРАБОТЧИКИ НЕОБРАБОТАННЫХ ОШИБОК ---
+// Без этих обработчиков Node.js падает молча — в логах Render нет полезной информации.
+// С ними исключения видны в Dashboard → Logs и легко дебажатся.
 process.on('uncaughtException', (err) => {
-    console.error('[UNCAUGHT EXCEPTION]', err.stack || err);
-    // НЕ падаем сразу — даём шанс завершить текущие запросы
+    console.error('[UNCAUGHT EXCEPTION]', err.stack || err.message);
+    // Не завершаем процесс немедленно — текущие запросы могут ещё завершиться
 });
-
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('[UNHANDLED REJECTION] at:', promise, 'reason:', reason);
-});
-
-// --- ОПТИМИЗАЦИЯ 7: ПЕРЕПОДКЛЮЧЕНИЕ К MONGODB ---
-mongoose.connection.on('disconnected', () => {
-    console.warn('[MONGO] Disconnected. Attempting reconnect...');
-});
-mongoose.connection.on('reconnected', () => {
-    console.log('[MONGO] Reconnected successfully.');
-});
-mongoose.connection.on('error', (err) => {
-    console.error('[MONGO] Connection error:', err.message);
+    console.error('[UNHANDLED REJECTION] Promise:', promise, '| Reason:', reason);
 });
 
 server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
