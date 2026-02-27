@@ -318,6 +318,15 @@ padding: 8px; margin-bottom: 6px; font-size: 10px; transition: 0.2s;
 }
 .mkt-offer-card:hover { border-color: var(--warning); background: rgba(255, 215, 0, 0.05); }
 .mkt-input-group { display: flex; gap: 5px; margin-bottom: 10px; }
+/* --- SERVER WAKING INDICATOR --- */
+#server-status {
+display: none;
+position: fixed; top: 36px; left: 50%; transform: translateX(-50%);
+background: rgba(255, 153, 0, 0.15); border: 1px solid var(--stamina);
+color: var(--stamina); font-size: 10px; font-family: 'Consolas', monospace;
+padding: 4px 16px; letter-spacing: 1px; z-index: 9000; pointer-events: none;
+animation: pulse 1s infinite; white-space: nowrap;
+}
 .mkt-input {
 flex: 1; background: rgba(0,0,0,0.3); border: 1px solid #334;
 color: #fff; padding: 5px; font-family: monospace;
@@ -347,6 +356,8 @@ color: #fff; padding: 5px; font-family: monospace;
 </div>
 
 <canvas id="map"></canvas>
+
+<div id="server-status">⟳ SERVER WAKING...</div>
 
 <div class="ui-layer">
 <div id="top-bar" class="interactive">
@@ -862,7 +873,13 @@ return Date.now() + SERVER_TIME_OFFSET;
 async function syncWithServerTime() {
 try {
 const t0 = Date.now();
-const res = await fetch(`${API_URL}/time`); // эндпоинт возвращает { serverTime: 1234567890 }
+// ПРИОРИТЕТ 1: таймаут 5с предотвращает зависание UI при пробуждении сервера на Render.com.
+// AbortController отменяет fetch если сервер не ответил за 5 секунд — функция падает в catch,
+// игра стартует с локальным временем вместо бесконечного ожидания.
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 5000);
+const res = await fetch(`${API_URL}/time`, { signal: controller.signal }); // эндпоинт возвращает { serverTime: 1234567890 }
+clearTimeout(timeoutId);
 const t1 = Date.now();
 const { serverTime } = await res.json();
 const latency = (t1 - t0) / 2; // половина ping = задержка в одну сторону
@@ -915,6 +932,19 @@ if(ind) { ind.style.color = 'var(--success)'; ind.innerText = '● LIVE'; }
 socket.on('reconnect', () => {
 console.log("SYS: Real-time link restored after disconnect.");
 socket.emit('heartbeat');
+// ПРИОРИТЕТ 3: системное сообщение при реконнекте — объясняет пользователю
+// почему история чата могла очиститься после перезапуска сервера.
+['general', 'trade'].forEach(ch => {
+const container = document.getElementById(`chat-messages-${ch}`);
+if (!container) return;
+const div = document.createElement('div');
+div.className = 'chat-msg';
+div.style.color = '#556';
+div.style.fontStyle = 'italic';
+div.innerHTML = `<span style="color:#445;">[SYS]</span> <span style="color:#667;">Connection restored. Chat history cleared after server restart.</span>`;
+container.appendChild(div);
+container.scrollTop = container.scrollHeight;
+});
 });
 
 socket.on('disconnect', () => {
@@ -1054,12 +1084,13 @@ async function login() {
 const u = document.getElementById('l-user').value;
 const p = document.getElementById('l-pass').value;
 if(!u || !p) return showAuthError("CREDENTIALS REQUIRED");
-
+scheduleServerStatus('⟳ SERVER WAKING...', 2000);
 try {
 const res = await fetch(`${API_URL}/auth/login`, {
 method: 'POST', headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify({ username: u, password: p })
 });
+hideServerStatus();
 const data = await res.json();
 if(!res.ok) throw new Error(data.msg || "LOGIN FAILED");
 
@@ -1100,6 +1131,7 @@ await syncWithServerTime();
 restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
+hideServerStatus();
 showAuthError(e.message);
 }
 }
@@ -1108,12 +1140,13 @@ async function register() {
 const u = document.getElementById('r-user').value;
 const p = document.getElementById('r-pass').value;
 if(!u || !p) return showAuthError("DATA REQUIRED");
-
+scheduleServerStatus('⟳ SERVER WAKING...', 2000);
 try {
 const res = await fetch(`${API_URL}/auth/register`, {
 method: 'POST', headers: { 'Content-Type': 'application/json' },
 body: JSON.stringify({ username: u, password: p })
 });
+hideServerStatus();
 const data = await res.json();
 if(!res.ok) throw new Error(data.msg || "REGISTER FAILED");
 
@@ -1137,6 +1170,7 @@ await syncWithServerTime();
 restoreUIAfterLoad();
 startGameLoop();
 } catch(e) {
+hideServerStatus();
 showAuthError(e.message);
 }
 }
@@ -1154,11 +1188,34 @@ localStorage.removeItem('exodus_token');
 location.reload();
 }
 
+// --- SERVER STATUS INDICATOR (ПРИОРИТЕТ 2) ---
+// Показывает "SERVER WAKING..." когда save/load висит (сервер Render.com засыпает).
+// Таймер: если запрос не завершился за 2с — показываем индикатор, чтобы игрок понял причину.
+let _serverStatusTimer = null;
+function showServerStatus(msg) {
+const el = document.getElementById('server-status');
+if (!el) return;
+el.innerText = msg || '⟳ SERVER WAKING...';
+el.style.display = 'block';
+}
+function hideServerStatus() {
+clearTimeout(_serverStatusTimer);
+_serverStatusTimer = null;
+const el = document.getElementById('server-status');
+if (el) el.style.display = 'none';
+}
+function scheduleServerStatus(msg, delayMs) {
+clearTimeout(_serverStatusTimer);
+_serverStatusTimer = setTimeout(() => showServerStatus(msg), delayMs || 2000);
+}
+
 // --- SERVER MANAGER (REPLACES LOCALSTORAGE) ---
 const ServerSys = {
 save: async function() {
 if(!AUTH_TOKEN) return;
 try {
+// ПРИОРИТЕТ 2: если сервер не ответил за 2с — показываем "SERVER WAKING..."
+scheduleServerStatus('⟳ SERVER WAKING...', 2000);
 // keepalive: true — гарантирует, что запрос дойдёт до сервера
 // даже если страница выгружается (beforeunload / обновление).
 const res = await fetch(`${API_URL}/game/save`, {
@@ -1181,6 +1238,7 @@ body: JSON.stringify({ gameState: STATE, clientTime: now() })
 // ПОПЫТКИ (а не последнего успеха), и restoreOfflineProgress получал dt≈0 → батареи
 // не получали оффлайн-заряд при разворачивании браузера.
 if (res.ok) {
+hideServerStatus();
 STATE.lastSaveTime = now();
 const data = await res.json();
 if (data.batteries && Array.isArray(data.batteries) && data.batteries.length > 0) {
@@ -1205,7 +1263,7 @@ if (typeof data.consumptionRate === 'number') {
 STATE.power.consumptionRate = data.consumptionRate;
 }
 }
-} catch(e) { console.error("Save Failed", e); }
+} catch(e) { hideServerStatus(); console.error("Save Failed", e); }
 },
 load: async function() {
 // Now handled in Login
