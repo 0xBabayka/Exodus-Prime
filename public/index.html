@@ -1159,7 +1159,6 @@ const ServerSys = {
 save: async function() {
 if(!AUTH_TOKEN) return;
 try {
-STATE.lastSaveTime = now();
 // keepalive: true — гарантирует, что запрос дойдёт до сервера
 // даже если страница выгружается (beforeunload / обновление).
 const res = await fetch(`${API_URL}/game/save`, {
@@ -1175,7 +1174,14 @@ body: JSON.stringify({ gameState: STATE, clientTime: now() })
 // Сервер авторитетно пересчитывает заряд на каждом сохранении.
 // Обновляем клиентское состояние чтобы устранить расхождение,
 // которое вызывало видимый «сброс» заряда батарей при обновлении страницы.
+// ИСПРАВЛЕНИЕ: STATE.lastSaveTime обновляется ТОЛЬКО при подтверждённом ответе сервера.
+// Ранее оно выставлялось ДО fetch — при сбое сохранения (сервер на Render.com спит,
+// сеть нестабильна) таймштамп всё равно сдвигался вперёд, хотя данные до БД не дошли.
+// В итоге _offlineLastSaveTime в обработчике visibilitychange указывал на время последней
+// ПОПЫТКИ (а не последнего успеха), и restoreOfflineProgress получал dt≈0 → батареи
+// не получали оффлайн-заряд при разворачивании браузера.
 if (res.ok) {
+STATE.lastSaveTime = now();
 const data = await res.json();
 if (data.batteries && Array.isArray(data.batteries) && data.batteries.length > 0) {
 STATE.power.batteries = data.batteries;
