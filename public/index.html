@@ -127,6 +127,17 @@ text-transform: uppercase; font-family: inherit; font-weight: bold; letter-spaci
 }
 .chat-tab-btn.active { color: var(--neon); border-bottom-color: var(--neon); }
 .chat-tab-btn.trade.active { color: var(--warning); border-bottom-color: var(--warning); }
+/* --- UNREAD MESSAGE BLINK --- */
+@keyframes chat-tab-blink-general {
+0%, 100% { color: #556; border-bottom-color: transparent; text-shadow: none; }
+50% { color: var(--neon); border-bottom-color: var(--neon); text-shadow: 0 0 6px var(--neon); }
+}
+@keyframes chat-tab-blink-trade {
+0%, 100% { color: #556; border-bottom-color: transparent; text-shadow: none; }
+50% { color: var(--warning); border-bottom-color: var(--warning); text-shadow: 0 0 6px var(--warning); }
+}
+.chat-tab-btn.unread { animation: chat-tab-blink-general 0.8s step-start infinite; }
+.chat-tab-btn.trade.unread { animation: chat-tab-blink-trade 0.8s step-start infinite; }
 .chat-messages {
 flex: 1; overflow-y: auto; font-size: 9px; line-height: 1.5; color: #8daab9;
 padding: 2px 0; word-break: break-word;
@@ -3896,6 +3907,9 @@ const btn = document.getElementById(`comms-tab-${t}`);
 if (view) view.style.display = (t === tab) ? 'flex' : 'none';
 if (btn) btn.classList.toggle('active', t === tab);
 });
+// Снимаем мигание с открытой вкладки — пользователь видит сообщения
+const activeBtn = document.getElementById(`comms-tab-${tab}`);
+if (activeBtn) activeBtn.classList.remove('unread');
 }
 
 function appendChatMessage(channel, msg) {
@@ -3913,6 +3927,11 @@ container.appendChild(div);
 container.scrollTop = container.scrollHeight;
 // Trim old messages in DOM (keep last 100)
 while (container.children.length > 100) container.removeChild(container.firstChild);
+// Мигание вкладки: только если сообщение пришло в канал, который сейчас не открыт
+if (channel !== _commsActiveTab) {
+const tabBtn = document.getElementById(`comms-tab-${channel}`);
+if (tabBtn) tabBtn.classList.add('unread');
+}
 }
 
 function sendChatMsg(channel) {
